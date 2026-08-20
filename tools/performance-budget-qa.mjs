@@ -41,6 +41,17 @@
 //             loop forever. That is the defect class this scenario exists to
 //             find, so it must be measured on a window that is genuinely shown.
 //
+//             AND "SHOWN" IS NOT THE SAME AS "DRAWING", which is the trap this
+//             file fell into. Measured 2026-08-18: this harness spawns with
+//             windowsHide:true, and a window created that way reports
+//             IsWindowVisible=False; even spawned with windowsHide:false and
+//             genuinely shown, a second copy of the product lands at the SAME
+//             default bounds and covers it. Either way the page reports
+//             document.visibilityState === 'hidden' and rAF stops. So the API
+//             is not lying to you -- ask the PAGE what it thinks it is, never
+//             the window handle, and treat an idle number taken on a page that
+//             reports hidden as softer than this scenario claims.
+//
 //   memory    Repeated laps of the ring, reading the JS heap, the DOM node
 //             count and the live listener count after each lap. A product left
 //             open all day on a weak PC must not creep; a per-lap slope is what
@@ -66,13 +77,19 @@
 //   --json <file>     write the full measurement record for a before/after diff
 
 import { execFile as execFileCallback, spawn } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { assertRendererMeasurable, assertStagedRendererConsistent } from './lib/staged-renderer.mjs'
+import { createSteadinessTracker, unmeasurableLine } from './machine-steadiness.mjs'
+/* WHAT is being retained, on demand. The budget answers 'how much', which is
+   the right thing for a gate to assert and the wrong thing to hand somebody
+   who has to fix it. --census installs the retention probe's own instrument
+   in the memory scenario and prints its answer beside each lap. */
+import { PROBE as RETENTION_PROBE } from './dom-retention-probe.mjs'
 
 const execFile = promisify(execFileCallback)
 const SELF = fileURLToPath(import.meta.url)
@@ -102,6 +119,38 @@ const SEED_TIER = argument('--seed-tier', 'standard')
 /* Print the sampled call frames behind a measurement. Off by default: the
    numbers are the verdict, the frames are the investigation. */
 const PROFILE = flag('--profile')
+const CENSUS = flag('--census')
+/* HOW MANY TIMES TO ASK FOR A COLLECTION BEFORE READING THE COUNT.
+   One is what this file has always asked for. Whether one is ENOUGH for a
+   detached DOM tree is a question about Blink, not about the product, and it
+   is the difference between 'retained' and 'not collected yet' -- so it is a
+   knob that can be turned in an experiment rather than an assumption baked in.
+   tools/retention-instrument-check.mjs is the fixture that says what each
+   setting can be trusted to report. */
+const COLLECT_PASSES = Number(argument('--collect-passes', 1))
+/* WHO HOLDS THE DEAD VIEWS. The census (--census) names WHAT is retained per
+   lap; it cannot name the object that keeps it reachable. --snapshot <dir>
+   writes a full V8 heap snapshot (with retainer edges) into <dir> after each
+   memory lap, taken through the same session the gate measures with, AFTER the
+   gate's own forced collection -- so anything in the snapshot is retained by
+   the product, not awaiting a sweep. Investigation only, never part of the
+   verdict: tools/heap-snapshot-retainers.mjs is the reader that walks a
+   detached view back to the GC root and names the holder. */
+const SNAPSHOT_DIR = argument('--snapshot', null)
+/* THE MODE-B DIAL. The memory scenario on this tree was BIMODAL on identical
+   bytes: ~-400 nodes/lap on a quiet machine, the same +15,5xx to the digit on
+   a loaded one. The heap snapshots settled what the second mode is: the
+   window had been covered, Chromium stopped giving the page rendering frames,
+   and every retirement step that only completes on a rendering lifecycle
+   update (the exit transition's cancellation, the removed wrapper's layout
+   teardown) was deferred forever -- the DocumentTimeline then holds a
+   CSSTransition per retired wrapper and the wrapper holds the whole dead
+   view. --occluded turns that machine state into a switch: the window is
+   minimised after it settles, which is exactly what a taskbar or another
+   window does to a real person's copy all day long. A leak that only needs a
+   covered window is still a leak; this flag is what makes it a reproducible
+   one instead of weather. */
+const OCCLUDED = flag('--occluded')
 const SCENARIOS = argument('--scenario')
   ? argument('--scenario').split(',')
   /* `scale` and `weakpc` are investigations rather than gates -- they answer
@@ -138,6 +187,21 @@ const BUDGETS = Object.freeze({
   // DOM nodes left behind per lap. A view that tears down cleanly returns to
   // roughly the count it started at.
   nodeGrowthPerLap: 400,
+  // LISTENERS left behind per lap, and it is here because the number was already
+  // being computed and thrown away -- measured, reported in the line above the
+  // verdict, and asserted against nothing, which is the same defect class as a
+  // settings row nothing reads.
+  //
+  // WHAT IT CAN AND CANNOT SEE, stated so nobody reads more into a green than is
+  // there. Measured on this machine across two builds, the lap-to-lap figure at
+  // this measurement point ranges over about ten either side of zero, because a
+  // lap ends immediately after the move that collects the previous page. So this
+  // catches a view that leaks a handful of listeners per visit within a few laps
+  // and CANNOT see a creep of a few per lap; tools/dom-retention-probe.mjs is
+  // the instrument for that, and it is what found the corona this budget could
+  // not (its census is exact because it asks weak references rather than
+  // subtracting two totals).
+  listenerGrowthPerLap: 20,
 })
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -146,7 +210,26 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 class HarnessError extends Error {}
 
 const say = (line) => process.stdout.write(`${line}\n`)
-const note = (line) => process.stdout.write(`  ..    ${line}\n`)
+
+/* WHETHER THIS COMPUTER CAN BE TIMED AT ALL, sampled through the whole run.
+ *
+ * Every budget below is a fixed number of milliseconds. On 2026-08-16 identical
+ * fixed CPU work on this machine ran anywhere from 356ms to 5408ms, and the
+ * product's own account create took 3.3s one day and 13.7s the next on
+ * byte-identical builds. Against that, a fixed budget measures the machine, not
+ * the product -- and a red that means "your computer was busy" teaches everyone
+ * to ignore reds.
+ *
+ * The sample rides `note` deliberately. Steadiness cannot be established by one
+ * reading before the run: the slowdown is a state change that sustained work
+ * BRINGS ON, so a pre-flight probe reads a cool machine and then the scenarios
+ * do the heating. `note` is called once per measurement line, which spreads the
+ * samples across the entire run for about 20ms each. */
+const steadiness = createSteadinessTracker()
+const note = (line) => {
+  steadiness.sample()
+  process.stdout.write(`  ..    ${line}\n`)
+}
 
 /* ---------- stage a real packaged copy, with the CURRENT tree inside it ----------
  * Borrows the built binary and swaps in the working tree's dist/ and shell/, so
@@ -252,6 +335,12 @@ function createSession(child, userDataDir) {
   let socket = null
   let nextId = 1
   const pending = new Map()
+  /* Replies carry an id; EVENTS do not, and until --snapshot existed every
+     event was dropped on the floor. HeapProfiler.takeHeapSnapshot delivers its
+     entire payload as addHeapSnapshotChunk events before the reply, so a
+     session that ignores events can ask for a snapshot and receive an empty
+     acknowledgement of it. One handler per method is all the file needs. */
+  const eventHandlers = new Map()
   return {
     async open(budgetMs) {
       const started = Date.now()
@@ -272,7 +361,11 @@ function createSession(child, userDataDir) {
             })
             socket.addEventListener('message', (event) => {
               const packet = JSON.parse(event.data)
-              if (packet.id === undefined) return
+              if (packet.id === undefined) {
+                const handler = eventHandlers.get(packet.method)
+                if (handler) handler(packet.params)
+                return
+              }
               const handler = pending.get(packet.id)
               if (handler) { pending.delete(packet.id); handler(packet) }
             })
@@ -293,6 +386,8 @@ function createSession(child, userDataDir) {
       socket.send(JSON.stringify({ id, method, params }))
       return new Promise((resolve) => pending.set(id, resolve))
     },
+    on(method, handler) { eventHandlers.set(method, handler) },
+    off(method) { eventHandlers.delete(method) },
     close() { try { socket?.close() } catch { /* already gone */ } },
   }
 }
@@ -741,6 +836,47 @@ async function measureIdle(executable, scratch, routes) {
         route = (await evaluate(app.session, ROUTE_NOW)).route
       }
       if (route !== target) throw new HarnessError(`could not reach route ${target} by clicking; stopped at ${route}`)
+
+      /* THE PAGE HAS TO SAY IT CAN DRAW, OR THIS SCENARIO HAS NO VERDICT.
+       *
+       * This file's header has always argued that idle is only meaningful on a
+       * genuinely shown window, because Chromium throttles or stops
+       * requestAnimationFrame in one that is hidden -- a page burning a frame
+       * loop for ever, the exact defect this scenario exists to find, reports a
+       * clean 0%. What the header did NOT say is that the harness never checked
+       * whether it GOT such a window -- and measured 2026-08-18, it varies from
+       * one spawn to the next on the same machine and the same command: in a
+       * single run of this scenario the home window reported 'visible' and a
+       * later route's window reported 'hidden'. The variable is occlusion, not
+       * a flag: sibling copies of this product open at the SAME default bounds
+       * and cover each other, and a covered page is a page without frames. So
+       * the number this scenario printed was sometimes a product fact and
+       * sometimes a machine fact, with nothing on the page to tell them apart.
+       *
+       * THAT IS ALSO WHAT MADE THE RETENTION GATE LOOK BIMODAL for days: the
+       * runs that reported +15,500 nodes per lap were the ones whose window was
+       * covered, and the runs that reported a flat page were the ones that were
+       * not. Same bytes, different window.
+       *
+       * ASKING THE PAGE IS THE ONLY HONEST TEST. A window handle can be visible
+       * while the page behind it is not being drawn; document.visibilityState is
+       * the renderer's own account of whether frames are coming.
+       *
+       * AND THE COST OF GETTING THIS WRONG JUST WENT UP. The product now
+       * suppresses its own motion while it cannot draw (body.frameless, see
+       * src/page-frames.js), which is a real fix and makes a hidden window do
+       * genuinely LESS work. So an idle number taken on a hidden window would
+       * IMPROVE because the measurement got more wrong -- a metric that rewards
+       * the measurement being broken is worse than no metric, which is why this
+       * refuses instead of reporting. */
+      const drawable = await evaluate(app.session, 'document.visibilityState')
+      if (drawable !== 'visible') {
+        throw new HarnessError(
+          `the idle scenario cannot measure this window: the page reports visibilityState="${drawable}", `
+          + 'so Chromium is not giving it frames and an idle cost read here would describe the MACHINE, not the product. '
+          + 'Close other copies of the app (a sibling at the same default bounds covers this one) and run it again.')
+      }
+
       // Let anything the arrival kicked off finish before the window opens.
       await delay(2_000)
 
@@ -1143,7 +1279,30 @@ async function measureWeakPc(executable, scratch, rates) {
 async function measureMemory(executable, scratch) {
   const app = await openApp(executable, scratch, 'memory', { seedTier: SEED_TIER })
   try {
+    if (CENSUS) {
+      await app.session.send('Page.enable', {})
+      await app.session.send('Page.addScriptToEvaluateOnNewDocument', { source: RETENTION_PROBE })
+      /* The probe is only true of a document it watched from the first line,
+         so the page is reloaded once and every lap below is that document. */
+      await evaluate(app.session, 'location.reload()')
+      await delay(4000)
+    }
     await firstViewThenSettle(app.session, 260, 30_000)
+    if (OCCLUDED) {
+      /* Minimised AFTER the first view settles, so what is being measured is a
+         working page that loses its rendering frames -- the state the heap
+         snapshots caught -- not a page that booted blind. */
+      let state = ''
+      let asked = ''
+      for (let attempt = 0; attempt < 40 && state !== 'hidden'; attempt += 1) {
+        asked = await minimizeAppWindow(app.child)
+        if (asked.startsWith('failed')) throw new HarnessError(`--occluded: the window could not be minimised (${asked})`)
+        await delay(250)
+        state = await evaluate(app.session, 'document.visibilityState')
+      }
+      if (state !== 'hidden') throw new HarnessError(`--occluded: the page never reported visibilityState=hidden (last minimise pass: ${asked}), so the occluded state cannot be claimed`)
+      note(`    the window is occluded (${asked}); the page reports visibilityState=hidden`)
+    }
     const laps = []
     for (let lap = 0; lap < LAPS; lap += 1) {
       const seen = new Set()
@@ -1156,8 +1315,10 @@ async function measureMemory(executable, scratch) {
         seen.add(route)
       }
       // Ask for a collection so what is reported is retained, not merely
-      // uncollected. Without this a "leak" is often only a lazy collector.
-      await session_collect(app.session)
+      // uncollected. Without this a "leak" is often only a lazy collector --
+      // which is exactly why the outcome is now kept rather than discarded.
+      const collected = await session_collect(app.session)
+      const alive = await foreignInstancesAlive()
       const metrics = await counters(app.session)
       const record = {
         lap: lap + 1,
@@ -1166,16 +1327,56 @@ async function measureMemory(executable, scratch) {
         nodes: metrics.Nodes ?? 0,
         listeners: metrics.JSEventListeners ?? 0,
         documents: metrics.Documents ?? 0,
+        collected,
+        alive,
       }
       laps.push(record)
+      if (SNAPSHOT_DIR) {
+        const file = path.join(path.resolve(SNAPSHOT_DIR), `memory-lap${record.lap}.heapsnapshot`)
+        const bytes = await writeHeapSnapshot(app.session, file)
+        note(`    heap snapshot (${Math.round(bytes / 1024 / 1024)}MB) -> ${file}`)
+      }
+      if (CENSUS) {
+        const census = await evaluate(app.session, '(window.__retention ? window.__retention.census() : null)')
+        /* WHICH CORONA THIS WINDOW GOT. The ring mounts a WebGL corona when
+           WebGL2 is available and a CPU fallback when it is not, and the two
+           paths have different teardown. A window that could not obtain a
+           context is a different product to measure, so the mode is read
+           rather than assumed. */
+        const ring = await evaluate(app.session, `(() => {
+          const node = document.querySelector('.uring')
+          return {
+            present: Boolean(node),
+            mode: node ? (node.crescentMode || null) : null,
+            canvases: document.querySelectorAll('canvas').length,
+          }
+        })()`)
+        note(`    ring: ${JSON.stringify(ring)}`)
+        if (!census) note('    the census did not install, so nothing below names a retainer')
+        else {
+          note(`    ${census.listeners.onDetachedNodes} listener(s) still registered on nodes that left the document; `
+            + `${census.detachedNodesHeldByListeners} node(s) in ${census.detachedTrees.length} retained tree(s)`)
+          for (const tree of census.detachedTrees.slice(0, 6)) note(`      ${String(tree.nodes).padStart(6)} nodes  <${tree.tag}>  ${tree.what || ''}`)
+          for (const site of census.listenerSites.slice(0, 8)) note(`      ${String(site.count).padStart(5)}x  ${site.site}`)
+          for (const observer of census.observers.slice(0, 6)) note(`      ${observer.kind} watching ${observer.watching} (${observer.detached} detached)  ${observer.site}`)
+          for (const site of (census.liveListenerSites || []).slice(0, 8)) note(`      ${String(site.count).padStart(5)}x  still-attached listener  ${site.site}`)
+          note(`      ${census.pendingFrames} animation frame callback(s) queued and not yet run`)
+          for (const frame of (census.pendingFrameSites || []).slice(0, 8)) note(`      ${String(frame.count).padStart(5)}x  pending frame  ${frame.site}`)
+        }
+      }
       note(`lap ${record.lap}: ${record.stops} stops, heap ${record.heapMb}MB, ` +
-        `${record.nodes} nodes, ${record.listeners} listeners`)
+        `${record.nodes} nodes, ${record.listeners} listeners, collection ${record.collected}, ${record.alive} app process group(s) alive`)
     }
     const first = laps[0]
     const last = laps.at(-1)
     const spans = Math.max(1, laps.length - 1)
     return {
       laps,
+      /* Every lap has to have been collected for the growth figures to mean
+         'retained'. One that was not makes them mean 'not yet collected',
+         which is a different sentence and not a defect. */
+      collected: laps.every((entry) => entry.collected === 'collected'),
+      collectionOutcomes: [...new Set(laps.map((entry) => entry.collected))],
       heapGrowthPerLapMb: Math.round(((last.heapMb - first.heapMb) / spans) * 100) / 100,
       nodeGrowthPerLap: Math.round((last.nodes - first.nodes) / spans),
       listenerGrowthPerLap: Math.round((last.listeners - first.listeners) / spans),
@@ -1185,9 +1386,146 @@ async function measureMemory(executable, scratch) {
   }
 }
 
-async function session_collect(session) {
-  try { await session.send('HeapProfiler.collectGarbage') } catch { /* best effort */ }
-  await delay(400)
+/* Minimise the app's window the way the OS would -- user32's own verb, not a
+   CDP emulation, because the state under investigation IS the real occluded
+   window. The handle comes from enumerating the process's own top-level
+   windows: Get-Process.MainWindowHandle is 0 for a window that was never
+   shown, and "never shown" is one of the two ways this product's window ends
+   up frameless in the wild (spawned with a hidden STARTUPINFO, or covered by
+   another window at the same default bounds -- both measured on this machine,
+   2026-08-18). Returns what happened rather than asserting: the caller owns
+   the verdict, and it verifies through the page's own visibilityState. */
+async function minimizeAppWindow(child) {
+  const script = `
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+public static class Occl {
+  public delegate bool EnumCb(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumCb cb, IntPtr l);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr h, int n);
+  [DllImport("user32.dll", CharSet = CharSet.Auto)] public static extern int GetWindowText(IntPtr h, System.Text.StringBuilder t, int c);
+  public static int MinimizeAll(uint pid) {
+    var asked = 0;
+    EnumWindows(delegate (IntPtr h, IntPtr l) {
+      uint winPid;
+      GetWindowThreadProcessId(h, out winPid);
+      if (winPid == pid) {
+        var t = new System.Text.StringBuilder(64);
+        GetWindowText(h, t, 64);
+        if (t.Length > 0) { ShowWindowAsync(h, 6); asked += 1; }
+      }
+      return true;
+    }, IntPtr.Zero);
+    return asked;
+  }
+}
+'@
+[Console]::Out.Write("asked=" + [Occl]::MinimizeAll(${child.pid}))`
+  try {
+    const { stdout } = await execFile('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 30_000 })
+    return String(stdout).trim()
+  } catch (error) {
+    return `failed: ${error?.message || error}`
+  }
+}
+
+/* A FULL HEAP SNAPSHOT, STREAMED TO DISK AS IT ARRIVES.
+ *
+ * The chunks are written to a stream rather than joined, because a renderer
+ * heap of tens of MB serialises to hundreds of MB of JSON and a single joined
+ * string of that size is over V8's own string ceiling -- the instrument would
+ * die of the very thing it measures. The protocol delivers every chunk before
+ * the takeHeapSnapshot reply, but that ordering is Chromium's habit rather
+ * than its contract, so after the reply the writer waits for the chunk stream
+ * to go quiet before closing the file.
+ *
+ * takeHeapSnapshot forces a full collection of its own, on top of the lap's
+ * session_collect -- so a detached view present in this file is RETAINED,
+ * with its retainer edges recorded, which is the one thing the census cannot
+ * see. */
+async function writeHeapSnapshot(session, file) {
+  mkdirSync(path.dirname(file), { recursive: true })
+  const stream = createWriteStream(file)
+  let lastChunkAt = Date.now()
+  session.on('HeapProfiler.addHeapSnapshotChunk', (params) => {
+    lastChunkAt = Date.now()
+    stream.write(params.chunk)
+  })
+  try {
+    await session.send('HeapProfiler.enable')
+    const reply = await session.send('HeapProfiler.takeHeapSnapshot', { reportProgress: false })
+    if (reply && reply.error) {
+      throw new HarnessError(`the renderer refused a heap snapshot: ${reply.error.message || JSON.stringify(reply.error)}`)
+    }
+    while (Date.now() - lastChunkAt < 600) await delay(150)
+  } finally {
+    session.off('HeapProfiler.addHeapSnapshotChunk')
+    await new Promise((resolve) => stream.end(resolve))
+  }
+  return statSync(file).size
+}
+
+/* A COLLECTION THAT DID NOT HAPPEN MUST NOT BE REPORTED AS A LEAK.
+ *
+ * This was `try { await session.send(...) } catch {}` -- and createSession's
+ * send() never rejects, it resolves with whatever packet came back, so an
+ * error reply was swallowed twice over. That matters more here than anywhere
+ * else in the file: every number the memory scenario reports is 'what is still
+ * alive AFTER a collection', and with the collection quietly skipped the same
+ * healthy build reports ordinary uncollected garbage as a monotonic leak of a
+ * whole page per lap. Measured on this tree 2026-08-18: the memory scenario
+ * run alone answered -625 nodes/lap and the same scenario run after the others
+ * answered +15,531, on the same bytes.
+ *
+ * So the reply is READ, the outcome travels with the lap, and a lap whose
+ * collection did not happen is a NO VERDICT about the probe rather than a
+ * finding about the product. */
+async function session_collect(session, passes = COLLECT_PASSES) {
+  let outcome = `collected x${passes}`
+  for (let pass = 0; pass < passes; pass += 1) {
+    try {
+      const packet = await session.send('HeapProfiler.collectGarbage')
+      if (packet && packet.error) outcome = `refused: ${packet.error.message || JSON.stringify(packet.error)}`
+    } catch (error) {
+      outcome = `threw: ${error?.message || error}`
+    }
+    await delay(400)
+  }
+  return outcome
+}
+
+/* HOW MANY COPIES OF THIS PRODUCT ARE ALIVE WHILE A NUMBER IS BEING TAKEN.
+ *
+ * REPORTED, NEVER ASSERTED, and the difference is the whole point. The memory
+ * scenario on this tree is BIMODAL on the same bytes: repeated runs answer
+ * either ~-400 nodes/lap (the page returns to below where it started) or
+ * ~+15,500 nodes/lap, and the census under --census shows the second mode
+ * retaining whole detached views -- three entire settings pages at 6,356 nodes
+ * each. Which mode a run lands in is NOT yet explained.
+ *
+ * "Another copy was running" was the first candidate and it is DISPROVED: a run
+ * with six app process groups alive throughout its laps answered 2228 / 2118 /
+ * 966. It is printed anyway because it is one of the few facts about the
+ * machine that can be taken at the moment of measurement, and the next person
+ * to look at this needs the conditions each number was taken under -- not a
+ * refusal keyed on a correlate that does not hold. */
+async function foreignInstancesAlive() {
+  try {
+    const { stdout } = await execFile('powershell.exe', [
+      '-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
+      '(Get-Process -Name ToolsEnabled -ErrorAction SilentlyContinue | Measure-Object).Count',
+    ], { windowsHide: true, timeout: 20_000 })
+    const count = Number(String(stdout).trim())
+    return Number.isFinite(count) ? count : 0
+  } catch {
+    /* A machine this cannot be asked about is measured anyway: refusing on an
+       unanswered question would make the probe unusable wherever the question
+       cannot be put, which is a worse failure than the one it guards. */
+    return 0
+  }
 }
 
 /* ---------- run ---------- */
@@ -1196,6 +1534,9 @@ async function main() {
   const record = { measuredAt: new Date().toISOString(), budgets: BUDGETS, scenarios: {} }
   let staged
   const failures = []
+  /* The subset of `failures` that counts things rather than timing things, and
+     so still means something on a computer that could not be timed. */
+  const countedFailures = []
   try {
     say('== staging the packaged product with the current tree inside it ==')
     staged = await stageApp(scratch)
@@ -1285,15 +1626,26 @@ async function main() {
       say(`   heap ${record.scenarios.memory.heapGrowthPerLapMb}MB/lap, ` +
         `${record.scenarios.memory.nodeGrowthPerLap} nodes/lap, ` +
         `${record.scenarios.memory.listenerGrowthPerLap} listeners/lap`)
+      /* COUNTS, NOT CLOCKS. Leaked nodes, listeners and heap are the same
+         number on a busy computer as on an idle one, so these two survive an
+         unsteady machine while every millisecond budget above does not. */
       if (record.scenarios.memory.heapGrowthPerLapMb > BUDGETS.heapGrowthPerLapMb) {
-        failures.push(`the JS heap grows ${record.scenarios.memory.heapGrowthPerLapMb}MB per lap, over the ${BUDGETS.heapGrowthPerLapMb}MB budget`)
+        const line = `the JS heap grows ${record.scenarios.memory.heapGrowthPerLapMb}MB per lap, over the ${BUDGETS.heapGrowthPerLapMb}MB budget`
+        failures.push(line); countedFailures.push(line)
+      }
+      if (record.scenarios.memory.listenerGrowthPerLap > BUDGETS.listenerGrowthPerLap) {
+        const line = `${record.scenarios.memory.listenerGrowthPerLap} event listeners are left behind per lap, over the ${BUDGETS.listenerGrowthPerLap} budget`
+        failures.push(line)
+        countedFailures.push(line)
       }
       if (record.scenarios.memory.nodeGrowthPerLap > BUDGETS.nodeGrowthPerLap) {
-        failures.push(`${record.scenarios.memory.nodeGrowthPerLap} DOM nodes are left behind per lap, over the ${BUDGETS.nodeGrowthPerLap} budget`)
+        const line = `${record.scenarios.memory.nodeGrowthPerLap} DOM nodes are left behind per lap, over the ${BUDGETS.nodeGrowthPerLap} budget`
+        failures.push(line); countedFailures.push(line)
       }
     }
 
     record.failures = failures
+    record.steadiness = steadiness.read()
     if (JSON_OUT) {
       writeFileSync(path.resolve(JSON_OUT), JSON.stringify(record, null, 2))
       say(`\nmeasurement record written to ${path.resolve(JSON_OUT)}`)
@@ -1305,12 +1657,34 @@ async function main() {
       process.exitCode = 0
       return
     }
+    /* A BUDGET IS A CONSTANT, AND IT CAN ONLY JUDGE A COMPUTER THAT HELD ONE.
+       When this machine changed speed while measuring, the millisecond budgets
+       above tested the weather; saying FAIL there blames the product for it,
+       which is exactly how the account failure spent three days attributed to
+       DPAPI. So they are reported as observations and the run declares itself
+       unmeasurable. The counted budgets -- leaked nodes, listeners, heap -- are
+       unaffected by how busy the machine was, so they still fail on their own. */
+    const reading = record.steadiness
+    if (reading.steady === false) {
+      say(`  ${unmeasurableLine(reading)}`)
+      for (const failure of failures) {
+        if (!countedFailures.includes(failure)) say(`  ..    over budget, but not measurable here: ${failure}`)
+      }
+      if (countedFailures.length) {
+        for (const failure of countedFailures) say(`  FAIL  ${failure}`)
+        process.exitCode = 1
+        return
+      }
+      process.exitCode = 0
+      return
+    }
+
     if (failures.length) {
       for (const failure of failures) say(`  FAIL  ${failure}`)
       process.exitCode = 1
       return
     }
-    say('  PASS  every measured budget held.')
+    say(`  PASS  every measured budget held. (fixed work stayed within ${reading.ratio}x over ${reading.count} samples)`)
     process.exitCode = 0
   } catch (error) {
     if (error instanceof HarnessError) {

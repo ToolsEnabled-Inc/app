@@ -149,6 +149,17 @@ body[data-route="agent"] #stage > .view > .data-live-mode {
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
+  /* AND IT HAS TO LOOK LIKE A SCROLLER, which is the half the reasoning above
+     did not cover. The bound is correct and the panels stay on screen because
+     of it -- but a grid of cards sliced dead flat against the container's
+     bottom edge reads as a rendering fault rather than as "there are more".
+     Twelve agents on the owner's own build showed one full row and a second row
+     cut exactly through the middle of five cards. The fade is the same recipe
+     the pane bar's tree strip already uses for the same reason, and it moves no
+     box, so every geometry harness on this page measures what it measured
+     before. */
+  mask-image: linear-gradient(180deg, #000 calc(100% - 22px), transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 22px), transparent 100%);
 }
 .ar-head-row {
   flex: none;

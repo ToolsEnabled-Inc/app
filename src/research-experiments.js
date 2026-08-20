@@ -1,21 +1,26 @@
 // Experiments: the research workbench's dispatcher and its results.
 //
-// AN EXPERIMENT RUNS AS TREE NODES. That is the owner's amendment: the
-// research page defines the spec and reads the results, and every worker it
-// launches is a first-class node on the computers page — same store, same
-// start contract, same streaming chips, same interrupt — never a hidden
-// process this page owns privately. One experiment dispatches one tree; its
-// cells are the root node and up to seven siblings under it (TREE_BOUNDS
-// caps children at eight, and honesty about the cap beats paginating trees).
+// ONE EXPERIMENT MODEL (v2). An experiment is a grid — axes × values ×
+// runsPerCell — with a runner and result columns as data. Where it RUNS is a
+// decision, not a second system: an agent-runner experiment of at most eight
+// cells runs LOCALLY as fleet-tree nodes on the computers page (the owner's
+// amendment, unchanged: same store, same start contract, same streaming
+// chips, same interrupt); anything larger, and every process or http
+// experiment, goes to the durable run queue through the research service.
 //
-// RESULTS ARE THIS MODULE'S OWN RECORD. The tree keeps a node's latest reply
-// only while the computers view is mounted to file it; experiments need their
-// outcomes durable regardless of which page is open. So a module-level
-// listener — it outlives every view — files each tracked session's outcome
-// into ONE bounded account row (research_experiments), and touches the TREE
-// only when no view holds a live store instance (markTreeStoreLive in
-// src/fleet-trees.js): a store persists blob-for-blob, and a second live
-// writer would silently discard the first one's work.
+// The account row upgrades v1 on read: tiers become the reserved 'tier' axis,
+// runsPerTier becomes runsPerCell, and every cell's {tier, run} becomes
+// params — in the same array order, because the module-level tracked map
+// indexes into it. The row rewrites itself as v2 on the next persist.
+//
+// RESULTS ARE THIS MODULE'S OWN RECORD for local cells. The tree keeps a
+// node's latest reply only while the computers view is mounted to file it;
+// experiments need their outcomes durable regardless of which page is open.
+// So a module-level listener — it outlives every view — files each tracked
+// session's outcome into ONE bounded account row (research_experiments), and
+// touches the TREE only when no view holds a live store instance
+// (markTreeStoreLive in src/fleet-trees.js). Queued cells resolve on the
+// service run board instead; their local status stays 'queued'.
 //
 // The dataset path in a spec is TEXT the owner supplies. It is substituted
 // into the worker's brief; the worker reads it under its own confinement.
@@ -27,7 +32,9 @@ import {
   markTreeStoreLive,
   safeTreeStorage,
 } from './fleet-trees.js'
-import { sessionEventText, sessionTurnStatus } from './agent-session-events.js'
+import { sessionEventText, sessionTurnStatus, sessionTurnSucceeded } from './agent-session-events.js'
+import { DEFAULT_RESULT_SCHEMA, cellBrief, cellLabel, gridCells } from './research-grid.js'
+import { runTaskIsStalled, submitRun } from './research-runs.js'
 
 export const RESEARCH_EXPERIMENTS_ROW_KEY = 'research_experiments'
 export const RESEARCH_EXPERIMENTS_EVENT = 'mc:research-experiments-changed'
@@ -37,11 +44,14 @@ export const RESEARCH_EXPERIMENTS_EVENT = 'mc:research-experiments-changed'
 export const EXPERIMENT_COMPUTER_ID = 'this-computer'
 
 const MAX_EXPERIMENTS = 12
-const MAX_CELLS = 8
-const MAX_RUNS_PER_TIER = 3
+/* The tree bound: one experiment tree is the root and up to seven siblings.
+   No longer a build refusal — a bigger grid goes to the run queue instead. */
+export const MAX_LOCAL_CELLS = 8
+const MAX_QUEUE_CELLS = 512
+const MAX_RUNS_PER_CELL = 5
 const EXCERPT_CHARS = 400
 const MAX_SERIALIZED = 60_000
-const CAPS = Object.freeze({ name: 120, promptTemplate: 2000, datasetPath: 400 })
+const CAPS = Object.freeze({ name: 120, briefTemplate: 2000, datasetPath: 400 })
 
 function cleanText(value, cap) {
   if (typeof value !== 'string') return null
@@ -52,62 +62,138 @@ function cleanText(value, cap) {
 
 /* ---------- the row ---------- */
 
+function freshCell(params) {
+  return { params, status: 'designed', sessionId: null, nodeId: null, runId: null, startedAtMs: null, endedAtMs: null, replyExcerpt: '' }
+}
+
+/* v1 → v2, order-preserving: the tracked map holds cell INDEXES, so a cell may
+   change shape here but never position. */
+function upgradeV1Experiment(experiment) {
+  const tiers = []
+  let maxRun = 1
+  for (const cell of experiment.cells) {
+    if (typeof cell?.tier === 'string' && !tiers.includes(cell.tier)) tiers.push(cell.tier)
+    if (Number.isInteger(cell?.run) && cell.run > maxRun) maxRun = cell.run
+  }
+  return {
+    id: experiment.id,
+    name: experiment.name,
+    axes: [{ id: 'tier', values: tiers.length ? tiers : ['unspecified'] }],
+    runner: { kind: 'agent', briefTemplate: experiment.promptTemplate },
+    resultSchema: DEFAULT_RESULT_SCHEMA,
+    runsPerCell: maxRun,
+    datasetPath: experiment.datasetPath ?? null,
+    projectId: null,
+    serviceExperimentId: null,
+    createdAtMs: experiment.createdAtMs,
+    treeId: experiment.treeId ?? null,
+    cells: experiment.cells.map(cell => ({
+      params: { tier: cell.tier, ...(maxRun > 1 ? { replicate: cell.run } : {}) },
+      status: cell.status, sessionId: cell.sessionId ?? null, nodeId: cell.nodeId ?? null,
+      runId: null, startedAtMs: cell.startedAtMs ?? null, endedAtMs: cell.endedAtMs ?? null,
+      replyExcerpt: cell.replyExcerpt ?? '',
+    })),
+  }
+}
+
+function validV1(experiment) {
+  return experiment
+    && typeof experiment === 'object'
+    && typeof experiment.id === 'string'
+    && cleanText(experiment.name, CAPS.name)
+    && cleanText(experiment.promptTemplate, CAPS.briefTemplate)
+    && Array.isArray(experiment.cells)
+}
+
+/* The parse gate enforces exactly what the renderers dereference: a stored
+   row is a trust boundary (partial write, older build, another device), and
+   one malformed experiment must drop HERE — not survive to blank the whole
+   bench with a render throw. */
+function validV2(experiment) {
+  return experiment
+    && typeof experiment === 'object'
+    && typeof experiment.id === 'string'
+    && cleanText(experiment.name, CAPS.name)
+    && experiment.runner && typeof experiment.runner === 'object'
+    && typeof experiment.runner.kind === 'string'
+    && (experiment.runner.kind !== 'agent' || cleanText(experiment.runner.briefTemplate, CAPS.briefTemplate))
+    && Array.isArray(experiment.axes)
+    && experiment.axes.every(axis => axis && typeof axis === 'object'
+      && typeof axis.id === 'string' && Array.isArray(axis.values) && axis.values.length > 0)
+    && Array.isArray(experiment.cells)
+    && experiment.cells.every(cell => cell && typeof cell === 'object'
+      && cell.params && typeof cell.params === 'object' && typeof cell.status === 'string')
+}
+
 export function parseExperimentsRow(raw) {
   const empty = { experiments: [], damaged: false }
   if (raw === null || raw === undefined || raw === '') return empty
   let parsed
   try { parsed = JSON.parse(raw) } catch { return { ...empty, damaged: true } }
-  if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.experiments)) return { ...empty, damaged: true }
-  const experiments = parsed.experiments.filter(experiment => experiment
-    && typeof experiment === 'object'
-    && typeof experiment.id === 'string'
-    && cleanText(experiment.name, CAPS.name)
-    && cleanText(experiment.promptTemplate, CAPS.promptTemplate)
-    && Array.isArray(experiment.cells))
-  return { experiments, damaged: false }
+  if (parsed && parsed.v === 2 && Array.isArray(parsed.experiments)) {
+    return { experiments: parsed.experiments.filter(validV2), damaged: false }
+  }
+  if (parsed && parsed.v === 1 && Array.isArray(parsed.experiments)) {
+    return { experiments: parsed.experiments.filter(validV1).map(upgradeV1Experiment), damaged: false }
+  }
+  return { ...empty, damaged: true }
 }
 
 export function serializeExperimentsRow({ experiments }) {
   if (experiments.length === 0) return null
-  return JSON.stringify({ v: 1, experiments })
+  return JSON.stringify({ v: 2, experiments })
 }
 
 /* ---------- building a spec ---------- */
 
-export function buildExperiment({ name, promptTemplate, datasetPath, tiers, runsPerTier }, existing) {
+/**
+ * Build one v2 experiment from already-parsed shapes: the view runs
+ * parseAxes/parseRunner/parseResultSchema first, so every refusal here is
+ * about the combination, not the pieces.
+ */
+export function buildExperiment({ name, axes, runner, resultSchema, runsPerCell, datasetPath, projectId }, existing) {
   const cleanName = cleanText(name, CAPS.name)
   if (!cleanName) return { ok: false, sentence: `Name the experiment first — up to ${CAPS.name} characters.` }
-  const cleanTemplate = cleanText(promptTemplate, CAPS.promptTemplate)
-  if (!cleanTemplate) return { ok: false, sentence: `Write the task each worker runs first — up to ${CAPS.promptTemplate} characters.` }
   let cleanDataset = null
   if (!(datasetPath === '' || datasetPath === null || datasetPath === undefined)) {
     cleanDataset = cleanText(datasetPath, CAPS.datasetPath)
     if (!cleanDataset) return { ok: false, sentence: `A dataset path fits in ${CAPS.datasetPath} characters.` }
   }
-  const tierList = Array.isArray(tiers) ? tiers.filter(tier => typeof tier === 'string' && tier.length > 0) : []
-  if (tierList.length === 0) return { ok: false, sentence: 'Pick at least one model tier to run on.' }
-  const runs = Number.isInteger(runsPerTier) && runsPerTier >= 1 && runsPerTier <= MAX_RUNS_PER_TIER
-    ? runsPerTier
+  if (!Array.isArray(axes) || axes.length === 0) {
+    return { ok: false, sentence: 'The grid needs at least one axis with values.' }
+  }
+  if (!runner || typeof runner !== 'object' || typeof runner.kind !== 'string') {
+    return { ok: false, sentence: 'Pick how this experiment runs: sessions, a command, or a web address.' }
+  }
+  if (runner.kind === 'agent' && !axes.some(axis => axis.id === 'tier' && axis.values.length > 0)) {
+    return { ok: false, sentence: 'Give this experiment a tier axis — pick at least one model tier to run on.' }
+  }
+  const runs = Number.isInteger(runsPerCell) && runsPerCell >= 1 && runsPerCell <= MAX_RUNS_PER_CELL
+    ? runsPerCell
     : null
-  if (!runs) return { ok: false, sentence: `Runs per tier is a whole number from 1 to ${MAX_RUNS_PER_TIER}.` }
-  const cellCount = tierList.length * runs
-  if (cellCount > MAX_CELLS) {
-    return { ok: false, sentence: `One experiment runs at most ${MAX_CELLS} workers — one tree of nodes. Fewer tiers or fewer runs.` }
+  if (!runs) return { ok: false, sentence: `Repeats per cell is a whole number from 1 to ${MAX_RUNS_PER_CELL}.` }
+  const cells = gridCells(axes, { replicates: runs }).map(freshCell)
+  if (cells.length > MAX_QUEUE_CELLS) {
+    return { ok: false, sentence: `That grid is ${cells.length} runs counting repeats; this bench submits at most ${MAX_QUEUE_CELLS} per experiment. Trim an axis or the repeats.` }
+  }
+  if (runner.kind === 'agent') {
+    // An unknown {token} is refused at design time, never discovered mid-run.
+    const probe = cellBrief(runner.briefTemplate, { ...cells[0].params, dataset: cleanDataset ?? '' })
+    if (!probe.ok) return probe
   }
   if (existing.experiments.length >= MAX_EXPERIMENTS) {
     return { ok: false, sentence: `This bench holds at most ${MAX_EXPERIMENTS} experiments. Remove one first.` }
   }
-  const cells = []
-  for (const tier of tierList) {
-    for (let run = 1; run <= runs; run += 1) {
-      cells.push({ tier, run, status: 'designed', sessionId: null, nodeId: null, startedAtMs: null, endedAtMs: null, replyExcerpt: '' })
-    }
-  }
   const experiment = {
     id: `exp-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${existing.experiments.length}`}`,
     name: cleanName,
-    promptTemplate: cleanTemplate,
+    axes,
+    runner,
+    resultSchema: resultSchema || DEFAULT_RESULT_SCHEMA,
+    runsPerCell: runs,
     datasetPath: cleanDataset,
+    projectId: typeof projectId === 'string' ? projectId : null,
+    serviceExperimentId: null,
     createdAtMs: Date.now(),
     treeId: null,
     cells,
@@ -127,13 +213,46 @@ export function removeExperiment(state, id) {
   return { ok: true, next, serialized: serializeExperimentsRow(next) }
 }
 
-/** The brief one worker receives: the template with {dataset} substituted.
- *  Text substitution only — the worker reads the path under its own
- *  confinement, exactly like a path typed into the compose panel. */
+/** The brief one worker receives: the template with every {axis} token and
+ *  {dataset} substituted from the cell. Text substitution only — the worker
+ *  reads any path under its own confinement. A v1-upgraded row whose prose
+ *  happens to contain a stray {token} falls back to the old plain {dataset}
+ *  substitution, so every v1 template keeps running exactly as before. */
 export function workerBrief(experiment, cell) {
   const dataset = experiment.datasetPath || ''
-  const base = experiment.promptTemplate.split('{dataset}').join(dataset)
-  return `${base}\n\n(Experiment "${experiment.name}", ${cell.tier} run ${cell.run}. Reply with your result.)`
+  const trailer = `\n\n(Experiment "${experiment.name}", ${cellLabel(experiment.axes, cell.params)}. Reply with your result.)`
+  const built = cellBrief(experiment.runner.briefTemplate, { ...cell.params, dataset })
+  if (built.ok) return `${built.text}${trailer}`
+  return `${experiment.runner.briefTemplate.split('{dataset}').join(dataset)}${trailer}`
+}
+
+/* ---------- where an experiment runs ---------- */
+
+/**
+ * The one dispatch decision, pure: an agent-runner grid of at most
+ * MAX_LOCAL_CELLS runs locally as tree nodes (no project needed — the tree
+ * knows nothing of projects); everything else is queued through the research
+ * service, and queued work is always filed under a project.
+ */
+export function decideDispatch(experiment, { projectId = experiment.projectId } = {}) {
+  if (experiment.runner.kind === 'agent' && experiment.cells.length <= MAX_LOCAL_CELLS) {
+    return { ok: true, mode: 'local' }
+  }
+  if (typeof projectId === 'string' && projectId.length > 0) {
+    return { ok: true, mode: 'queue', projectId }
+  }
+  return { ok: false, sentence: 'Queued runs are filed under a project — pick one above, then run it again.' }
+}
+
+/** Runner declaration → the service's runner config, one place. */
+export function runnerConfigFor(runner) {
+  if (runner.kind === 'agent') return { briefTemplate: runner.briefTemplate }
+  if (runner.kind === 'process') return { command: runner.command, args: runner.args || [], stdin: 'none' }
+  return { url: runner.url }
+}
+
+function collectorFor(runner) {
+  return runner.kind === 'agent' ? { kind: 'none' } : { kind: 'stdout-json', recordKind: 'summary' }
 }
 
 /* ---------- the dispatcher ---------- */
@@ -176,7 +295,7 @@ function fileOutcome(sessionId, status) {
   const text = (transcripts.get(sessionId) || '').trim()
   transcripts.delete(sessionId)
   if (!cell) return
-  cell.status = status === 'completed' ? 'finished' : 'failed'
+  cell.status = sessionTurnSucceeded(status) ? 'finished' : 'failed'
   cell.endedAtMs = Date.now()
   cell.replyExcerpt = text.slice(-EXCERPT_CHARS)
   persistState()
@@ -222,14 +341,18 @@ function ensureListener(agent) {
 }
 
 /**
- * Dispatch one experiment: a fresh tree, one node per cell, one session per
- * node — sequentially, because the engine host bounds concurrent sessions and
- * a refusal mid-way must leave a truthful board, not a guessed one. Returns
- * per-cell outcomes; cells refused at start read 'failed' with the sentence.
+ * Dispatch one experiment locally: a fresh tree, one node per cell, one
+ * session per node — sequentially, because the engine host bounds concurrent
+ * sessions and a refusal mid-way must leave a truthful board, not a guessed
+ * one. Returns per-cell outcomes; cells refused at start read 'failed' with
+ * the sentence. Only the decide guard is new; the tree flow is v1's.
  */
 export async function dispatchExperiment(experimentId, { agent, persist, startAgent } = {}) {
   const experiment = state.experiments.find(candidate => candidate.id === experimentId)
   if (!experiment) return { ok: false, sentence: 'That experiment is not on this bench.' }
+  if (decideDispatch(experiment).mode !== 'local') {
+    return { ok: false, sentence: 'This grid is queue-sized. Use its queue control instead — the run board follows it there.' }
+  }
   if (experiment.cells.some(cell => cell.status === 'running' || cell.status === 'starting')) {
     return { ok: false, sentence: 'This experiment is already running. Watch it on the run board.' }
   }
@@ -275,7 +398,7 @@ export async function dispatchExperiment(experimentId, { agent, persist, startAg
       cell.status = 'starting'
       cell.startedAtMs = Date.now()
 
-      const started = await startAgent({ text: workerBrief(experiment, cell), surface: 'research-experiment', tier: cell.tier })
+      const started = await startAgent({ text: workerBrief(experiment, cell), surface: 'research-experiment', tier: cell.params.tier })
       if (!started || started.ok === false || typeof started.sessionId !== 'string' || started.sessionId.length === 0) {
         /* The fourth outcome shape: a session that IS open whose brief did
            not land. The node keeps the session's name, exactly as the
@@ -304,6 +427,107 @@ export async function dispatchExperiment(experimentId, { agent, persist, startAg
   announce()
   const startedCount = experiment.cells.filter(cell => cell.status === 'running').length
   return { ok: true, startedCount, total: experiment.cells.length, treeId: experiment.treeId }
+}
+
+/**
+ * Submit a queue-sized (or process/http) experiment's designed cells to the
+ * research service. The first cell carries the full declaration inline; the
+ * service registers or matches it by configuration, and every later cell
+ * submits by the captured service experiment id so two same-config
+ * experiments cannot silently share one mid-loop. A refused cell stays
+ * 'designed' — the honest state — and the first refusal sentence rides back.
+ */
+export async function submitExperimentRuns(experimentId, { submit = submitRun, persist, projectId } = {}) {
+  const experiment = state.experiments.find(candidate => candidate.id === experimentId)
+  if (!experiment) return { ok: false, sentence: 'That experiment is not on this bench.' }
+  const decision = decideDispatch(experiment, { projectId })
+  if (!decision.ok) return decision
+  if (decision.mode !== 'queue') {
+    return { ok: false, sentence: 'This grid runs here as sessions. Use its Run control instead.' }
+  }
+  if (typeof persist === 'function') persistImpl = persist
+  if (!experiment.projectId) experiment.projectId = decision.projectId
+
+  const spec = {
+    projectId: experiment.projectId,
+    name: experiment.name,
+    runnerKind: experiment.runner.kind,
+    runnerConfig: runnerConfigFor(experiment.runner),
+    resultSchema: experiment.resultSchema,
+    collector: collectorFor(experiment.runner),
+  }
+  let submitted = 0
+  let replayed = 0
+  let sentence = null
+  for (const cell of experiment.cells) {
+    if (cell.status !== 'designed') continue
+    const body = experiment.serviceExperimentId
+      ? { experimentId: experiment.serviceExperimentId, params: cell.params }
+      : { experiment: spec, params: cell.params }
+    const outcome = await submit(body)
+    if (outcome.ok !== true) {
+      if (!sentence) sentence = outcome.reason || 'the research service refused a run'
+      continue
+    }
+    if (!experiment.serviceExperimentId && outcome.experiment?.experimentId) {
+      experiment.serviceExperimentId = outcome.experiment.experimentId
+    }
+    cell.status = 'queued'
+    cell.runId = outcome.run.runId
+    if (outcome.disposition === 'replay') replayed += 1
+    else submitted += 1
+  }
+  await persistState()
+  announce()
+  return { ok: true, submitted, replayed, total: experiment.cells.length, sentence }
+}
+
+/* Display truth for queue-dispatched cells. The account row keeps 'queued'
+   by design (the service run board owns resolution — see the header note),
+   but the gathered panel must not show 'queued' beside a service run that
+   already finished. Pure translation for rendering; nothing is mutated and
+   nothing is persisted. Unknown service words pass through untranslated —
+   an honest unfamiliar word beats a familiar wrong one. */
+/* Every service state this board can meet, mapped to a single-token key the
+   renderer words. Two lessons are baked in here. The map used to carry five
+   entries and pass anything else through raw, so a person read the machine's
+   own enums — `retry_wait`, `leased`, `uncertain` — on screen. And it read
+   only `task.status`, so a run whose lease had died showed "uncertain" in
+   this board while the service board beside it, reading the same data,
+   correctly said "stalled" (installed 1.0.12: same run, same screen, same
+   instant). The stalled test is shared with the other renderers now. */
+const SERVICE_CELL_WORDS = Object.freeze({
+  succeeded: 'finished',
+  failed: 'failed',
+  cancelled: 'cancelled',
+  running: 'running',
+  claimed: 'claimed',
+  leased: 'claimed',
+  queued: 'queued',
+  retry_wait: 'retrying',
+  uncertain: 'uncertain',
+  expired: 'stalled',
+})
+export function cellsWithServiceStatus(experiment, runs) {
+  const taskByRunId = new Map((Array.isArray(runs) ? runs : [])
+    .filter(run => run && typeof run.runId === 'string' && run.task && typeof run.task.status === 'string')
+    .map(run => [run.runId, run.task]))
+  return experiment.cells.map(cell => {
+    if (cell.status !== 'queued' || !cell.runId || !taskByRunId.has(cell.runId)) return cell
+    const task = taskByRunId.get(cell.runId)
+    if (runTaskIsStalled(task)) return { ...cell, status: 'stalled' }
+    return { ...cell, status: SERVICE_CELL_WORDS[task.status] || task.status }
+  })
+}
+
+/* The same translation for the moment BEFORE the service has answered. A
+   queue-dispatched cell's local row says 'queued' for life, so painting it
+   raw asserts "queued" for runs that may be finished — which is what a
+   researcher saw on every cold load and on any failed poll (installed
+   1.0.11: nine finished cells read "queued" at 240ms). Unknown is its own
+   word, and the pulse already speaks it. */
+export function cellsAwaitingService(experiment) {
+  return experiment.cells.map(cell => (cell.status === 'queued' ? { ...cell, status: 'unread' } : cell))
 }
 
 /* Test seam: the module-level maps outlive suites otherwise. */

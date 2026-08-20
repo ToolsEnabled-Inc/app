@@ -325,6 +325,74 @@ function planReset({ userDataDir, servicesRoot, workspaceRoots = [], installDir 
 }
 
 /**
+ * Remove one thing -- a file, a link, or a whole directory -- LEAF BY LEAF, and
+ * say whether it is actually gone.
+ *
+ * ONE LOCKED FILE MUST NOT SHELTER ITS SIBLINGS. This function replaced a single
+ * `fs.rmSync(entry, { recursive: true })` per top-level entry, and the reason is
+ * a measurement rather than a preference. Node's recursive delete STOPS at the
+ * first thing it cannot unlink and raises; everything it had not reached yet
+ * stays on the disk. Reproduced with a real open handle on 2026-08-18: with the
+ * signed ledger's database busy under `capability/state/`, a delete of
+ * `capability/` left `vault/secrets.json` and `vault/secrets.json.access.log`
+ * untouched -- the person's credentials survived because a database three
+ * directories away was in use. That is the single worst thing this control can
+ * do, and it is the DEFAULT behaviour of the obvious implementation.
+ *
+ * So every leaf is attempted on its own and a failure is recorded and stepped
+ * over. What cannot be deleted is one file, never the tree it happens to live
+ * in.
+ *
+ * A SYMLINK IS UNLINKED, NEVER DESCENDED, for the same reason the measurement
+ * never follows one: a junction inside this directory pointing at somebody's
+ * documents must not turn a data removal into a data loss.
+ *
+ * MEASURED AFTER, NOT ASSUMED. Every branch ends in an lstat, because
+ * rmSync({force:true}) swallows some failures and raises others and neither
+ * tells you what is on the disk now.
+ */
+function removeTree({ target, fs = fsDefault }) {
+  const before = lstatSafe(fs, target)
+  if (!before) return { removed: true, reason: null }
+
+  if (before.isSymbolicLink()) {
+    let error = null
+    try { fs.unlinkSync(target) } catch (raised) { error = raised }
+    const after = lstatSafe(fs, target)
+    return { removed: after === null, reason: after === null ? null : (error && error.code) || 'the link is still on this computer and Windows did not say why' }
+  }
+
+  if (before.isDirectory()) {
+    let names
+    try {
+      names = fs.readdirSync(target)
+    } catch (raised) {
+      return { removed: false, reason: (raised && raised.code) || 'the folder could not be read' }
+    }
+    /* The FIRST reason is kept rather than the last, because the first thing
+       that refused is the one a person can act on; a directory that could not be
+       removed BECAUSE something inside it survived would otherwise report
+       ENOTEMPTY and hide the file that actually held on. */
+    let reason = null
+    for (const name of names) {
+      const outcome = removeTree({ target: path.join(target, name), fs })
+      if (!outcome.removed && reason === null) reason = outcome.reason
+    }
+    try { fs.rmdirSync(target) } catch (raised) { if (reason === null) reason = (raised && raised.code) || 'the folder is still on this computer' }
+    const after = lstatSafe(fs, target)
+    return { removed: after === null, reason: after === null ? null : reason }
+  }
+
+  let error = null
+  try { fs.rmSync(target, { force: true, maxRetries: 4, retryDelay: 120 }) } catch (raised) { error = raised }
+  const after = lstatSafe(fs, target)
+  return {
+    removed: after === null,
+    reason: after === null ? null : (error && error.code) || 'the file is still on this computer and Windows did not say why',
+  }
+}
+
+/**
  * Remove one directory's contents, entry by entry, and report what actually
  * went.
  *
@@ -332,11 +400,9 @@ function planReset({ userDataDir, servicesRoot, workspaceRoots = [], installDir 
  * report is the product here. `rm -r` of the whole tree returns one boolean for
  * ninety-two files, and on Windows -- where one open handle fails one entry --
  * that boolean is false while nearly everything is gone. A person reading that
- * cannot tell whether their vault was removed. Per-entry, they can.
- *
- * A SYMLINK IS UNLINKED, NEVER DESCENDED. `fs.rmSync` already refuses to follow
- * one, and the explicit branch is here so the behaviour is stated rather than
- * inherited from a Node version.
+ * cannot tell whether their vault was removed. Per-entry, they can. What is
+ * INSIDE each entry is removed leaf by leaf; see removeTree above for the
+ * measurement that made that necessary.
  */
 function eraseDirectory({ directory, fs = fsDefault, env = process.env, homedir = os.homedir, priority = [] } = {}) {
   const guard = guardRoot(directory, { env, homedir })
@@ -365,26 +431,9 @@ function eraseDirectory({ directory, fs = fsDefault, env = process.env, homedir 
   const entries = []
   for (const name of ordered) {
     const full = path.join(guard.resolved, name)
-    const before = lstatSafe(fs, full)
-    if (!before) continue
-    let error = null
-    try {
-      if (before.isSymbolicLink()) fs.unlinkSync(full)
-      else fs.rmSync(full, { recursive: true, force: true, maxRetries: 4, retryDelay: 120 })
-    } catch (raised) {
-      error = raised
-    }
-    /* MEASURED AFTER, NOT ASSUMED. This re-stat is the whole reason the report
-       can be trusted: rmSync({force:true}) swallows some failures and raises
-       others, and neither tells you what is on the disk now. */
-    const after = lstatSafe(fs, full)
-    entries.push({
-      name,
-      removed: after === null,
-      reason: after === null
-        ? null
-        : (error && error.code ? error.code : 'the file is still on this computer and Windows did not say why'),
-    })
+    if (!lstatSafe(fs, full)) continue
+    const outcome = removeTree({ target: full, fs })
+    entries.push({ name, removed: outcome.removed, reason: outcome.reason })
   }
 
   let removedRoot = false
@@ -442,6 +491,7 @@ module.exports = {
   SERVICES_NAMED_ENTRIES,
   guardRoot,
   measureRoot,
+  removeTree,
   planReset,
   eraseDirectory,
   eraseLocalData,

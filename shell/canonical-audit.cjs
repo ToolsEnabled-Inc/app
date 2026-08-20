@@ -116,12 +116,71 @@ function loadCanonicalAudit({ stateRoot, root = resolveCapabilityRoot(), load = 
 
 function canonicalAudit(options = {}) {
   if (options.load || options.root || options.fresh) return loadCanonicalAudit(options)
-  if (!cached) cached = loadCanonicalAudit(options)
+  if (!cached) {
+    const loaded = loadCanonicalAudit(options)
+    /* AUDIT_STATE_ROOT_INVALID is a statement about the CALLER, never about
+     * this installation's ledger, so it is answered but NOT cached. Measured
+     * on a packaged build 2026-08-18: one handler calling with no state root
+     * as the first ledger-touching act poisoned this cache for the process,
+     * and every correctly-addressed record after it -- settings, accounts,
+     * agent launches -- returned this failure while the ledger sat healthy on
+     * disk. Genuine load outcomes (a real open, a missing payload, a missing
+     * module) stay cached exactly as the comment above promises. */
+    if (loaded.ok === false && loaded.code === 'AUDIT_STATE_ROOT_INVALID') return loaded
+    cached = loaded
+  }
   return cached
 }
 
 function resetForTests() {
   cached = null
+}
+
+/**
+ * Let go of the ledger's database file.
+ *
+ * WHY THE SHELL NEEDS THIS AT ALL. This process does not merely talk to the
+ * ledger through the capability layer -- it loads the payload's writer INTO
+ * ITSELF (see the module comment) and that writer keeps its database handle
+ * open for the life of the process, deliberately, so a keystroke does not pay a
+ * file open. On Windows an open handle is a file that cannot be deleted.
+ *
+ * MEASURED, 2026-08-18, and this is the whole reason the function exists: the
+ * in-app data removal stopped the capability layer, swept, and reported the
+ * credential vault, its access log and the signed ledger still on the disk. The
+ * layer was not the holder. THIS process was -- it had recorded the account
+ * creation a minute earlier through recordCanonical() above, and Node's
+ * recursive delete stops at the first entry it cannot unlink, so one locked
+ * database sheltered every sibling underneath the same directory. A reproduction
+ * with a real open handle showed exactly that: the vault and its access log
+ * survived a delete of their grandparent, untouched, because the sqlite file
+ * three directories over was busy.
+ *
+ * `resetForTests` IS THE PAYLOAD'S ONLY CLOSE, AND IT IS USED ON PURPOSE. The
+ * capability payload is derived from a pinned engine source, so this shell
+ * cannot add a better-named export to it; what it can do is call the one that
+ * exists and say why. The function closes the cached store and drops the cached
+ * signer and anchors, which is precisely what has to happen here, and the next
+ * recordCanonical() re-opens from scratch -- so a reset that is cancelled or
+ * that leaves the window running has cost nothing but one file open.
+ *
+ * IT REPORTS RATHER THAN THROWS. A caller here is about to delete somebody's
+ * data at their request, and a ledger that would not close must not stop that;
+ * it must be named in what the person is shown afterwards.
+ */
+function closeCanonical() {
+  const loaded = cached
+  cached = null
+  if (!loaded || !loaded.ok) return { ok: true, closed: false, reason: 'This copy had not opened its signed record.' }
+  if (typeof loaded.audit.resetForTests !== 'function') {
+    return failure('AUDIT_CLOSE_UNSUPPORTED', 'This copy of the ledger writer offers no way to close its database.')
+  }
+  try {
+    loaded.audit.resetForTests()
+    return { ok: true, closed: true }
+  } catch (error) {
+    return failure('AUDIT_CLOSE_FAILED', `The signed record's database did not close (${error?.code || error?.message || 'no reason given'}).`)
+  }
 }
 
 /**
@@ -156,6 +215,7 @@ function recordCanonical(action, target, details = {}, options = {}) {
 module.exports = {
   AUDIT_MODULE,
   canonicalAudit,
+  closeCanonical,
   loadCanonicalAudit,
   recordCanonical,
   resetForTests,

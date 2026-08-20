@@ -465,6 +465,56 @@
   line-height: 1.4;
   color: var(--ink-3);
 }
+/* A SWITCHED-OFF SURFACE IS ONE COLUMN OF PROSE, NOT A FORM (owner, 2026-08-18,
+   on the agent detail page: "open agent detail is a mess").
+ *
+ * WHAT THE MESS ACTUALLY WAS, and all three parts are this one grid. Both
+ * `.write-surface-grid` and `.write-form` are two-column grids, which is right
+ * for a form with fields in it and wrong for a panel whose entire content is a
+ * heading, a sentence and a button. Measured on the staged build at 1512x945:
+ * the whole explanation sat in the left half of the outer grid with the right
+ * half empty, and the "what turning it on would let you do" block -- a grid
+ * child with no field beside it -- was thrown into the second inner column,
+ * where it rendered as a bordered box floating in the middle of the page with a
+ * column of whitespace to its left. It reads as debris. It is a two-column
+ * layout with one column of content.
+ *
+ * Both off-surfaces in this product carry their own marker already, so this
+ * names them rather than guessing at a `:has()` rule about which forms have
+ * fields. One column, and everything lands under the thing it belongs to. */
+.write-surface[data-session-off] > .write-surface-grid,
+.write-surface[data-cloud-off] > .write-surface-grid,
+.write-surface[data-session-off] .write-form,
+.write-surface[data-cloud-off] .write-form {
+  grid-template-columns: minmax(0, 1fr);
+}
+/* And its sentences read in the UI face. The mono above is right for a short
+   state token in the header; a paragraph explaining a switch is prose, and this
+   page had it in code type from top to bottom. */
+.write-surface[data-session-off] .write-form output,
+.write-surface[data-cloud-off] .write-form output {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  max-width: 68ch;
+}
+/* ONE SHOUT PER SECTION. `.write-surface > header strong` and
+   `.write-form-title` share a rule, so an off surface opened with two tracked
+   all-caps lines stacked on top of each other -- "CODEX CLOUD" and then
+   "LAUNCHING CLOUD TASKS IS SWITCHED OFF" -- naming the same thing twice at the
+   same rank, with the state word to the right of the first making three labels
+   for one fact. The surface's NAME keeps the small-caps label, because that is
+   the page's section vocabulary; the sentence under it becomes a heading that
+   reads like a sentence, which is what it is. */
+.write-surface[data-session-off] .write-form-title,
+.write-surface[data-cloud-off] .write-form-title {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  text-transform: none;
+  color: var(--ink);
+}
 /* The answer to a write this form already sent, carried over from a moment when
    this panel did not exist to show it. Its own line rather than the <output>,
    because the output is written by the bridge handshake and the queue snapshot a
@@ -672,6 +722,11 @@
 }
 .rail-prose:last-child { margin-bottom: 0; }
 .rail-prose:empty { display: none; }
+/* The block above beats the UA's `[hidden] { display: none }` (author origin
+   wins), so the rail's conditional prose lines — status notes, activity,
+   usage — painted as empty blocks while marked hidden. Same convention as
+   .ctl-btn[hidden] below; gate: tools/test/hidden-display-honesty.test.mjs. */
+.rail-prose[hidden] { display: none; }
 
 .comms .projection-unavailable {
   color: var(--ink-2);
@@ -999,6 +1054,45 @@ body {
 /* 82px is not spacing — it is the topbar's height plus its offset, and .view
    below repeats it as an inset. The two must agree, so both stay literal. */
 #stage { position: relative; z-index: 1; height: 100vh; padding-top: 82px; }
+/* A PAGE THAT CANNOT DRAW MUST NOT START MOTION. src/main.js stamps
+   body.frameless while document.visibilityState is hidden (a covered,
+   minimised, or hidden-spawned window — Chromium gives such a page no
+   rendering frames). A CSS transition created in that state can never run,
+   finish, or be cancelled — even Animation.cancel() needs a frame to leave
+   the DocumentTimeline — so each one pins its target element, and through it
+   the target's whole detached tree, in memory until the window is next
+   uncovered. Measured on the packaged build via heap-snapshot retainer
+   paths: one entire retired view per navigation (+15,607 DOM nodes per lap
+   of the ring), held first by the router's own exit transition and, once
+   that was gated, by a settings indicator's width/transform transition.
+   Suppressing CREATION at the root is the only variant that survived
+   measurement. Nothing is lost: nothing is painted while hidden, and every
+   change AFTER the window returns animates exactly as declared. */
+body.frameless *, body.frameless *::before, body.frameless *::after {
+  transition-property: none !important;
+  /* KEYFRAME ANIMATIONS ARE THE SAME BUG WITH A DIFFERENT OBJECT, and the
+     snapshots named one after the transitions were dealt with: a CSSAnimation
+     on a retired comms pane, holding the pane and the whole sheet under it.
+     An animation on a frameless page never advances, so a one-shot never
+     finishes and an infinite one (cueSlide, chatDotPulse, liveBreathe) never
+     could -- either way it stays registered on the DocumentTimeline.
+     COLLAPSING THE DURATION TO 0s WAS TRIED FIRST AND MEASURED: it does not
+     help. The object is created and registered either way, and taking it off
+     the timeline is itself frame work -- lap 1 read 4 retained trees / 340
+     nodes with and without it. So creation has to be prevented, exactly as it
+     is for transitions above.
+     THAT IS SAFE FOR THESE ANIMATIONS SPECIFICALLY, and the check is worth
+     writing down rather than assuming: every entrance animation in this sheet
+     is a `from`-only or 0%->100% shape whose FINAL keyframe is the element's
+     ordinary resting style (chipIn, msgIn, frostIn, nodeTextIn, nodeIn all end
+     at opacity 1 / no transform, which is what the base rule already says), so
+     an element that never animates lands exactly where the finished animation
+     would have left it. The rest (chatDotPulse, cueSlide, liveBreathe) are
+     infinite and have no final state to lose. If a future animation ENDS
+     somewhere its base rule does not, it must not rely on this guard. */
+  animation-name: none !important;
+}
+
 .view {
   position: absolute; inset: 82px 0 0 0;
   overflow: hidden;
@@ -1172,9 +1266,12 @@ body {
 }
 .chat-close:hover { background: rgba(14,23,38,0.06); color: var(--ink); }
 .chat-close svg { width: 14px; height: 14px; }
-/* the 2px side padding is a hairline nudge that keeps the scrollbar off the
-   bubbles — below the scale's floor, so it stays literal */
-.chat-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--s2); padding: var(--s1) 2px; }
+/* the 2px left padding is a hairline nudge that keeps content off the edge;
+   the RIGHT side clears the scrollbar. 2px on both sides was written for an
+   overlay scrollbar this window does not use: measured on the packaged build,
+   the thumb rides over the right edge of every own-message bubble, which is
+   exactly the touch the padding claimed to prevent. */
+.chat-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--s2); padding: var(--s1) var(--s2) var(--s1) 2px; }
 .chat-time-divider {
   align-self: center;
   padding: 2px 0;
@@ -1244,6 +1341,165 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
   background: linear-gradient(160deg, var(--bub-me-1), var(--bub-me-2));
   box-shadow: 0 6px 18px -8px rgba(var(--shadow-rgb), calc(0.5 * var(--shadow-k)));
 }
+.msg.note {
+  /* THE PRODUCT'S OWN VOICE, and it needed a rule of its own before it could
+     have a class of its own. Refusals, queue notices and "nothing was stopped"
+     used to be appended with the ROLE KEY as their class -- `msg helper`, for
+     which nothing anywhere had a rule -- so they painted as bare text across
+     the whole width of the log, beside real bubbles. They are not the agent
+     speaking and must not be dressed as it, so they read as an aside: centred,
+     quieter, no tail, no name. */
+  align-self: center;
+  max-width: 94%;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-25);
+  background: rgba(255,255,255,calc(0.34 * var(--wa)));
+  border: 1px dashed rgba(255,255,255,calc(0.7 * var(--wa)));
+  box-shadow: none;
+}
+.msg.context {
+  /* WORDS THE PRODUCT SENT FROM YOUR SIDE, dressed as neither of you. The
+     tree's address block rides with a start as its own transcript entry
+     (src/views/computers.js), and it painted as a second dark YOU bubble —
+     three hundred pixels of plumbing wearing the person's own colour, the
+     loudest thing in the whole conversation. Measured on a staged packaged
+     build, 2026-08-20. It stays on the sent side and stays whole — nothing a
+     session was given is hidden — but in the aside family's quiet dress, so
+     the person's actual words are the only dark bubbles on their side. */
+  align-self: flex-end;
+  max-width: 88%;
+  font-size: 12px;
+  color: var(--ink-25);
+  background: rgba(255,255,255,calc(0.34 * var(--wa)));
+  border: 1px dashed rgba(255,255,255,calc(0.7 * var(--wa)));
+  box-shadow: none;
+}
+.msg.context .who { color: var(--ink-25); }
+/* FOLDED SHUT, NOT SHORTENED. Quiet was only half the fix: this block still
+   drew 298px in a 371px log, so a first-timer's first screen of their first
+   conversation was internal plumbing. It is now a disclosure -- the same
+   gesture the action rows use two inches down the same panel -- and the entry
+   inside it is untouched and whole. See addContext in src/components.js. */
+.chat-context { padding: 0; overflow: hidden; }
+.chat-context-head {
+  display: flex; align-items: baseline; gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  cursor: pointer;
+  list-style: none;
+  min-width: 0;
+}
+.chat-context-head::-webkit-details-marker { display: none; }
+/* The closed line names WHO on its own row and says WHAT and HOW MUCH beneath,
+   because at this column width the two together do not fit on one and the size
+   is the half that earns the press. */
+.chat-context-line { min-width: 0; }
+.chat-context-say { display: block; color: var(--ink-25); }
+.chat-context-body {
+  padding: 0 var(--s3) var(--s2);
+  /* A tall block inside a scrolling log is fine -- it is the person's own
+     choice to open it -- but it must not push the log sideways. */
+  overflow-wrap: anywhere;
+}
+/* ---- WHAT THE AGENT DID, IN THE SAME LOG AS WHAT IT SAID ----
+   One collapsed line per action, opened by a press. It is deliberately NOT a
+   bubble: a bubble means somebody spoke, and nobody spoke here. It reads as a
+   quiet rail down the log between the things that were said, which is the
+   shape an editor uses for the same information. */
+.chat-action {
+  align-self: stretch;
+  max-width: 100%;
+  /* flex: none IS THE ROW'S EXISTENCE, not tidiness. The log is a column flex
+     container, and `overflow: hidden` below turns this item's automatic
+     minimum size to zero — so the moment a conversation is tall enough to
+     scroll (every real one), the negative free space is taken out of these
+     rows and they paint at ONE PIXEL. Measured on a staged packaged build,
+     2026-08-20: a four-turn session held three action rows and every one drew
+     h=1 — the agent's work invisible, and pressing the sliver opened nothing
+     a person could see. The .msg rows never shrank only because their
+     overflow is visible, which is why nobody saw this in a short demo. */
+  flex: none;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,calc(0.7 * var(--wa)));
+  border-left: 2px solid var(--ink-25);
+  background: rgba(255,255,255,calc(0.4 * var(--wa)));
+  font-size: 12px;
+  overflow: hidden;
+}
+/* A RUN OF STEPS READS AS ONE PIECE OF WORK. Consecutive action rows close up
+   (8px log gap minus 4) so five commands look like one block of doing, the way
+   an editor draws them, while a row that follows words keeps the full gap. */
+.chat-action + .chat-action { margin-top: calc(-1 * var(--s1)); }
+/* A NEW ASK IS A NEW PARAGRAPH. Everything in the log sat at the same 8px
+   apart, so a person could not see where one exchange ended and the next
+   began. Your next message stands off from the reply or the work above it;
+   inside a turn nothing moves. */
+.msg.them + .msg.me, .chat-action + .msg.me { margin-top: var(--s2); }
+.chat-action-head {
+  display: flex; align-items: baseline; gap: var(--s2);
+  padding: 5px var(--s2);
+  cursor: pointer;
+  list-style: none;
+  /* min-width:0 on the flex parent as well, or the detail cannot shrink below
+     its longest word and the state word is pushed out of the row. */
+  min-width: 0;
+}
+.chat-action-head::-webkit-details-marker { display: none; }
+.chat-action.is-bare .chat-action-head { cursor: default; }
+/* The disclosure mark: drawn when the row has something to open, blank when
+   it does not (visibility, not display, so the columns stay aligned). It is
+   the one visual difference between a row that is a control and a row that is
+   a label — see makeAction in src/components.js. */
+/* align-self: center, because the head aligns its children on the text
+   baseline and a lone SVG has none — left to baseline the mark rides low. */
+.chat-action-mark { flex: none; width: 9px; color: var(--ink-4); display: inline-flex; align-items: center; align-self: center; }
+.chat-action-mark svg { width: 8px; height: 8px; transition: transform var(--dur-2) var(--ease); }
+.chat-action[open] .chat-action-mark svg { transform: rotate(90deg); }
+.chat-action.is-bare .chat-action-mark { visibility: hidden; }
+.chat-action-tool {
+  flex: none;
+  font-size: 10.5px; letter-spacing: var(--track-caps); text-transform: uppercase;
+  font-weight: 640; color: var(--ink-25);
+}
+.chat-action-detail {
+  /* The command or the path, on ONE line: a build script can be thousands of
+     characters and this row is a summary, not the output. The whole of it is
+     one press away, in the body below. */
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* --font-mono, not --mono: the shorthand token never existed (the same
+     silent-invalid defect documented twice above on the projection rules).
+     Here the var() FALLBACK caught it, so the command rendered in
+     ui-monospace — a different mono face from every other mono surface in
+     the app — instead of inheriting. Measured live 2026-08-20. */
+  font-family: var(--font-mono);
+  color: var(--ink-2);
+}
+.chat-action-state { flex: none; font-size: 11px; color: var(--ink-25); }
+.chat-action[data-action-state="undone"] { border-left-color: var(--bad, #d2544b); }
+/* A REFUSAL SHARES THE PERMISSION COLOUR, NOT THE FAILURE ONE. The command was
+   declined before it ran, so nothing broke and red would send a person hunting
+   a fault that does not exist; what it needs is the same attention "waiting for
+   you" needs, because both are about what this computer will allow. See
+   ACTION_STATE_WORDS in src/fleet-tree-copy.js. */
+.chat-action[data-action-state="refused"] { border-left-color: var(--warn, #d69a2c); }
+/* And an outcome nobody measured keeps the neutral edge: green would claim it
+   went well, red would claim it broke, and neither was observed. */
+.chat-action[data-action-state="unknown"] { border-left-color: var(--ink-25); }
+.chat-action[data-action-state="waiting"] { border-left-color: var(--warn, #d69a2c); }
+.chat-action[data-action-state="working"] { border-left-color: var(--ok, #35eab7); }
+.chat-action-body {
+  margin: 0;
+  padding: 0 var(--s2) var(--s2);
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap; word-break: break-word;
+  /* --font-mono, not --mono: see .chat-action-detail directly above. */
+  font-family: var(--font-mono);
+  font-size: 11.5px; line-height: 1.4;
+  color: var(--ink-25);
+}
+.chat-action.is-bare .chat-action-body { display: none; }
 .msg .who { display: block; font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase; font-weight: 640; color: var(--ink-25); margin-bottom: var(--s1); }
 /* NOT scaled by --wa. --wa is the multiplier for white glass laid over the
    page sheet; this label sits on the own-message bubble, which is dark on
@@ -1255,7 +1511,17 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
   display: flex; gap: var(--s2); align-items: center; flex: none;
 }
 .chat-input input {
-  flex: 1; height: 38px;
+  /* min-width:0 IS THE WHOLE FIX, AND IT IS NOT DECORATION.
+     A flex item's default `min-width: auto` is its MIN-CONTENT width, so this
+     field refuses to shrink below the widest word of its placeholder
+     ("Message <a long agent name>...") no matter what `flex: 1` says. In the
+     compact card -- the chat this product draws inside a tree node, which is
+     narrower than the page composer this rule was written for -- the row then
+     overflows and the Send button is pushed past the card's clipped edge:
+     present in the DOM, measured at zero reachable area, unpressable. Measured
+     on a staged packaged build: 0/45 hit points on .chat-send landed on the
+     button before this line, 45/45 after. */
+  flex: 1; min-width: 0; height: 38px;
   border-radius: 3px;
   border: 1px solid rgba(255,255,255,calc(0.9 * var(--wa)));
   background: rgba(255,255,255,calc(0.75 * var(--wa)));
@@ -1306,6 +1572,33 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
   color: var(--ink-3);
 }
 
+/* A CHAT THAT CANNOT BE SPOKEN TO, AND SAYS SO WHERE THE WORDS WOULD GO.
+
+   The composer is not removed, because the actions button lives in it and the
+   things a person can still do to an agent that never started -- add one under
+   it, move it, copy its brief -- are all in there. The message box and the
+   send button are disabled instead, and the reason sits directly above them.
+
+   The `.board-page` copy of `.chat-nosend` in src/board.css belongs to the
+   fleet rail's read-only chat, which has no composer at all; this one is the
+   general rule and applies wherever a chat is mounted, including the compact
+   card floating over the canvas. */
+.chat-nosend {
+  flex: none;
+  margin-top: var(--s2);
+  padding-top: var(--s2);
+  border-top: 1px solid var(--line);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.chat-cannot-send .chat-input input {
+  cursor: default;
+  color: var(--ink-3);
+  background: color-mix(in oklab, var(--line) 24%, transparent);
+}
+
 /* THE STOP FACE OF THE SEND BUTTON. One physical button, two honest faces:
    the arrow sends; while the agent is replying and the input is empty, the
    square stops. The moment the person types, the arrow is back — their
@@ -1329,6 +1622,16 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
   flex-direction: column;
   gap: 4px;
 }
+/* `[hidden] { display: none }` IS THE USER AGENT'S RULE, AND THE ONE ABOVE
+   BEATS IT. buildChat hides this strip with `queueStrip.hidden = ...` whenever
+   nothing is queued, and an author `display` on the same element outranks the
+   user agent, so the element stayed in the layout and in the tab order while
+   the code believed it was gone -- carrying its own top margin under every
+   composer that has a queue. Named rather than a sheet-wide
+   `[hidden]{display:none !important}`, which is the convention src/subscribe.css
+   already set here and its note explains: a blanket !important is a rule the
+   next author cannot opt out of. */
+.chat-queue-strip[hidden] { display: none; }
 .chat-queue-row {
   display: flex;
   align-items: center;
@@ -1434,10 +1737,35 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
 .chat-actions-row[disabled] { color: var(--ink-3); cursor: default; }
 .chat-actions-row.is-current { border-color: color-mix(in oklab, var(--c-coordinator) 42%, var(--line-2)); }
 .chat-actions-row.chat-actions-back { color: var(--ink-2); font-weight: 640; }
+/* THE CURSOR. The row the keyboard is on, whether or not the mouse is over
+   it: the filter keeps focus and this is the only mark of where Enter would
+   land, so it has to read even on a disabled row, which is why it is a
+   background and a border rather than a colour on the text. */
+.chat-actions-row.is-active {
+  background: color-mix(in oklab, var(--c-coordinator, var(--ink)) 12%, transparent);
+  border-color: color-mix(in oklab, var(--c-coordinator, var(--ink)) 40%, var(--line-2));
+}
+.chat-actions-row[disabled].is-active { background: color-mix(in oklab, var(--ink) 6%, transparent); }
+/* A heading between groups of rows. Not a row: no border, no hover, not
+   focusable, and the arrow keys walk past it. The one before the group that
+   ends or forgets something sits under a rule so the eye lands on the
+   boundary before the hand does. */
+.chat-actions-group {
+  padding: 8px 9px 2px;
+  font: 640 10.5px/1.2 var(--font-ui);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.chat-actions-group + .chat-actions-row { margin-top: 0; }
+.chat-actions-group:not(:first-child) { border-top: 1px solid var(--line); margin-top: 4px; }
 .chat-actions-hint {
   font: 400 11.5px/1.35 var(--font-ui);
   color: var(--ink-3);
 }
+/* The reason a row cannot be pressed, in place of its hint. Italic so it reads
+   as a state and not as a description of what the row would do. */
+.chat-actions-why { font-style: italic; }
 .chat-actions-out {
   flex: none;
   min-height: 0;
@@ -1494,7 +1822,31 @@ body[data-route="computers"] { --page-max: 1680px; }
 .tab .ip { font-size: 12.5px; color: var(--ink-3); font-family: var(--font-mono); font-weight: 400; }
 .tab.add { padding: var(--s2) var(--s3); font-size: 16px; color: var(--ink-25); }
 
-.comp-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr minmax(320px, 400px); gap: var(--s3); }
+/* THE PANEL GROWS WITH THE WINDOW, BECAUSE THE WORDS ARE WHY IT WAS WIDENED.
+ *
+ * `1fr minmax(320px, 400px)` gave every pixel past 1024 to the canvas and none
+ * to the transcript, so the chat measured the SAME on a 1920 screen as on a
+ * 1024 one -- driven and measured 2026-08-20: log clientWidth 343px at all
+ * three widths. A person who drags the window wider in order to read gets more
+ * empty canvas and the same cramped column, and a command still ellipsises with
+ * 900px of screen going spare. That is the product declining to use the space
+ * it was given.
+ *
+ * WHERE 600 COMES FROM, and it is a reading rather than a preference. The
+ * bubbles are 13px at 88% of the log, and the same driven run measured what
+ * that yields: a 706-character context aside wrapped to 15 lines in a 343px
+ * log -- about 43 characters a line, BELOW the 45-75 band that typography has
+ * agreed on for a century, which is why it reads as cramped rather than merely
+ * narrow. Scaling that measurement, a 543px log lands at ~68 characters, the
+ * middle of the band. The rail carries ~57px of its own padding around the log,
+ * so the rail wants ~600px.
+ *
+ * AND IT IS A CEILING, NOT A FRACTION. An unbounded fraction would put a
+ * 1200px column on a 2560px screen, which reads WORSE: past ~75 characters the
+ * eye loses the start of the next line. The floor is untouched at 400px, so
+ * nothing about 1024 changes -- clamp's lower bound wins there (34vw is 348 at
+ * 1024) and the canvas keeps every pixel it has today. */
+.comp-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr minmax(320px, clamp(400px, 34vw, 600px)); gap: var(--s3); }
 
 /* A WINDOW CAN BE DRAGGED SHORTER THAN THE TREE NEEDS AT ANY WIDTH, not only
    at the stacked breakpoint below. Measured on one window driven through a
@@ -1510,7 +1862,19 @@ body[data-route="computers"] { --page-max: 1680px; }
 .comp-body { min-height: 520px; }
 .computers { overflow-y: auto; }
 
-@media (max-width: 1080px) {
+/* THE STACK STARTS BELOW 1024, NOT AT 1080, because 1024 is the owner's
+   stated floor for this page and the stack at 1024x800 put the ENTIRE rail
+   below the fold — proven on the packaged build (tools/tree-panel-audit-drive
+   .mjs shot 10-details-1024, 2026-08-20): a person at the minimum width saw
+   only the canvas, with no cue that the whole right panel existed one scroll
+   away. The rail already has a narrow dress (board.css caps it at 320px and
+   tightens box padding under 1180px), so side-by-side holds the full 1024-1920
+   range: at 1024 the canvas keeps ~650px beside a 320px rail, and the tree's
+   vertical fitter (src/tree-layout.js) and zoom own making the tree fit it.
+   Below 1024 the window is narrower than the page's own floor, and there the
+   stack-and-scroll cure this block has always applied is still the honest
+   answer. */
+@media (max-width: 1023px) {
   /* 340px was not a minimum, it was the height at which this page breaks.
      Stacked, the canvas measured 339px at 1024x768 and the tree drew its
      three tiers 85px apart while carrying 114px of circle: six overlapping
@@ -1558,7 +1922,7 @@ body[data-route="computers"] { --page-max: 1680px; }
      half of a page that failed to draw. */
   align-content: center;
 }
-@media (max-width: 1080px) {
+@media (max-width: 1023px) {
   .computers[data-projection-state="unavailable"] .comp-body {
     grid-template-rows: minmax(280px, auto) minmax(200px, auto);
   }
@@ -2106,6 +2470,18 @@ body[data-route="computers"] { --page-max: 1680px; }
   display: flex; align-items: center; justify-content: center; gap: var(--s2);
   transition: all var(--dur-2) var(--ease);
 }
+/* THE LINE ABOVE IS WHY THIS ONE EXISTS. `display: flex` is an AUTHOR rule and
+   `[hidden] { display: none }` is a USER-AGENT rule, so every ctl-btn that a
+   module marks hidden is painted anyway — and a ctl-btn with nothing in it is a
+   blank, pressable, full-width box. MEASURED in the shipped 1.0.20 window, on
+   the panel that opens from the "+" node in the fleet tree: the compose panel's
+   `agent-compose-enable` carried `hidden`, computed `display: flex`, an empty
+   textContent, a 349x40 rect, and answered elementFromPoint at its own centre —
+   in the middle of the form a person fills in to start their first agent.
+   src/cloud.css and home.css each met this trap and each guarded their own
+   corner; guarding it here, beside the rule that causes it, is what stops the
+   next corner from having to. */
+.ctl-btn[hidden] { display: none; }
 .ctl-btn svg { width: 15px; height: 15px; }
 .ctl-btn:hover { background: rgba(255,255,255,calc(0.9 * var(--wa))); color: var(--ink); transform: translateY(-1px);
   box-shadow: inset 0 1px 0 rgba(255,255,255,var(--wa)), var(--elev-2); }
@@ -2125,6 +2501,14 @@ body[data-route="computers"] { --page-max: 1680px; }
 .ctl-btn.danger:hover { color: var(--s-serious); border-color: color-mix(in oklab, var(--s-serious) 30%, white); }
 
 .ctl-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); padding: var(--s2) 2px; }
+/* Without this, the flex rule above beats [hidden] and the tree rail's Setup
+   box painted BOTH of its conditional rows: "Restart it in the new folder"
+   with no folder change, and an empty Reports-to menu with a Save button
+   directly above the sentence saying there is nowhere to move the agent —
+   the product contradicting itself in one viewport (proven on the packaged
+   build, tools/tree-panel-audit-drive.mjs shot 07, 2026-08-20). Same rule as
+   .ctl-btn[hidden] below; gate: tools/test/hidden-display-honesty.test.mjs. */
+.ctl-row[hidden] { display: none; }
 .ctl-row .cl { font-size: 12.5px; color: var(--ink-2); font-weight: 550; white-space: nowrap; }
 .ctl-row .cv { font-size: 12.5px; color: var(--ink-25); font-variant-numeric: tabular-nums; font-family: var(--font-mono); flex: none; }
 /* 130 → 118px: the label ("Context budget") and the mono value both grew,

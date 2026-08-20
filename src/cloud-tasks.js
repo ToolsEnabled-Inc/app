@@ -96,6 +96,11 @@ function stateNode(node, tone, text, code = null) {
   if (!node) return
   node.dataset.state = tone
   node.textContent = text
+  /* A SLOT WITH NOTHING TO SAY IS NOT DRAWN. The controller blanks a line when
+     another line has already stated the condition -- one condition, one
+     paragraph -- and an empty <output> that still takes its row leaves a gap
+     where a person looks for a sentence. */
+  node.toggleAttribute('hidden', String(text || '').trim().length === 0)
   if (typeof code === 'string' && code.length > 0) node.setAttribute('data-refusal-code', code)
   else node.removeAttribute('data-refusal-code')
 }
@@ -292,7 +297,7 @@ function offSwitch() {
  * ---------------------------------------------------------------- */
 function mountCloudSwitchedOff(root, anchor, availability) {
   const surface = el(`<section class="write-surface cloud-surface" data-cloud-off aria-label="Codex Cloud">
-    <header><strong>Codex Cloud</strong><span data-cloud-status role="status">off · this computer cannot start a cloud task</span></header>
+    <header><strong>Codex Cloud</strong><span data-cloud-status role="status">Off</span></header>
     <div class="write-surface-grid">
       <div class="write-form">
         <span class="write-form-title">Launching cloud tasks is switched off</span>
@@ -454,9 +459,11 @@ export function mountCloudTaskSurface(root, { live = false, anchor = '.agent-str
   }
   const onCancel = () => { controller.disarm() }
   const onEnvironmentChange = () => { applyEnvironment() }
+  /* ONE READ, IN ORDER. These two used to race, and whichever refused second
+     painted its own paragraph about the same condition into its own box. See
+     refresh() in ./cloud-tasks-controller.js. */
   const onRefresh = () => {
-    void controller.loadAccounts()
-    void controller.loadTasks({ environment: environmentSelect.value || undefined })
+    void controller.refresh({ environment: environmentSelect.value || undefined })
   }
   form.addEventListener('submit', onSubmit)
   cancelButton.addEventListener('click', onCancel)
@@ -587,8 +594,7 @@ export function cloudControlsBox({ postAction = postBridgeAction } = {}) {
     cancelButton.addEventListener('click', () => { controller.disarm() })
     environmentSelect.addEventListener('change', () => { applyEnvironment() })
     refreshButton.addEventListener('click', () => {
-      void controller.loadAccounts()
-      void controller.loadTasks({ environment: environmentSelect.value || undefined })
+      void controller.refresh({ environment: environmentSelect.value || undefined })
     })
   }
 

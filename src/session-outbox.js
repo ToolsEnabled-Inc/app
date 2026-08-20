@@ -119,6 +119,37 @@ export function requeueFront(sessionId, entry) {
   return true
 }
 
+/** THE SAME WORDS, THE SAME AGENT, A NEW SESSION.
+ *
+ * A resume closes one session and opens another over the SAME node: the person
+ * is still talking to the agent in that circle, and the messages waiting in the
+ * queue are still addressed to it. They used to be destroyed at that moment --
+ * resumeNodeSession called clearSession on the old id -- so a message the
+ * composer had already promised would "send by itself when this turn finishes"
+ * vanished without a word, and the only thing that had happened was that the
+ * agent came back under a new name.
+ *
+ * This is deliberately not the same act as clearSession, which stays for the
+ * two places where the words really have nowhere to go: Stop (the person ended
+ * the conversation, and it says how many were dropped) and "start over".
+ *
+ * Anything already waiting at the destination keeps its place at the front: it
+ * was said first. Returns how many moved. */
+export function moveSession(fromSessionId, toSessionId) {
+  const from = usableSession(fromSessionId)
+  const to = usableSession(toSessionId)
+  if (!from || !to || from === to) return 0
+  const carried = queues.get(from) || []
+  if (carried.length === 0) return 0
+  queues.delete(from)
+  const waiting = queues.get(to) || []
+  const merged = [...waiting, ...carried].slice(0, MAX_PER_SESSION)
+  queues.set(to, merged)
+  announce(from)
+  announce(to)
+  return merged.length - waiting.length
+}
+
 /** A closed session's drafts have no address; drop them and say how many. */
 export function clearSession(sessionId) {
   const session = usableSession(sessionId)

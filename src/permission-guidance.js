@@ -323,23 +323,29 @@ export const RISK_PROFILES = Object.freeze({
     capabilities: Object.freeze(['Changes how much this app animates, which some people find calmer and which uses a little less battery.']),
     risks: Object.freeze(['None worth the word. Turning animation down hides no information; every number it moves is still shown.']),
   }),
-  layout: Object.freeze({
-    capabilities: Object.freeze(['Changes how a screen arranges what it is already showing you.']),
-    risks: Object.freeze(['None worth the word. It rearranges what is on screen and adds or removes nothing.']),
-  }),
-  performance: Object.freeze({
-    capabilities: Object.freeze(['Trades how smooth this app feels against how much battery and processor it uses.']),
-    risks: Object.freeze(['None to your files or your privacy. At the cheaper settings screens update more slowly, so what you are looking at can be a few seconds behind.']),
-  }),
   demonstration: Object.freeze({
     capabilities: Object.freeze(['Changes the built-in example fleet: how fast it moves and how varied it looks. It is there so you can see what each screen does before you have activity of your own.']),
     risks: Object.freeze(['None. The example is invented data. Every screen that shows it says so. None of it is ever sent anywhere, or mistaken for your own records.']),
   }),
-  developer: Object.freeze({
-    capabilities: Object.freeze(['Shows extra internal detail, which is useful when you are reporting a problem precisely.']),
-    risks: Object.freeze(['None to what this program may do. The extra detail is on your screen only; it is not collected and not sent anywhere.']),
-  }),
 })
+
+/* THREE PROFILES WERE REMOVED ON 2026-08-20 -- `layout`, `performance` and
+ * `developer` -- because every section that named them is gone.
+ *
+ * They were the sharp edge of the defect, not collateral of it. This file
+ * asserted "Changes how a screen arranges what it is already showing you" over
+ * Fleet Graph, Metrics, Chat & Threads, Comms Board and Ledger; "Trades how
+ * smooth this app feels against how much battery and processor it uses" over
+ * Performance; and "Shows extra internal detail" over Developer. Not one row
+ * under any of those headings was read by anything. So the product was not
+ * merely shipping controls that did nothing -- it was, in its own most careful
+ * voice, in the place a person goes to find out what a switch will do,
+ * CLAIMING AN EFFECT FOR THEM. A dead control is a disappointment; a dead
+ * control with a reasoned explanation of its effect is a false statement.
+ *
+ * The wording is kept in docs/design/UNBUILT-SETTINGS-ROWS-2026-08-20.md with
+ * the rows it described. If one of those features is built, the profile comes
+ * back with it -- after the behaviour exists, not before. */
 
 /* Which family each settings section belongs to. A section that is not here has
  * no profile, which is an ABSENCE and is reported as one -- it is not quietly
@@ -348,14 +354,13 @@ export const SECTION_RISK_PROFILE = Object.freeze({
   Appearance: 'appearance',
   'Text & Reading': 'reading',
   'Motion & Effects': 'motion',
-  'Fleet Graph': 'layout',
-  Metrics: 'layout',
-  'Chat & Threads': 'layout',
-  'Comms Board': 'layout',
-  Ledger: 'layout',
-  Performance: 'performance',
   'Data & Sim': 'demonstration',
-  Developer: 'developer',
+  /* `Ledger` is deliberately absent rather than mapped. Its one surviving row,
+     `ledger_archive`, carries its own declaration in SUBJECTS below -- which is
+     the honest one, because archiving records is not "rearranging what a screen
+     is already showing you". A section mapping here would never be consulted
+     for it, and leaving one would assert a family statement over a section that
+     has no row needing it. */
 })
 
 /* ---------- the rows that are not just presentation ---------- */
@@ -488,16 +493,13 @@ export const SUBJECTS = Object.freeze({
     ]),
     turnOnAt: 'Settings → Ledger',
   }),
-  'mock_failures': Object.freeze({
-    whatItDoes: 'Lets practice error states appear on screens that are actually healthy, so you can see what a failure looks like.',
-    capabilities: Object.freeze([
-      'You can see how the app reports a problem without waiting for a real one.',
-    ]),
-    risks: Object.freeze([
-      'A screen can show an alarming state that is not real. Leave this on and you will eventually not believe a real one.',
-    ]),
-    turnOnAt: 'Settings → Developer',
-  }),
+  /* `mock_failures` was declared here until 2026-08-20 and its row is gone: it
+     wrote a key nothing read, so no practice failure ever appeared and the
+     honest risk statement it carried ("Leave this on and you will eventually
+     not believe a real one") described something that could not happen. Its
+     `turnOnAt` also named "Settings → Developer", a section that no longer
+     exists -- a declaration outliving its row would send a person to a heading
+     that is not there. */
 })
 
 /* The setup walkthrough's own answers. Kept here with everything else so the

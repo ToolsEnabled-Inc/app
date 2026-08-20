@@ -163,8 +163,28 @@ export function environmentSummary(environment) {
    reading has not been shown to be unauthorized, and a surface that renders a
    partial list as the whole set turns "we could not ask" into "you do not have
    it" -- the absence-as-answer defect this codebase keeps finding. */
-export function environmentsMessage({ loaded, environments, complete }) {
+/* NOBODY HAS SIGNED IN HERE YET, WHICH IS A STATE AND NOT A FAILURE.
+ *
+ * THE DEFECT THIS CLOSES, and it is the whole of the owner's finding 8. On a
+ * computer with no Codex account the capability layer threw -- a first run was
+ * modelled exclusively as an error, with no success shape that could say "we
+ * looked, and there are none" -- so this panel had nothing to render but a
+ * refusal, and it rendered it TWICE, once for the accounts and once for the
+ * environments, because one condition was published into two slots. Two
+ * near-identical 47-word paragraphs, one under the other, for a person who had
+ * simply never signed in. His words: "almost impossible for a human to make any
+ * meaning of."
+ *
+ * The engine answers with an empty reading now (src/lib/cloud-agent/codex-cloud-launch.js),
+ * and this is the sentence for it: what is true, and the one thing to do. */
+export const NO_ACCOUNT_TEXT = 'No Codex account is signed in on this computer, so there is nothing to show here yet. Sign in to Codex Cloud on this computer, then press Refresh.'
+
+export function environmentsMessage({ loaded, environments, complete, signedIn = true }) {
   if (!loaded) return { tone: 'note', text: 'Environments not read yet.' }
+  /* Before anything about environments, because an environment belongs to an
+     account: with no account, "no environment is authorized for the configured
+     accounts" describes accounts that do not exist. */
+  if (signedIn === false) return { tone: 'note', text: NO_ACCOUNT_TEXT }
   const usable = environments.filter(environment => environment.launchable === true).length
   if (environments.length === 0) {
     return complete
@@ -234,6 +254,9 @@ export function bindingText(environment, state = null) {
     }
     return `Bound to ${environment.repository}${environment.defaultBranch ? ` · default branch ${environment.defaultBranch}` : ' · the provider states no default branch'}${environment.visibility ? ` · ${environment.visibility}` : ''}`
   }
+  /* Said in three words rather than by repeating the sign-in sentence that is
+     already on the panel. One condition, one paragraph. */
+  if (state && state.signedIn === false) return 'Nothing is bound, because no Codex account is signed in here.'
   if (state && state.environmentsLoaded !== true) {
     if (state.environmentsTone === 'refused') {
       return 'Nothing is bound. The environments could not be read, so where a task would land is unknown.'
@@ -430,6 +453,12 @@ export function createCloudTaskController({
     phase: availability.ok ? 'idle' : 'unavailable',
     note: availability.note,
     accounts: Object.freeze([]),
+    /* WHAT THE ACCOUNT READ ANSWERED, as a state rather than as the shape of a
+       message. `null` is "not asked yet"; 'none' is the first run; 'refused' is
+       a read that failed. The three send a person three different places, and
+       the panel used to have only the third. */
+    accountsPhase: null,
+    signedIn: null,
     defaultAccount: null,
     environments: Object.freeze([]),
     environmentsComplete: false,
@@ -486,6 +515,20 @@ export function createCloudTaskController({
      really arrives here, because a cloud call can fail before the layer has
      anything to say about it. */
   const refusal = result => refusalSentence(result, { fallback: 'The request did not complete.' })
+
+  /* THE REMEDY FOR AN ACCOUNT LIST THAT IS THERE AND CANNOT BE READ.
+     ./refusal-copy.js has no entry for the registry-parse family, so it falls to
+     the product-wide remedy -- "try it once more" -- which is wrong advice for a
+     file that will be exactly as malformed on the second press. Nothing about
+     this is fixed by retrying, and the one thing that does fix it is signing in
+     again, because that is what writes the file. */
+  const accountsRefusal = result => {
+    const code = refusalCodeOf(result)
+    const remedy = /^ACCOUNTS_(REGISTRY|ENTRY|NAME|ROLE|PROFILE)_/.test(String(code || ''))
+      ? 'Nothing was read and nothing was spent. Sign in to Codex Cloud on this computer again, so this copy can write itself a fresh list of accounts.'
+      : ''
+    return refusalSentence(result, { fallback: 'The account list did not come back.', remedy })
+  }
   const clock = () => new Date().toLocaleTimeString()
 
   /* ACCOUNTS AND ENVIRONMENTS ARRIVE TOGETHER, because on this provider they
@@ -496,26 +539,51 @@ export function createCloudTaskController({
     const result = await postAction('cloud-accounts', {})
     if (destroyed) return state
     if (result?.ok !== true || !Array.isArray(result.receipt?.accounts)) {
+      /* ONE CONDITION, ONE PARAGRAPH. This used to publish the SAME refusal
+         sentence into the task-list line and the environments line, and the
+         panel drew both, one under the other. The accounts and the environments
+         are one read on this provider -- the comment above loadAccounts says so
+         -- so they get one line. The task list line is BLANKED rather than
+         given a second wording, because a blank slot is silence and a second
+         wording is the defect. */
       publish({
         accounts: Object.freeze([]),
+        accountsPhase: 'refused',
+        signedIn: null,
         defaultAccount: null,
-        listTone: 'refused',
-        listMessage: `Accounts unavailable · ${refusal(result)}`,
-        listCode: refusalCodeOf(result),
+        listTone: 'note',
+        listMessage: '',
+        listCode: null,
         /* NOT "no environments": a refused read says nothing about what exists.
-           environmentsLoaded stays false so the launch path keeps refusing. */
+           environmentsLoaded goes back to FALSE so the launch path keeps
+           refusing -- and it is set here rather than left at its initial value,
+           which is the bug this comment used to describe without doing. After a
+           successful read followed by a refused one it stayed true, and the
+           binding line then told a person "no environment chosen yet" about a
+           reading that had just failed. An unread list never permits a launch,
+           and a list that could not be re-read is unread. */
+        environments: Object.freeze([]),
+        environmentsLoaded: false,
+        environmentsComplete: false,
         environmentsTone: 'refused',
-        environmentsMessage: `Environments unavailable · ${refusal(result)}`,
+        environmentsMessage: `Your Codex accounts could not be read. ${accountsRefusal(result)}`,
         environmentsCode: refusalCodeOf(result),
       })
       return state
     }
+    const accounts = Object.freeze(result.receipt.accounts.map(account => Object.freeze({ ...account })))
     const environments = Object.freeze((Array.isArray(result.receipt.environments) ? result.receipt.environments : [])
       .map(environment => Object.freeze({ ...environment })))
     const complete = result.receipt.environmentsComplete === true
-    const message = environmentsMessage({ loaded: true, environments, complete })
+    /* THE FIRST RUN, AS ONE EMPTY STATE WITH ONE NEXT ACTION. `signedIn` is the
+       engine's own answer where it gives one, and falls back to "are there any
+       accounts", which is the same fact for every reading this panel can get. */
+    const signedIn = result.receipt.signedIn === undefined ? accounts.length > 0 : result.receipt.signedIn === true
+    const message = environmentsMessage({ loaded: true, environments, complete, signedIn })
     publish({
-      accounts: Object.freeze(result.receipt.accounts.map(account => Object.freeze({ ...account }))),
+      accounts,
+      accountsPhase: signedIn ? 'ready' : 'none',
+      signedIn,
       defaultAccount: result.receipt.defaultAccount || null,
       environments,
       environmentsComplete: complete,
@@ -523,6 +591,8 @@ export function createCloudTaskController({
       environmentsReadAt: typeof result.receipt.environmentsReadAt === 'string' ? result.receipt.environmentsReadAt : null,
       environmentsTone: message.tone,
       environmentsMessage: message.text,
+      /* Nothing to read tasks as, and the line above already says why. */
+      ...(signedIn ? {} : { listTone: 'note', listMessage: '', listCode: null }),
     })
     return state
   }
@@ -536,7 +606,16 @@ export function createCloudTaskController({
     const result = await postAction('cloud-tasks', body)
     if (destroyed) return state
     if (result?.ok !== true || !Array.isArray(result.receipt?.tasks)) {
-      publish({ listTone: 'refused', listMessage: `Tasks unavailable · ${refusal(result)}`, listCode: refusalCodeOf(result) })
+      /* WHEN THE ACCOUNTS LINE HAS ALREADY EXPLAINED THIS, SAY NOTHING. A task
+         read fails for the same reason the account read did -- no account to
+         read as -- and restating it here is how one condition became two
+         paragraphs. `refresh()` does not even get this far in those states;
+         this covers a caller that reads tasks on its own. */
+      if (state.accountsPhase === 'refused' || state.accountsPhase === 'none') {
+        publish({ listTone: 'note', listMessage: '', listCode: null })
+        return state
+      }
+      publish({ listTone: 'refused', listMessage: `Your Codex tasks could not be read. ${refusal(result)}`, listCode: refusalCodeOf(result) })
       return state
     }
     const tasks = result.receipt.tasks.map(task => Object.freeze({ ...task }))
@@ -829,12 +908,28 @@ export function createCloudTaskController({
     return state
   }
 
+  /* THE ONE READ THE REFRESH BUTTON MAKES, IN ORDER.
+   *
+   * The surface used to fire loadAccounts() and loadTasks() side by side and
+   * let them race. Whichever refused second painted its own version of the same
+   * condition into its own box, which is how a panel with one problem showed
+   * two paragraphs about it. In order, the accounts answer decides whether
+   * there is anything to read tasks AS -- with no account signed in, or with
+   * the account read refused, there is not, and the panel says so once. */
+  async function refresh(request = {}) {
+    await loadAccounts()
+    if (destroyed) return state
+    if (state.accountsPhase === 'refused' || state.accountsPhase === 'none') return state
+    return loadTasks(request)
+  }
+
   return Object.freeze({
     getState: () => state,
     isArmed: () => armed !== null,
     isWatching: () => watchTimer !== null,
     loadAccounts,
     loadTasks,
+    refresh,
     readDiff,
     arm,
     confirm,

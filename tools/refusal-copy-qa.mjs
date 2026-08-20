@@ -63,6 +63,11 @@ import { fileURLToPath } from 'node:url'
    the product's. Both modules are plain data with no DOM. */
 import { IDENTIFIER_RE } from '../src/refusal-copy.js'
 import { assertRendererMeasurable, assertStagedRendererConsistent } from './lib/staged-renderer.mjs'
+/* The fleet page opens with an EMPTY tree by the product's own rule, so the
+   node these controls hang off has to be made first. See tools/lib/fleet-node.mjs;
+   nothing is spent, because the start is refused by a signed-out engine and the
+   node is written before the engine is asked. */
+import { startFleetNode } from './lib/fleet-node.mjs'
 
 const SELF = fileURLToPath(import.meta.url)
 const REPO_ROOT = path.resolve(path.dirname(SELF), '..')
@@ -266,7 +271,7 @@ async function openApp(executable, scratch, label) {
     return 'clicked'
   })()`)
 
-  return { evaluate, until, clickVisible, clickLastVisible, clickByText, teardown, noise }
+  return { evaluate, until, clickVisible, clickLastVisible, clickByText, teardown, noise, session }
 }
 
 function createSession(child, userDataDir, say) {
@@ -481,7 +486,13 @@ async function main() {
       === 'clicked' && await app.until('the settings screen', `location.hash === '#/settings'`)
     check('Settings is reachable by pressing a control', settingsReached,
       `hash=${await app.evaluate('location.hash')}`)
-    if (settingsReached) await record('settings')
+    if (settingsReached) {
+      /* The groups ship collapsed (settings-ia); open them the way a person
+         does, so the record and the presses below see the whole page. */
+      await app.evaluate(`(() => { for (const head of document.querySelectorAll('.settings-group-head[aria-expanded="false"]')) head.click(); return true })()`)
+      await delay(500)
+      await record('settings')
+    }
     const doorOffences = seen.filter(entry => entry.found.length > 0)
     check('no screen reached through a door shows a bare identifier either', doorOffences.length === 0,
       doorOffences.map(entry => `${entry.label}: ${entry.found.join(', ')}`).join(' | ') || `${seen.length} screens read in total`)
@@ -492,22 +503,56 @@ async function main() {
         /* Find each write toggle by the words next to it, press it, and report
            what the storage says afterwards -- so "the toggle moved" and "the
            product believes it" are two facts, not one assumption. */
-        const wanted = ['Dispatch agent lanes', 'Launch Codex Cloud tasks']
+        const wanted = [
+          { label: 'Dispatch agent lanes', settingId: 'write_dispatch' },
+          { label: 'Launch Codex Cloud tasks', settingId: 'write_cloud-launch' },
+          /* The controls below hang off a node, and a node only exists once
+             this person has started an agent on this computer. This is the
+             switch that decides whether the product will let anything start. */
+          { label: 'Run an agent session', settingId: 'write_agent-session' },
+        ]
         const pressed = []
-        for (const label of wanted) {
-          const row = [...document.querySelectorAll('*')].find(node =>
-            node.children.length <= 6
-            && (node.innerText || '').trim().startsWith(label)
-            && node.querySelector('button, input[type=checkbox], [role=switch]'))
-          const control = row?.querySelector('button, input[type=checkbox], [role=switch]')
+        for (const { label, settingId } of wanted) {
+          /* THE ROW, NOT AN ANCESTOR OF IT. This used to be a
+             querySelectorAll('*') sweep with .find(), which walks in DOCUMENT
+             ORDER and therefore returns the OUTERMOST element whose text starts
+             with the label -- a section container, not the row. Its first
+             control in document order can be a reveal button, so this pressed
+             the wrong thing and reported the write flag unmoved, which reads
+             exactly like a product defect and is not one. Measured 2026-08-17.
+             src/views/settings.js:395 gives every row a data-setting-id; use it,
+             and keep the old sweep only as a fallback for a renamed row. */
+          const row = document.querySelector('article[data-setting-id="' + settingId + '"]')
+            || [...document.querySelectorAll('*')].reverse().find(node =>
+              node.children.length <= 6
+              && (node.innerText || '').trim().startsWith(label)
+              && node.querySelector('button, input[type=checkbox], [role=switch]'))
+          /* The toggle first: a row may carry other controls, and only this one
+             is the setting. */
+          const control = row?.querySelector('input[type=checkbox], [role=switch]')
+            || row?.querySelector('button')
           if (!control) { pressed.push(label + ': no control'); continue }
+          /* Report what the press DID, not just that one happened: a toggle
+             that was already on reads the same as one that refuses to move. */
+          /* ASK THE QUESTION THE CHECK'S NAME ASKS. Pressing blindly turned an
+             already-ON toggle OFF and then reported that it "cannot be switched
+             on" -- a green product reading as a defect. So: press only when it
+             is off, and prove the control MOVES by pressing twice when it is
+             already on, ending enabled either way. */
+          const key = 'mc.write.' + settingId.replace('write_', '')
+          const before = { checked: control.checked ?? null, stored: localStorage.getItem(key) }
           control.click()
-          pressed.push(label + ': pressed')
+          const mid = { checked: control.checked ?? null, stored: localStorage.getItem(key) }
+          if (mid.stored !== 'enabled') control.click()
+          const after = { checked: control.checked ?? null, stored: localStorage.getItem(key) }
+          pressed.push(label + ': ' + before.stored + ' -> ' + mid.stored + ' -> ' + after.stored
+            + (mid.stored !== before.stored ? ' (the control moves)' : ' (THE CONTROL DID NOT MOVE)'))
         }
         return JSON.stringify({
           pressed,
           dispatch: localStorage.getItem('mc.write.dispatch'),
           cloud: localStorage.getItem('mc.write.cloud-launch'),
+          agentSession: localStorage.getItem('mc.write.agent-session'),
         })
       })()`)
       note(`write toggles: ${flagsOn}`)
@@ -517,6 +562,8 @@ async function main() {
     const cloudOn = storage.cloud === 'enabled'
     check('the Dispatch write action can be switched on from Settings', dispatchOn, `mc.write.dispatch=${storage.dispatch}`)
     check('the Codex Cloud write action can be switched on from Settings', cloudOn, `mc.write.cloud-launch=${storage.cloud}`)
+    check('the Run-an-agent-session write action can be switched on from Settings',
+      storage.agentSession === 'enabled', `mc.write.agent-session=${storage.agentSession}`)
 
     /* Back to the fleet page by pressing, then into an agent's controls rail,
        then the control itself. Every step reports what it found so a run that
@@ -558,15 +605,14 @@ async function main() {
         await delay(500)
       }
       if (!await app.until('the fleet page', `location.hash === '#/computers'`)) return false
-      await app.until('the graph', `document.querySelectorAll('.static-tree-node').length > 0`)
-      if (await app.clickVisible('.static-tree-node .node-glass') !== 'clicked') return false
-      await delay(900)
-      if (await app.clickByText('button', 'controls') !== 'clicked'
-        && await app.clickVisible('[data-a="controls"], .rail-controls') !== 'clicked') {
-        /* Some builds open the rail straight onto the controls page. */
-        note('no separate Controls step; looking for the launch box directly')
-      }
-      await delay(900)
+      /* THIS USED TO WAIT FOR A CIRCLE THAT WAS NEVER GOING TO APPEAR. A
+         sterile profile has started nothing, the tree is empty by the product's
+         own rule, and the wait simply timed out -- so all three drives below it
+         reported "the control could not be reached", which is UNMEASURED and
+         reads, correctly, as a red. The node is made the way a person makes
+         one, and the walk names the step that stopped if it stops. */
+      const reached = await startFleetNode({ session: app.session, evaluate: app.evaluate, delay })
+      if (!reached.ok) { note(`the fleet node walk stopped at ${reached.at}: ${reached.detail}`); return false }
       const there = await app.until('the launch control', `document.querySelector('[data-launch="dispatch"]:not([disabled])') !== null`, 40)
       if (!there) return false
       return await app.clickVisible('[data-launch="dispatch"]') === 'clicked'
@@ -579,11 +625,39 @@ async function main() {
        line does, so the copy under test is identical and nothing is created.
        Pressing Launch to measure a refusal would be measuring a refusal by
        risking the thing the refusal is about. */
+    /* REFRESH WITH NO ACCOUNT SIGNED IN IS MEASURED ON THE ACCOUNTS LINE, NOT
+       THE TASK LINE, and that is the behaviour under test rather than a
+       convenience.
+
+       This check used to press Refresh and wait for the TASK line to say
+       something. It said the same thing the accounts line had already said --
+       one condition, two 47-word paragraphs -- which is precisely the defect
+       the owner filed against this panel. The repair made `refresh()` stop at
+       the accounts read when there is no account to read as
+       (src/cloud-tasks-controller.js: "WHEN THE ACCOUNTS LINE HAS ALREADY
+       EXPLAINED THIS, SAY NOTHING"), so the task line is now deliberately
+       silent in this state and the old wait could only ever time out.
+
+       Asserting the task line here again would demand the duplication back. So
+       the press is measured where the sentence now lives, and the silence of
+       the task line is checked separately below -- which makes this driver
+       defend the deduplication instead of fighting it. */
     await drive('Codex Cloud · Refresh tasks (a read; nothing is launched)', async () => {
       const there = await app.until('the cloud panel', `document.querySelector('[data-cloud="refresh"]') !== null`, 40)
       if (!there) return false
       return await app.clickVisible('[data-cloud="refresh"]') === 'clicked'
-    }, '[data-cloud="list-out"]')
+    }, '[data-cloud="environments-out"]')
+
+    /* The other half of the same fact: one condition, one sentence. */
+    {
+      const taskLine = await app.evaluate(`(() => {
+        const node = document.querySelector('[data-cloud="list-out"]')
+        return node ? String(node.innerText || node.textContent || '').replace(/\\s+/g, ' ').trim() : null
+      })()`)
+      check('the task line stays silent while the accounts line explains',
+        taskLine === '' || taskLine === null,
+        `task line: ${JSON.stringify(taskLine)} -- with no account signed in this condition is explained once, on the accounts line`)
+    }
 
     await drive('Codex Cloud · the environments read that happens on its own', async () =>
       app.until('the environments line to say something',

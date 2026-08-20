@@ -56,6 +56,7 @@
  */
 
 import { CODEX_SETUP_COMMANDS, UNAVAILABLE_TEXT, unavailableReason } from './agent-availability-copy.js'
+import { NODE_REMOVE_REFUSALS } from './fleet-trees.js'
 import { GENERIC_REMEDY, isBareIdentifier, refusalCodeOf, refusalRemedy, refusalSentence } from './refusal-copy.js'
 import { LAUNCH_TIERS } from './orchestration-controls.js'
 import { ROLES } from './vocab.js'
@@ -147,15 +148,23 @@ export const EMPTY_NODE = Object.freeze({
    The panel on the right.
    --------------------------------------------------------------- */
 
-/* TWO FIELDS AND A BUTTON, AND THE INTRO SAYS SO. A person looking at a new
+/* ONE QUESTION AND A BUTTON, AND THE INTRO SAYS SO. A person looking at a new
    panel is deciding whether this is a form they can finish; telling them how
    short it is answers that before they start reading the labels.
    The field labels are questions rather than nouns. "Role" and "Message" are
    what the fields are called in the code; "What kind of agent is this?" is what
-   a person is actually being asked. */
+   a person is actually being asked.
+
+   IT SAID "TWO ANSWERS AND IT RUNS" UNTIL THE ROLE STOPPED BEING REQUIRED.
+   Owner, 2026-08-19: "users shouldnt be forced to choose a role". Exactly one
+   question on this panel has no answer until a person gives one, and that is
+   the brief; the role, the model, the effort and the folder all arrive
+   answered. An intro that goes on claiming two are needed would be the panel
+   contradicting its own button, which is the defect the tier help text was
+   fixed for two days earlier. */
 export const START_PANEL = Object.freeze({
   title: 'Start an agent here',
-  intro: 'Two answers and it runs: what this agent is, and what you want done.',
+  intro: 'Say what you want done and press Start. Everything else already has an answer.',
   /* WHERE THE NEW AGENT IS GOING, and there are two of these because a node's
      name is not always known. The named form is a FUNCTION rather than a
      fragment a caller glues a name onto: a fragment invites `${name}` at the
@@ -167,15 +176,76 @@ export const START_PANEL = Object.freeze({
   underNamed: (name) => `This agent will work under ${name}.`,
   underUnnamed: 'This agent joins your tree under the spot you pressed.',
   roleLabel: 'What kind of agent is this?',
-  roleHelp: 'Pick where it sits in your tree. You can change this later.',
-  /* THE FIRST ROW OF THE ROLE MENU. A menu must have something selected, and
-     pre-selecting a real role would answer the panel's own question for the
-     person and let a role nobody chose through on a single press. So the first
-     row is this prompt, it carries no role, and it is never a valid answer --
-     pressing Start on it gets needRole below. A blank first row would do the
-     same job for a screen reader, which reads the label, and would read as a
-     rendering fault to everybody else. */
-  rolePrompt: 'Choose a role',
+  /* THE ROLE IS OFFERED, NOT DEMANDED (owner, 2026-08-19: "users shouldnt be
+     forced to choose a role"). The help has to say BOTH halves, because a menu
+     that no longer refuses looks exactly like a menu that still does: what a
+     role is for, and what leaving it alone actually means. The second half is
+     not a reassurance -- it is the measured behaviour. A start with no role
+     stores no role, and every surface that has to put a word on that agent
+     already has one: the canvas draws it in the neutral role, the circle is
+     called "Agent", and the brief tells it the same address it would have had.
+     Nothing is invented for it and nothing is left blank. */
+  roleHelp: 'Optional. Pick where it sits in your tree, or leave it and this agent just does the job you describe.',
+  /* THE FOLDER, ASKED WHERE THE OWNER SAID IT SHOULD BE ASKED.
+   *
+   * Owner, 2026-08-16: "when a user starts a tree they should select a folder,
+   * they can have a default folder, where the agents spawn". It was only ever
+   * askable AFTER the fact, on an existing tree's rail, which is why he came
+   * back on 2026-08-19 asking what had happened to it.
+   *
+   * ONLY WHEN A TREE IS BEING STARTED. A start under an existing agent joins a
+   * tree that already has a folder, and offering the menu there would let one
+   * nested start silently re-point every agent in the tree. So this field is
+   * drawn for a new tree and for nothing else -- the same `newTree` the panel
+   * already computes.
+   *
+   * THE MENU IS THE PROFILES THAT EXIST, NEVER A PATH THIS PANEL INVENTED.
+   * Making a named folder stays in ONE place, the fleet rail, so there is no
+   * second folder-creation mechanism to keep in step with the first. */
+  folderLabel: 'Which folder do its agents work in?',
+  folderHelp: 'Every agent in this tree starts in this folder and reads the instructions there.',
+  /* THE FIRST ROW MEANS "NAME NO FOLDER", AND WHAT THAT RESOLVES TO IS NOT ALWAYS
+   * THE SAME PLACE. THESE TWO PAIRS SAY WHICH, AND THE DIFFERENCE WAS MEASURED.
+   *
+   * shell/main.cjs, at the one seam where a start with no profileId is resolved:
+   * "A START THAT NAMES NO FOLDER RUNS IN THE ONE THE PERSON CHOSE IN SETUP"
+   * (chosenWorkspaceCwd(), landed 2026-08-18). <userData>\workspace survives only
+   * as the fallback for a machine where nobody was ever asked.
+   *
+   * This module was still saying the pre-2026-08-18 thing, and on the happy path
+   * it was simply false. Two runs of the packaged build, same panel, same
+   * sentence, two different signed spawn records:
+   *
+   *   finished setup, took the suggested folder   cwd = <home>\Documents\AI Workspace
+   *   skipped setup, nobody was ever asked        cwd = null -> the product's workspace
+   *
+   * So the person who had just answered the folder question two screens earlier
+   * was told their agent would work somewhere else, and pointed at a control to
+   * "add one" for work they had already done -- four lines above a footer, on the
+   * same panel, that said "It may change files only inside the folder you chose."
+   * One panel, two answers.
+   *
+   * THE PATH ARRIVES AS DATA AND IS NEVER ASSEMBLED HERE, the same rule
+   * underNamed() follows: the caller reads it from mcSetup.workspaceState(), and
+   * whoever renders it puts it on the page as TEXT. */
+  folderWorkspace: 'The product’s own workspace',
+  folderWorkspaceChosen: 'The folder you chose in setup',
+  /* Not a refusal: starting works fine without a named folder. It is a pointer to
+     where named folders are made, named exactly as the rail names that section so
+     a person can go find it. */
+  folderNone: 'No folders set up yet — these agents will work in the product’s own workspace. Add one under “Folders your agents work in” on this page.',
+  folderNoneChosen: (folder) => `No named folders yet — these agents work in the folder you chose in setup, ${folder}. Name one under “Folders your agents work in” on this page to keep different kinds of work apart.`,
+  /* THE FIRST ROW OF THE ROLE MENU, AND IT IS NOW AN ANSWER RATHER THAN A
+     PROMPT. A menu must have something selected, and pre-selecting a real role
+     would answer the panel's own question for the person and let a role nobody
+     chose through on a single press. So the first row still carries no role and
+     is still what the menu opens on -- what changed is that pressing Start on it
+     now WORKS, so the row has to say what it means instead of nagging.
+     "Choose a role" was an instruction to do something the panel no longer
+     requires; this is the state it leaves the agent in. A blank first row would
+     do the same job for a screen reader, which reads the label, and would read
+     as a rendering fault to everybody else. */
+  rolePrompt: 'No particular role',
   /* THE MODEL QUESTION, and it is worded as one. "Tier" is what the wire calls
      it; a person is being asked what their agent runs on. Unlike the role menu
      this one arrives answered: the product has a default engine, so the menu
@@ -184,7 +254,26 @@ export const START_PANEL = Object.freeze({
      and refuse by name when picked -- hiding them would make a chosen model
      quietly become Codex, the exact defect the tier channel closed. */
   tierLabel: 'What does it run on?',
-  tierHelp: 'Luna is a good default. The Claude choices are listed so you can see them, and picking one tells you it cannot start yet.',
+  /* THE LAST PLACE THE DEAD END WAS STILL WRITTEN DOWN.
+   *
+   * This line read "Claude cannot start from a tree yet; to use Claude, hand the
+   * work over on the agent page instead." Both halves were removed everywhere
+   * else on 2026-08-17 and this one survived, because it is help text under the
+   * menu rather than a refusal, so no test about refusals looked at it. It was
+   * found by DRIVING the panel and reading what was actually on the glass.
+   *
+   * BOTH HALVES WERE WRONG BY THEN. The destination was driven from the state a
+   * person reads this in -- a set-up machine, a tree -- and had ZERO doors:
+   * no link, no enabled control, and the agent route is not on the ring. And
+   * "cannot start from a tree" is now decided per build by the shell, not by
+   * this file: tierChoicesFor() labels each row from what
+   * mc-agent:startable-tiers actually answered, so a build carrying the engine
+   * shows "Sonnet · Claude" while this sentence underneath still said it could
+   * not start. The menu and its own help contradicted each other on one screen.
+   *
+   * So the help says only what is true of every build: which row is a good
+   * default. What a given row can do is on the row, where it is computed. */
+  tierHelp: 'Luna is a good default. Each row says so if this copy cannot start it.',
   effortLabel: 'How hard should it think?',
   effortHelp: 'Harder thinking is slower and costs more. The tier picks a sensible default; change it here for this agent.',
   messageLabel: 'What do you want it to do?',
@@ -192,9 +281,35 @@ export const START_PANEL = Object.freeze({
   messagePlaceholder: 'Read the notes in my documents folder and list what is unfinished.',
   submit: 'Start this agent',
   cancel: 'Not now',
-  /* The two ways to press Start too early. Each says what is missing and what
-     to do, in that order, and neither of them scolds. */
-  needRole: 'Pick a role first, then press Start.',
+  /* THE MARK THAT SAYS THERE IS MORE TO READ, AND WHY IT IS A CHARACTER.
+   *
+   * Owner, 2026-08-19, on this panel for the second time: "pg 2 right pnel
+   * STILL reads ugly and messy. Make some of the tips only show on hover ...
+   * so it isnt so messy". A tip that is hidden with nothing standing where it
+   * was is not tidier, it is gone -- so each field that HAS one says so, right
+   * after the question it belongs to.
+   *
+   * It is one character because this product has no icon set: every glyph on
+   * this rail today is either a typographic character or a CSS shape, and
+   * introducing an image for five hints would be new visual vocabulary from
+   * the one module whose whole promise is that it adds none. It is marked
+   * aria-hidden where it is drawn, because it is not the tip and it is not a
+   * control -- a screen reader gets the tip itself, unchanged, through the
+   * field's own aria-describedby, which is exactly where it got it before. */
+  tipMark: '?',
+  /* THE ONE WAY LEFT TO PRESS START TOO EARLY. It says what is missing and what
+     to do, in that order, and it does not scold.
+
+     THERE WERE TWO. `needRole` -- "Pick a role first, then press Start." -- was
+     removed on 2026-08-19 on the owner's words: "users shouldnt be forced to
+     choose a role". It is not moved, softened or hidden behind anything; the
+     refusal it belonged to is gone, so the sentence is gone with it. The role
+     menu keeps its place at the top of the form and rolePrompt above says what
+     the untouched row means.
+
+     THE BRIEF IS STILL REQUIRED, and that is not an oversight. A start with no
+     role has a real answer at every surface that must name it; a start with no
+     brief has nothing to send, so it would open a session and hand it silence. */
   needMessage: 'Say what you want done first, then press Start.',
 })
 
@@ -204,10 +319,266 @@ export const START_PANEL = Object.freeze({
    model and what it runs on; the id rides on the option value where only the
    program reads it, the same split the role menu keeps. */
 const TIER_PROVIDER_WORDS = Object.freeze({ codex: 'Codex', claude: 'Claude', local: 'your computer' })
-export const TIER_CHOICES = Object.freeze(LAUNCH_TIERS.map(tier => Object.freeze({
-  id: tier.id,
-  label: `${tier.label} · ${TIER_PROVIDER_WORDS[tier.provider] || tier.provider}`,
-})))
+/* THE ONE PROVIDER THIS TREE CAN START. shell/agent-host.cjs resolveStartTier()
+   refuses every other provider by name (AGENT_TIER_NO_LAUNCHER); the same fact
+   is written on the row so a person sees it BEFORE pressing, on every surface
+   that draws these rows -- the compose panel and the research designer's tier
+   checkboxes both render `label`. The wording matches the running-session
+   model menu in src/views/computers.js, so the product says it one way. */
+/* WHAT THIS COPY CAN START, WHEN NOBODY HAS ASKED THE SHELL YET.
+ *
+ * This list used to be the ANSWER -- a frozen ['codex'] that decided the label
+ * on every surface drawing these rows. The shell stopped agreeing with it: since
+ * the tier gate opens on the payload genuinely carrying an engine (an actual
+ * require() that must export a start function), a build WITH the Claude engine
+ * would start a Claude tier while these rows went on saying it could not. A menu
+ * that contradicts the button is worse than either answer alone.
+ *
+ * So this is now only the FALLBACK, and it is the pessimistic one on purpose: a
+ * renderer with no bridge behind it (a plain browser), a payload older than the
+ * channel, or a reply this build cannot parse all land here, and all of them are
+ * builds where exactly the three Codex tiers start. Guessing wider would put
+ * "startable" under a row that refuses. */
+export const TREE_DEFAULT_STARTABLE_TIERS = Object.freeze(['luna', 'terra', 'sol'])
+/* "from a tree", not "here". A person reads this row on the tree, where it is
+   true, and the same product hands work to a Claude assistant on the agent page,
+   where it is not. The old wording made those two screens contradict each other. */
+const TIER_CANNOT_START_HERE = 'cannot start from a tree yet'
+/* THE OTHER REASON A ROW CANNOT START, AND THE ONE tierHelp WAS PROMISING AND
+ * NOT DELIVERING.
+ *
+ * `startable` above answers ONE question: does this payload carry a launcher for
+ * that tier. shell/agent-host.cjs resolveStartTier() returns the row for any
+ * provider === 'codex' unconditionally, so it structurally cannot see a missing
+ * sign-in -- and a missing sign-in is exactly what refuses the press, by name,
+ * as AGENT_CONFINEMENT_SIGNED_OUT.
+ *
+ * MEASURED ON THE PACKAGED BUILD, one machine, one moment, cold install:
+ *   mcProviders.presence()      codex installed yes, signedIn "no"
+ *   mcAgent.startableTiers()    luna, terra, sol  (and the three Claude tiers)
+ *   the rows drawn              "Luna · Codex", saying nothing
+ *   the press                   "Nothing was started. This session needs a
+ *                                Codex sign-in, and this computer does not
+ *                                hold one."
+ * Re-read after the press, with a completed round trip behind it: identical. And
+ * the discriminating arm -- the same build with presence flipped to signedIn
+ * "yes" -- drew rows that were byte-identical, so the rows were not a function of
+ * it at all. Meanwhile "Local · your computer — cannot start from a tree yet"
+ * printed correctly throughout, which is what proves the rows CAN say so.
+ *
+ * ONLY THE PROVEN NEGATIVE REACHES THIS, and shell/provider-cli-presence.cjs is
+ * where that discipline is already written: only Codex treats a missing sign-in
+ * file as proof ('no'), "because this shell already refuses a start on exactly
+ * that basis". Everything else -- 'yes', 'unknown', no answer yet, no bridge --
+ * says nothing, because a file that exists is not a working sign-in and rounding
+ * an "I could not tell" up to a warning would put a terminal command in front of
+ * somebody who is already signed in. */
+const TIER_NOBODY_SIGNED_IN = provider => `nobody is signed in to ${provider} on this computer`
+/* AND THE MACHINE THAT NEVER HAD THE PROGRAM, which the sentence above sends to
+ * a dead end.
+ *
+ * `codex login` is a SUBCOMMAND OF THE PROGRAM ITSELF, so on a computer with no
+ * Codex the sign-in line asks a person to run something that answers "'codex' is
+ * not recognized" -- which is, verbatim, what this product's first external user
+ * hit on 1.0.20. The row was right that it could not start and wrong about what
+ * to do next, which costs more than silence: it spends the one instruction the
+ * person is going to try.
+ *
+ * BOTH FLAGS ARE TRUE ON THAT MACHINE, so the order is what does the work.
+ * shell/provider-cli-presence.cjs gives Codex `signInProves: 'absence'`, so a
+ * computer with no Codex reports installed:'no' AND signedIn:'no' -- the sign-in
+ * file cannot be there when the program never was. Measured against the rows as
+ * they stood: that machine drew "nobody is signed in to Codex on this computer"
+ * and said nothing about installing anything.
+ *
+ * THE ORDER IS ALREADY THIS CODEBASE'S RULE, and it is copied rather than
+ * invented. codexCommandIsMissing() in shell/agent-host.cjs checks the program
+ * BEFORE the sign-in and states why: "Reporting the CLI first yields the only
+ * sequence that terminates: install, then sign in, each step true when it is
+ * shown." A row and the refusal a press would give now name the same first step.
+ *
+ * 'unknown' IS STILL NEVER ROUNDED UP. presence() answers 'unknown' when it
+ * could not read PATH at all, which is not an empty PATH; turning that into
+ * "you have not installed it" would tell somebody to redo an install that
+ * worked, which is the mirror of the defect above. */
+const TIER_NOT_INSTALLED = provider => `${provider} is not installed on this computer`
+/**
+ * Which tiers this copy can really start, out of what the shell answered.
+ *
+ * THE SHELL IS THE ONLY PARTY THAT KNOWS. mc-agent:startable-tiers does not
+ * keep a list; it runs the SAME resolveStartTier() the press resolves from, so
+ * the menu and the button cannot disagree by construction. This function's only
+ * job is to refuse to believe anything else.
+ *
+ * AN EMPTY ARRAY IS AN ANSWER, NOT A FAILURE, and it is the one case worth
+ * spelling out. `{ok: true, tiers: []}` means the shell resolved every tier and
+ * none of them can start -- so every row says so. It does NOT fall back to the
+ * three Codex tiers: that would be this file overruling the shell on the one
+ * question the shell was asked, and it would put "startable" under a row that
+ * refuses. A reply that is missing, rejected, malformed, or names tiers this
+ * build has never heard of is a different thing entirely -- nothing was
+ * learned -- and that lands on the pessimistic default above.
+ */
+export function startableTierIds(reply) {
+  if (!reply || typeof reply !== 'object' || reply.ok !== true || !Array.isArray(reply.tiers)) {
+    return TREE_DEFAULT_STARTABLE_TIERS
+  }
+  const known = reply.tiers.filter(id => typeof id === 'string' && LAUNCH_TIERS.some(tier => tier.id === id))
+  /* Every entry unrecognised while the list was not empty means this renderer
+     and that shell do not share a tier table -- an answer about a product this
+     one is not, so it is discarded rather than half-read. */
+  if (reply.tiers.length > 0 && known.length === 0) return TREE_DEFAULT_STARTABLE_TIERS
+  return Object.freeze(known)
+}
+
+/**
+ * The menu rows, labelled by what this copy can actually start.
+ *
+ * @param startable      tier ids the shell resolved, from startableTierIds().
+ * @param signedOutOf    provider ids this computer is PROVABLY not signed in to
+ *                       -- `presence()` answering 'no', never 'unknown'. Empty
+ *                       by default, so a caller that has not asked, or cannot,
+ *                       gets exactly the rows it got before this parameter
+ *                       existed.
+ *
+ * @param notInstalledOf  provider ids whose PROGRAM this computer provably does
+ *                       not have -- `presence()` answering installed:'no',
+ *                       never 'unknown'. Empty by default, for the same reason.
+ *
+ * ONE ROW SAYS ONE THING, AND THE ORDER IS THE WHOLE POINT, because a machine
+ * can hold more than one of these at once and only the first is worth acting on:
+ *
+ *   no launcher   >  no program  >  no sign-in
+ *
+ * NO LAUNCHER OUTRANKS BOTH: a copy that carries nothing to start cannot be
+ * fixed by installing or signing into anything, so naming either would be
+ * sending someone to do work that changes nothing.
+ *
+ * NO PROGRAM OUTRANKS NO SIGN-IN, and that pair is not hypothetical -- a
+ * computer with no Codex reports BOTH, because `codex login` is a subcommand of
+ * the missing program and its sign-in file cannot exist without it. Saying
+ * "sign in" there spends the person's one instruction on a command that answers
+ * "'codex' is not recognized". codexCommandIsMissing() in shell/agent-host.cjs
+ * orders its own refusals this way for exactly this reason.
+ */
+export function tierChoicesFor(startable = TREE_DEFAULT_STARTABLE_TIERS, signedOutOf = [], notInstalledOf = []) {
+  const canStart = new Set(Array.isArray(startable) ? startable : TREE_DEFAULT_STARTABLE_TIERS)
+  const signedOut = new Set(Array.isArray(signedOutOf) ? signedOutOf.filter(id => typeof id === 'string') : [])
+  const noProgram = new Set(Array.isArray(notInstalledOf) ? notInstalledOf.filter(id => typeof id === 'string') : [])
+  return Object.freeze(LAUNCH_TIERS.map(tier => {
+    const provider = TIER_PROVIDER_WORDS[tier.provider] || tier.provider
+    let why = ''
+    if (!canStart.has(tier.id)) why = TIER_CANNOT_START_HERE
+    else if (noProgram.has(tier.provider)) why = TIER_NOT_INSTALLED(provider)
+    else if (signedOut.has(tier.provider)) why = TIER_NOBODY_SIGNED_IN(provider)
+    return Object.freeze({
+      id: tier.id,
+      label: why ? `${tier.label} · ${provider} — ${why}` : `${tier.label} · ${provider}`,
+    })
+  }))
+}
+
+/**
+ * Which providers this computer is PROVABLY not signed in to, out of a
+ * `mcProviders.presence()` reply.
+ *
+ * The whole judgement lives here rather than at the call site for the same
+ * reason startableTierIds() does: it is the place that refuses to believe
+ * anything but a proven negative, and a second copy of that rule at a caller is
+ * a second copy that softens. Anything that is not `ok:true` with a providers
+ * array teaches nothing and yields nothing.
+ */
+export function signedOutProviderIds(reply) {
+  if (!reply || typeof reply !== 'object' || reply.ok !== true || !Array.isArray(reply.providers)) return Object.freeze([])
+  return Object.freeze(reply.providers
+    .filter(row => row && typeof row.id === 'string' && row.signedIn === 'no')
+    .map(row => row.id))
+}
+
+/**
+ * Which providers this computer provably does not HAVE THE PROGRAM for, out of
+ * the same reply.
+ *
+ * Its own function beside the one above rather than a second field threaded out
+ * of one call, because they are two different proofs about two different things
+ * -- a missing program and a missing sign-in -- and only one of them is worth
+ * telling a person about at a time. `installed: 'no'` is the only answer that
+ * reaches here: 'unknown' means presence() could not read PATH at all, which is
+ * not the same as an empty one, and reporting it as absent would tell somebody
+ * to redo an install that worked.
+ */
+export function notInstalledProviderIds(reply) {
+  if (!reply || typeof reply !== 'object' || reply.ok !== true || !Array.isArray(reply.providers)) return Object.freeze([])
+  return Object.freeze(reply.providers
+    .filter(row => row && typeof row.id === 'string' && row.installed === 'no')
+    .map(row => row.id))
+}
+
+/* WHAT A NODE'S ENGINE ROW SAYS, DERIVED RATHER THAN DECLARED.
+ *
+ * THE SENTENCE THIS REPLACES, and the owner's report about it: the tree node
+ * panel's Setup box carried a hardcoded `TREE_ENGINE_LABEL = 'Codex'` and a
+ * note reading "Agents you start from this tree run on Codex. You pick the
+ * model in the start panel; the Claude choices are listed there and say so
+ * when they cannot start yet." Both were written when Codex was the only
+ * engine in the payload. capability/src/lib/agent-engine/claude-cli-process.js
+ * ships now, resolveStartTier() stops refusing the Claude tiers, and the panel
+ * went on naming Codex as THE engine on a build that starts Claude.
+ *
+ * IT IS TRUE BY CONSTRUCTION NOW, not by upkeep -- the same discipline
+ * tierChoicesFor() already applies to the start menu. The words come from what
+ * mc-agent:startable-tiers actually answered, which is the SAME
+ * resolveStartTier() a press runs, so this row and the button cannot disagree.
+ * A build that gains or loses an engine changes this sentence with no edit
+ * here, and there is no argument that makes it name a provider the shell did
+ * not list.
+ *
+ * A node that HAS run says what it ran on instead, from the tier recorded on
+ * it -- that is history, and it stays true after the payload changes. */
+export function tierProviderWord(tierId) {
+  const row = LAUNCH_TIERS.find(candidate => candidate.id === tierId)
+  if (!row) return null
+  return TIER_PROVIDER_WORDS[row.provider] || row.provider
+}
+
+/** The distinct provider words behind a set of startable tier ids, in menu order. */
+export function startableProviderWords(startable = TREE_DEFAULT_STARTABLE_TIERS) {
+  const ids = new Set(Array.isArray(startable) ? startable : TREE_DEFAULT_STARTABLE_TIERS)
+  const words = []
+  for (const tier of LAUNCH_TIERS) {
+    if (!ids.has(tier.id)) continue
+    const word = TIER_PROVIDER_WORDS[tier.provider] || tier.provider
+    if (!words.includes(word)) words.push(word)
+  }
+  return Object.freeze(words)
+}
+
+export const TREE_ENGINE = Object.freeze({
+  /* An older record has no tier on it. "Not recorded", never a guess: naming
+     the default here would put a provider on a run that may not have used it. */
+  unrecorded: 'not recorded',
+  /* The shell resolved every type and can start none of them. Said plainly,
+     because the start panel is about to refuse and this is the warning. */
+  none: 'nothing yet',
+  noneNote: 'This copy cannot start any agent type from a tree yet. The start panel marks every type, and says so before you press.',
+  note: words => `Agents you start from this tree run on the type you pick in the start panel. This copy can start ${listWords(words)}.`,
+  /* For a node that already ran: what it ran on, not what this copy could
+     start today. */
+  ran: word => `This agent ran on ${word}.`,
+})
+
+/* "Codex and Claude", not "Codex, Claude" -- the panel is prose, and a comma
+   list of two reads as a fragment beside the sentences around it. */
+function listWords(words) {
+  const list = Array.isArray(words) ? words.filter(Boolean) : []
+  if (list.length === 0) return 'nothing'
+  if (list.length === 1) return list[0]
+  return `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`
+}
+
+/* The rows a surface gets when it has not asked. Same value this constant has
+   always had, so every existing importer is unchanged. */
+export const TIER_CHOICES = tierChoicesFor()
 
 /* Preselected, not prompted: the engine has a default, so the menu states it.
    An empty first row here would be a question the product already answers. */
@@ -277,6 +648,64 @@ export const SAID_PANEL = Object.freeze({
   emptyTurn: 'The turn finished without any words back. Ask again, or ask for something smaller.',
 })
 
+/* A TURN THAT FAILED, ON A SESSION THAT REALLY STARTED. Measured on the
+   2026-08-18 fresh-install walkthrough: a real Fable turn ended in the
+   engine's own sentence -- "You're out of usage credits · resets Aug 25,
+   12am" -- and the card said "The turn finished without any words back" while
+   the chip said "did not start", over a session whose start the signed spawn
+   record shows. Two lies from one gap: the failure's sentence never left the
+   engine, and the only failure word the store had was the start-failure one.
+
+   These are the words for the state that was missing. 'turn-failed' is a
+   store status beside 'finished' (see NODE_STATUS_WORDS below); the reply
+   carries the engine's sentence verbatim, because the provider's own words
+   are the ones a person can act on. */
+export const TURN_FAILED = Object.freeze({
+  word: 'the last turn failed',
+  reply: sentence => `The last turn failed: ${sentence}`,
+})
+
+/* THE CHIP WORD FOR EVERY STATUS THE STORE ACCEPTS -- one table, read by the
+   chip on the canvas, the rail behind it, and the tooltip, so no surface can
+   invent its own word for a state. 'failed' is a START that never happened
+   ("did not start"); 'turn-failed' is a TURN that ended badly on a session
+   that genuinely ran. Collapsing those two into one word is the measured
+   defect this table exists to keep fixed: the card un-said a start the
+   signed record shows. */
+export const NODE_STATUS_WORDS = Object.freeze({
+  draft: 'not started yet',
+  starting: 'starting',
+  running: 'running',
+  finished: 'finished',
+  failed: 'did not start',
+  'turn-failed': TURN_FAILED.word,
+  /* A deliberate stop is the person's act, not the product's failure. Written
+     only when THIS window initiated the interrupt (both doors — the palette
+     row and the composer's Stop face — reach one handler that records the
+     press); an organic failure in the same instant still reads as one,
+     because the record is consumed per turn. Measured 2026-08-19: without
+     this word, pressing Stop mid-stream painted "the last turn failed" beside
+     a transcript honestly saying "Interrupted." */
+  interrupted: 'stopped by you',
+})
+
+/* THE WORDS ONE COMPLETED TURN LEAVES ON THE NODE, decided in one place.
+ *
+ * `spoken` is what the agent really streamed; it is never discarded. The
+ * engine's sentence is what a FAILED turn ended with -- often the only human
+ * sentence the whole turn produced (a refused model answers with no assistant
+ * text at all). A failed turn that streamed nothing shows the failure
+ * sentence; one that streamed words keeps them and the sentence both, because
+ * dropping either would hide something that happened. Only when there is
+ * genuinely nothing -- no words, no sentence -- does the honest empty-turn
+ * line show. */
+export function turnCompletionWords({ succeeded, spoken = '', engineSentence = null }) {
+  const said = typeof spoken === 'string' ? spoken.trim() : ''
+  const sentence = !succeeded && typeof engineSentence === 'string' ? engineSentence.trim() : ''
+  if (sentence) return said ? `${said}\n\n${TURN_FAILED.reply(sentence)}` : TURN_FAILED.reply(sentence)
+  return said || SAID_PANEL.emptyTurn
+}
+
 /* MOVING AN AGENT, in words. The owner's ask, verbatim: "there needs to be a
    way to quickly connect nodes and change hierarchies too". The picker offers
    only what the store's movePoints() would accept, so every sentence here is
@@ -301,6 +730,27 @@ export const MOVE_PANEL = Object.freeze({
   notDraggable: (name) => `${name} is this tree's coordinator and stays at the top. Move its agents instead.`,
 })
 
+/* REMOVING AN AGENT, in words. The owner's finding, verbatim: "there was also
+   no way to remove an old node you wanted to delete." The two refusal
+   sentences are the STORE's own (src/fleet-trees.js NODE_REMOVE_REFUSALS,
+   re-exported here by identity, not copied), so the row's reason and the
+   store's refusal are one string. The confirm stage says what goes BEFORE it
+   goes — the agent, by name, and its saved conversation on this computer —
+   and says what stays: the signed run records are the permanent record of
+   what ran, and a removal never touches them. */
+export const REMOVE_PANEL = Object.freeze({
+  action: 'Remove this agent',
+  hint: 'Takes this agent off your tree. Nothing goes until you confirm.',
+  whyRunning: NODE_REMOVE_REFUSALS.running,
+  whyChildren: NODE_REMOVE_REFUSALS.children,
+  /* The name is data the person typed around; whoever renders this puts it on
+     the page as TEXT, the same rule START_PANEL.underNamed states. */
+  confirm: name => `This removes ${name} and its saved conversation here. The signed run records are kept.`,
+  go: 'Remove',
+  done: name => `Removed ${name} and its saved conversation here. The signed run records are kept.`,
+  notRemoved: 'That agent was not removed. Open the menu and try again.',
+})
+
 /* SESSION PROFILES, in words. A profile is a name and a folder; agents in a
    tree assigned one wake up in that folder, which is where their instructions
    live -- so "different onboarding for different work" is a folder choice,
@@ -308,7 +758,18 @@ export const MOVE_PANEL = Object.freeze({
    folder in a row is the one the person picked in the system dialog. */
 export const PROFILE_PANEL = Object.freeze({
   title: 'Works in',
-  help: 'A profile is a name and a folder. Agents in a tree that uses a profile start in that folder and read its instructions — so different kinds of work stay apart.',
+  /* TWO HEADINGS THAT SAY "FOLDER", BECAUSE "WORKS IN" AND "SESSION PROFILES"
+     BOTH FAILED TO.
+     Owner, 2026-08-19: "what happened to sessions and choosing a folder for
+     each tree and such? ther right panel on page 2 is still so complicated i
+     think its in there maybe somewhere". It WAS in there: on the overview rail
+     under "Session profiles", 1152px down a 1524px scroll, and on a tree node
+     under "Setup" > "Works in". Neither heading contains the word he was
+     hunting for. These two do. `title` is kept as it was for the select's own
+     aria-label, which names the field rather than the panel. */
+  overviewTitle: 'Folders your agents work in',
+  nodeTitle: 'Folder these agents work in',
+  help: 'A profile is a name and a folder. Agents in a tree that uses a profile start in that folder and read its instructions, so different kinds of work stay apart.',
   treeHelp: 'Where agents in THIS TREE start. Applies to agents started after you change it.',
   productWorkspace: 'The product’s own workspace',
   none: 'No profiles yet. Name one and pick its folder.',
@@ -318,7 +779,7 @@ export const PROFILE_PANEL = Object.freeze({
   nameFirst: 'Name the profile first, then pick its folder.',
   cancelled: 'No folder was picked, so nothing was saved.',
   refused: 'That profile could not be saved. Try another name.',
-  needsApp: 'Profiles need the installed app; this window cannot reach it.',
+  needsApp: 'Profiles need the installed app, and this window cannot reach it.',
   assigned: (name) => `Agents in this tree now start in ${name}.`,
   cleared: 'Agents in this tree now start in the product’s own workspace.',
   /* The mid-conversation half of the owner's ask ("change session profiles
@@ -327,6 +788,34 @@ export const PROFILE_PANEL = Object.freeze({
      screen is a separate, warned press. */
   switchOffer: 'This agent keeps its current folder until it restarts. Restarting re-sends its saved conversation, which costs tokens.',
   switchGo: 'Restart it in the new folder',
+})
+
+/* THE FOUR WAYS WORK GETS STARTED, BEHIND ONE NAMED PRESS.
+ *
+ * WHAT WAS MEASURED (tools/rail-inventory-drive.mjs, packaged, 2026-08-20): the
+ * tree node's Details tab is nine stacked panels, and Launch, Team, Loop and
+ * Codex Cloud are the last four of them. They are already ONE idea -- the
+ * builder's own comment calls them "the four answers to how work gets started
+ * from this computer" -- so they read better as one group than as four peers of
+ * the conversation and the folder.
+ *
+ * COLLAPSED, NEVER HIDDEN. The owner's rule for this page is that no control
+ * hides harder than it has to, so the group is a real <button> with
+ * aria-expanded and a chevron, it NAMES all four of its panels on its own line,
+ * and the state it was left in is remembered. Nothing is removed and nothing
+ * inside the four boxes changes.
+ *
+ * AND IT PUTS A REMOUNT TRIGGER BEHIND A DELIBERATE PRESS. When cloud launching
+ * is switched off, src/cloud-tasks.js appends "Turn on Codex Cloud launching"
+ * into the Codex Cloud box's header, and that press calls setWriteEnabled --
+ * which tears down and rebuilds this whole view, discarding unsaved edits
+ * elsewhere on the page. Collapsed, it is no longer sitting in a person's
+ * scroll path. That is a mitigation, not the fix; the fix is another lane's. */
+export const START_WORK_GROUP = Object.freeze({
+  title: 'Start more work',
+  contents: 'Launch, Team, Loop and Codex Cloud',
+  expandLabel: 'Show the ways to start more work: Launch, Team, Loop and Codex Cloud',
+  collapseLabel: 'Hide the ways to start more work',
 })
 
 /* RESUMING A DEAD SESSION (iteration 5 W7). A session cannot be reopened —
@@ -345,6 +834,36 @@ export const RESUME_PANEL = Object.freeze({
      which is the difference worth saying out loud. */
   continued: 'Back. This is the same agent, with everything it already remembered — nothing had to be re-sent.',
   marker: 'Resumed — the saved conversation above was sent to a fresh agent.',
+})
+
+/* A CHAT OVER AN AGENT THAT IS NOT RUNNING, WHICH IS STILL A CHAT.
+ *
+ * WHAT THIS REPLACED, and why it was the owner's report. Both chat surfaces on
+ * the tree -- the compact card on the canvas and the rail's Chat tab -- were
+ * gated on the node holding a session id, so a node whose START WAS REFUSED
+ * opened nothing at all. That is not a rare state: submitCompose() marks a
+ * refused start `failed` and leaves the session id null, so on a build that
+ * cannot start the picked engine EVERY node a person makes is one of these, and
+ * "the chatboxes dont open" is the exact and correct description of it.
+ *
+ * IT DOES NOT BECOME A TEXT BOX THAT SWALLOWS WORDS. src/node-chatbox.js's
+ * header states the rule this obeys: a composer must never pretend to reach a
+ * process that cannot hear it. So the chat opens over the real conversation --
+ * what the person asked for, and the reply if there ever was one -- with the
+ * message box disabled and one of these sentences in its place. The actions
+ * button stays, because the things that CAN still be done to an agent that
+ * never started (start one under it, move it, copy its brief) all live there.
+ *
+ * The refusal is not rewritten here. `refused` composes the node's OWN
+ * statusNote, which is the sentence the start path already wrote, so this
+ * surface and the panel that reported the refusal cannot drift apart. */
+export const CHAT_NOT_RUNNING = Object.freeze({
+  subtitle: 'your agent · not running',
+  /* Composed after the node's own refusal sentence. */
+  refused: reason => `${reason} Nothing can be sent to an agent that did not start.`,
+  /* No refusal on file: the start was never attempted, or the record predates
+     status notes. Never says the start failed, because nothing says it did. */
+  neverStarted: 'This agent is not running, so there is nothing here to send a message to. What you asked for is above, and its answer arrives here when it runs.',
 })
 
 /* CHANGING HOW HARD IT THINKS, MID-CONVERSATION (iteration 5 W10). The wire
@@ -378,6 +897,23 @@ export const RECOVERED_SESSION = Object.freeze({
   bare: 'That agent’s session had ended, so a fresh one started in its place. Your message is going now.',
 })
 
+/* THE STATE AN APP RESTART LEAVES BEHIND.
+ *
+ * A session is a child process, so closing ToolsEnabled ends it. The RECORD of
+ * the node survives, still saying what it was doing at the moment the window
+ * went away, and on the next launch that record used to be read as a running
+ * agent: a ticking clock, a chip reading "starting", and a Stop button over
+ * something that had stopped hours earlier.
+ *
+ * These are the words for what really happened. They say the session ended,
+ * they say why, and each one ends with the thing to do next, because a person
+ * looking at this node is looking for the way out of it. */
+export const ENDED_SESSION = Object.freeze({
+  word: 'stopped',
+  subtitle: 'your agent · this session ended when the app closed',
+  said: 'The app closed while this agent was working, so its answer was lost. Type a message to bring it back, or use Resume with a fresh agent.',
+})
+
 /* THE ACTIONS PALETTE — now the chat composer's popup. Every row is an
    action this build really performs on this node, today. What the product
    cannot do is one honest sentence in the footer, never a disabled control
@@ -399,6 +935,11 @@ export const PALETTE_PANEL = Object.freeze({
   attachCancelled: 'Nothing was attached.',
   mention: 'Mention a file',
   mentionHint: 'Opens a file picker and writes the path into your message. The agent reads it itself, under its own permissions.',
+  /* ITS OWN SENTENCE. A cancelled mention used to say "Nothing was attached."
+     which is true of a different action, and a person who had just pressed
+     Mention read a sentence about Attach. */
+  mentionCancelled: 'No file was mentioned.',
+  mentionWritten: 'Written into your message box. Finish the sentence and send it.',
   clear: 'Start this conversation over',
   clearHint: 'The agent forgets everything said here. Its place in your tree and its brief stay.',
   cleared: 'Started over. It remembers nothing from before — say what you want from the message box or the queue.',
@@ -418,6 +959,30 @@ export const PALETTE_PANEL = Object.freeze({
   moveFocusHint: 'Opens the Reports-to menu on the Details tab.',
   copyBrief: 'Copy what you asked for',
   copyReply: 'Copy what it said',
+  /* THE GROUPS, because eleven mixed-severity rows in source order put "Stop
+     this agent" beside "Copy what it said". Three headings, and the one that
+     ends or forgets something is last and on its own. */
+  groupConversation: 'This conversation',
+  groupAgent: 'This agent',
+  groupDanger: 'Stop or start over',
+  /* WHY A ROW CANNOT BE PRESSED, one sentence each, shown in place of the hint
+     on a row that is switched off. A disabled control that will not say why is
+     the exact class of thing the owner keeps filing. Each names the state and
+     none of them says what to do about it, because the way out is the row
+     itself becoming pressable once the state changes. */
+  whyNotRunning: 'This agent is not running right now.',
+  whyNotStarted: 'This agent has not started yet.',
+  whyNoTurns: 'You have not sent it a message yet.',
+  /* Measured 2026-08-18: after a restart this row said "You have not sent it a
+     message yet." beside a panel showing four sent messages. The sent-count the
+     row read is window memory and resets with the window; the saved
+     conversation does not. This is the sentence for that state -- the record is
+     real, and rewind's reach is not. */
+  whyOnlySavedTurns: 'Your saved messages are from before this window opened, and rewind cannot reach them. Send a new message first.',
+  whyNoBrief: 'Nothing was asked here yet.',
+  whyNoReply: 'It has not answered yet.',
+  whyNoSaved: 'There is no saved conversation to resume from.',
+  whyNoPicker: 'This page cannot open a file picker. Use the installed app.',
   copied: 'Copied.',
   nothingToCopy: 'There is nothing to copy yet.',
   clipboardRefused: 'Select the text on the agent page instead — the clipboard refused this copy.',
@@ -454,6 +1019,13 @@ export const REWIND_PANEL = Object.freeze({
   busy: 'Interrupt the running turn first — a rewind needs the agent idle.',
   empty: 'Send a message first; your messages appear here to rewind to.',
   failed: 'The rewind did not happen; the conversation is unchanged. Try once more.',
+  /* A PERMANENT refusal is not a retry. MEASURED on the shipped build,
+     2026-08-19: rewinding a Claude session always fails -- the host rewinds by
+     forking the thread and that engine cannot fork (CLAUDE_CLI_FORK_UNSUPPORTED,
+     shell/agent-host.cjs rewindSession) -- and the sentence above told the
+     person to try once more, forever. This one says what is true and names the
+     door that does work. */
+  cannotFork: 'This agent runs on an engine that cannot rewind a conversation, so nothing was changed. To continue from the saved conversation, use "Resume with a fresh agent" in this menu.',
 })
 
 /* THE APPROVAL CARD — rendered only when a request arrives, which today is
@@ -480,11 +1052,17 @@ export function approvalDecisionWord(decision) {
   return String(decision || '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()
 }
 
-/* THE MODEL MENU on a running conversation. The engine accepts a model per
-   turn, so switching is real and the conversation continues — this is not the
-   respawn semantics of starting a new agent. Claude rows are shown so a
-   person can see they exist, and refused honestly when picked, exactly like
-   the start menu. */
+/* THE MODEL MENU on a running conversation. Codex accepts a model per turn, so
+   switching is real there and the conversation continues — this is not the
+   respawn semantics of starting a new agent. Every tier is shown so a person
+   can see what exists, and the ones this conversation cannot move to say why.
+
+   WHAT THIS COMMENT USED TO CLAIM, and it is worth keeping the correction
+   visible. It said Claude rows are "refused honestly when picked, exactly like
+   the start menu". Neither half survived measurement (2026-08-20): the rows
+   were not pickable at all — they were drawn disabled and labelled "Claude —
+   cannot start here yet" — and the start menu no longer refuses Claude, because
+   the payload now carries the engine. See sessionModelChoices() below. */
 export const MODEL_PANEL = Object.freeze({
   title: 'What it runs on',
   currentDefault: 'Runs on the model its tier chose when it started.',
@@ -497,6 +1075,96 @@ export const MODEL_PANEL = Object.freeze({
   keep: 'Keep the tier’s model',
 })
 
+/* WHICH PROVIDERS CAN CHANGE MODEL WITHOUT RESTARTING, as a property of the
+ * ENGINE rather than a preference.
+ *
+ * Codex reads a per-turn model: the host forwards `options.model` and the
+ * adapter passes it to the running thread.
+ *
+ * Claude does not, and this is not an oversight to be worked around. The CLI is
+ * spawned once with `--model <alias>` (claudeArgs() in the payload's
+ * claude-cli-adapter.js) and its sendTurn() destructures `{ threadId, text,
+ * images }` — `options` is validated by the engine contract and then never
+ * read. So an "enabled" Claude row would not switch anything; it would tell the
+ * person their messages now run on another model while the child process went
+ * on running the one it was launched with. A row that silently does nothing is
+ * the worst of the three possible answers, worse than refusing, because it
+ * cannot be noticed.
+ *
+ * `local` has no interactive runner in this copy at all — the shell refuses it
+ * at start (resolveStartTier) — so no conversation can be on it or move to it. */
+const PROVIDERS_THAT_SWITCH_MID_THREAD = Object.freeze(['codex'])
+
+const MODEL_SWITCH_REFUSAL = Object.freeze({
+  /* NAMED FOR THE THING THAT IS ACTUALLY IMPOSSIBLE. A thread belongs to the
+     program that is running it; there is no wire that hands a half-finished
+     Codex conversation to Claude. The sentence therefore points at the door
+     that does work rather than apologising for a missing feature. */
+  crossProvider: (fromWord, toWord) =>
+    `This conversation is running on ${fromWord}, and a conversation cannot move to ${toWord} once it has started. Start a new agent on this tier to use it.`,
+  /* THE SAME-PROVIDER CASE, which is a different fact and must not borrow the
+     sentence above: nothing is being crossed, the model is simply bound for the
+     life of the session. */
+  boundAtStart: word =>
+    `A ${word} conversation keeps the model it was started with — that is fixed when the agent starts. Start a new agent on this tier to use it.`,
+  local: 'A model on your computer has no interactive runner in this copy yet, so no conversation can move to one.',
+  /* PESSIMISTIC BY CONSTRUCTION. An older node record carries no tier, so this
+     menu cannot know which program is on the other end. Guessing would mean
+     offering a switch that may be a silent no-op, which is the exact defect
+     this function exists to end. */
+  unknownTier: 'This conversation did not record which model it started on, so it cannot be switched. Start a new agent to choose one.',
+})
+
+/**
+ * The "What it runs on" rows for a conversation that is ALREADY RUNNING, and
+ * the honest reason under every row it may not use.
+ *
+ * THE DEFECT THIS CLOSES, measured 2026-08-20 on the shipped build. These rows
+ * were built inline in src/views/computers.js from two hardcodes: a label
+ * reading `Claude — cannot start here yet` and `enabled: tier.provider ===
+ * 'codex'`. The label states something false about the product — the shell's
+ * own startableTiers(), constructed over release/win-unpacked's payload,
+ * answers ["luna","terra","sol","claude-fable","claude-sonnet","claude-opus"] —
+ * and it answers a question these rows are not asking, since they set a
+ * per-turn override rather than starting anything.
+ *
+ * IT GATES ON THE SESSION'S PROVIDER, NEVER ON A PROVIDER NAME. The old test
+ * was `tier.provider === 'codex'` with no reference to the conversation at all,
+ * which is upside down the moment Claude sessions exist: it would refuse
+ * sonnet→opus on a Claude conversation while permitting `gpt-5.6-luna` on that
+ * same conversation, because that row's provider happens to be the one string
+ * the check allowed. The only combination it let through was the impossible
+ * one.
+ *
+ * Every tier still gets a row. Hiding the models a person cannot pick would
+ * leave them wondering whether the product has them; showing them with the
+ * reason underneath is how the rest of this menu already behaves.
+ */
+export function sessionModelChoices(sessionTierId) {
+  const session = LAUNCH_TIERS.find(tier => tier.id === sessionTierId) || null
+  const sessionWord = session ? (TIER_PROVIDER_WORDS[session.provider] || session.provider) : null
+  const canSwitch = Boolean(session) && PROVIDERS_THAT_SWITCH_MID_THREAD.includes(session.provider)
+
+  return Object.freeze(LAUNCH_TIERS.map(tier => {
+    const word = TIER_PROVIDER_WORDS[tier.provider] || tier.provider
+    const enabled = canSwitch && tier.provider === session.provider
+    let disabledHint = ''
+    if (!enabled) {
+      if (!session) disabledHint = MODEL_SWITCH_REFUSAL.unknownTier
+      else if (tier.provider === 'local') disabledHint = MODEL_SWITCH_REFUSAL.local
+      else if (tier.provider !== session.provider) disabledHint = MODEL_SWITCH_REFUSAL.crossProvider(sessionWord, word)
+      else disabledHint = MODEL_SWITCH_REFUSAL.boundAtStart(word)
+    }
+    return Object.freeze({
+      id: tier.id,
+      model: tier.model,
+      label: `${tier.label} · ${word}`,
+      enabled,
+      disabledHint,
+    })
+  }))
+}
+
 /* THE RUNNING NARRATION, one line at a time. The engine says what it is doing
    -- a command starts, a command finishes, a file changes, an approval is
    wanted -- and this turns that data (sessionActivityEvent in
@@ -504,13 +1172,170 @@ export const MODEL_PANEL = Object.freeze({
    the person's own machine doing something, so the command TEXT rides in the
    line as data, bounded so a long script cannot swallow the rail. */
 const ACTIVITY_COMMAND_MAX = 120
+
+/* THE SAME NARRATION, AS A ROW RATHER THAN A LINE.
+ *
+ * activityLine above answers "what is it doing right now" and is overwritten by
+ * the next event. A chat row is the opposite: it stays, it is one of many, and
+ * it has to keep reading correctly hours later. So it is three short pieces
+ * rather than a sentence -- the tool's own name, the thing it was pointed at,
+ * and what became of it.
+ *
+ * THE TOOL NAMES ARE THE ENGINES' OWN and are not shown raw. codex says
+ * `commandExecution`; the Claude CLI says `Bash`. Neither is a word a person
+ * asked for, so each known one has a plain name here and an unknown one falls
+ * back to a word that is true of all of them. */
+const ACTION_TOOL_WORDS = Object.freeze({
+  commandExecution: 'Command',
+  fileChange: 'Edit',
+  mcpToolCall: 'Tool',
+  dynamicToolCall: 'Tool',
+  Bash: 'Command',
+  Read: 'Read',
+  Edit: 'Edit',
+  Write: 'Write',
+  Glob: 'Search',
+  Grep: 'Search',
+  WebFetch: 'Web',
+  WebSearch: 'Web',
+  Task: 'Helper',
+  command: 'Command',
+})
+
+const ACTION_STATE_WORDS = Object.freeze({
+  working: 'running',
+  done: 'finished',
+  /* "did not finish" rather than a failure word: this is a row label, and a
+     bare failure word with no way forward is the dead end the words gate is
+     there to catch. The command and its output are one press away, which is
+     where a person can actually see what happened. */
+  undone: 'did not finish',
+  /* NOT "did not finish", BECAUSE IT NEVER STARTED. The engine declined the
+     command before running it -- on a fresh profile every shell command a real
+     agent tries comes back this way (measured 2026-08-20). Four identical red
+     "did not finish" rows against `node --version` sent a reader looking for a
+     fault in their own commands; the truth is that this computer would not let
+     the agent run one. A person has to be able to tell a refusal from a crash
+     at a glance, so the word differs and so does the edge colour: the amber it
+     shares with "waiting for you", because both are about permission, while
+     red stays for things that genuinely broke. */
+  refused: 'refused',
+  waiting: 'waiting for you',
+  /* THE OUTCOME NOBODY MEASURED. The turn ended and this call's result never
+     arrived, so the only two words that would fit the slot are both untrue:
+     "finished" invents a success and "did not finish" invents a failure. The
+     row says the thing that is actually known. Kept in the neutral edge colour
+     for the same reason -- green would claim it went well, red would send a
+     person hunting a fault that may not exist. See settleUnfinished() in
+     src/agent-session-events.js for when a row lands here. */
+  unknown: 'no result came back',
+})
+
+/* THE COMMAND, NOT ITS DELIVERY VAN. On Windows the codex engine runs every
+   shell line as
+     "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command '...'
+   so every command row in a chat opened with the same fifty-six characters of
+   wrapper and the part a person asked about was past the ellipsis — measured
+   on a staged packaged build 2026-08-20, where two different commands drew
+   two visually identical rows. The row is a summary, so it shows what the
+   agent ran; the full line, wrapper and all, stays in the opened body and the
+   hover title, because the summary must never be the only record.
+
+   RECOGNISED, NEVER GUESSED: the first token must BE a known shell (by its
+   basename), the flags between it and the command text must be from the short
+   known list, and the command-carrying flag must be present. Anything else
+   comes back untouched — a path, a URL, or a shell line in a spelling this
+   has not measured is shown exactly as it arrived. */
+const SHELL_NAMES = Object.freeze(['powershell', 'powershell.exe', 'pwsh', 'pwsh.exe', 'cmd', 'cmd.exe', 'bash', 'bash.exe', 'sh', 'sh.exe', 'zsh'])
+
+export function commandSummary(command) {
+  if (typeof command !== 'string' || command.length === 0) return command
+  const first = /^\s*(?:"([^"]+)"|(\S+))\s+([\s\S]+)$/.exec(command)
+  if (!first) return command
+  const executable = (first[1] || first[2] || '').split(/[\\/]/).pop().toLowerCase()
+  if (!SHELL_NAMES.includes(executable)) return command
+  let rest = first[3]
+  for (;;) {
+    const flag = /^(?:-NoProfile|-NonInteractive|-NoLogo|-ExecutionPolicy\s+\S+|\/d|\/s|-l)\s+/i.exec(rest)
+    if (!flag) break
+    rest = rest.slice(flag[0].length)
+  }
+  const intro = /^(?:-Command|-lc|-c|\/c)\s+/i.exec(rest)
+  if (!intro) return command
+  rest = rest.slice(intro[0].length).trim()
+  const quoted = /^'([\s\S]*)'$/.exec(rest) || /^"([\s\S]*)"$/.exec(rest)
+  const bare = (quoted ? quoted[1] : rest).trim()
+  return bare.length > 0 ? bare : command
+}
+
+/* AN MCP TOOL CARRIES ITS OWN NAME, in its own spelling: mcp__<server>__<tool>.
+   MEASURED on the shipped build (2026-08-19): a child's two calls to
+   mcp__toolsenabled__agent_comms_send_local each drew "Step Step finished" --
+   raw name unrecognised, detail empty, fallback word in both slots -- so the
+   one thing a person wanted from the row (WHICH tool ran) was the one thing it
+   left out. The name is used as the DETAIL fallback only; a detail the event
+   did carry still wins. */
+const MCP_TOOL_NAME = /^mcp__([^_].*?)__(.+)$/
+
+export function actionRowWords(row) {
+  if (!row || typeof row !== 'object') return { tool: 'Step', detail: '', state: '' }
+  const raw = typeof row.tool === 'string' ? row.tool : ''
+  const mcp = MCP_TOOL_NAME.exec(raw)
+  const tool = ACTION_TOOL_WORDS[raw] || (mcp ? 'Tool' : (row.kind === 'approval' ? 'Approval' : 'Step'))
+  /* The summary drops a recognised shell wrapper (see commandSummary above);
+     details that are not wrapped shell lines pass through untouched. */
+  let detail = commandSummary(typeof row.detail === 'string' ? row.detail : '')
+  if (detail.length === 0 && mcp) detail = `${mcp[2]} · ${mcp[1]}`
+  return {
+    tool,
+    detail: detail.length > ACTIVITY_COMMAND_MAX ? `${detail.slice(0, ACTIVITY_COMMAND_MAX)}…` : detail,
+    state: ACTION_STATE_WORDS[row.state] || ACTION_STATE_WORDS.done,
+  }
+}
+
+/* THE RECORD ADMITS WHAT IT COULD NOT KEEP. A saved conversation is an
+   excerpt with bounds, and when those bounds really bite the shortened version
+   must not be shown as if it were the whole thing. */
+export const TRANSCRIPT_TRIMMED_NOTE = 'Some older messages were left out so the newest ones would fit.'
+
+/* THE HEADING OVER THE TREE'S OWN WORDS IN A CONVERSATION. The address block
+   rides with every tree start as its own entry (the person can see everything
+   a session was given), and without a name of its own it wore the person's
+   "YOU" — a wall of plumbing attributed to them. Three plain words say whose
+   words they are; the entry itself stays whole. */
+export const TREE_CONTEXT_LABEL = 'added by the tree'
+
+/* THE CLOSED LINE, WHICH HAS TO EARN THE PRESS.
+ *
+ * The aside is folded shut by default because it measured 298px in a 371px log
+ * -- a first-timer's first screen of their first conversation was internal
+ * plumbing. A fold nobody opens is no better, so the line says what is inside
+ * in the person's own words and how much of it there is. The size is in WORDS
+ * because that is the unit a person reads in; characters would be the
+ * program's unit, not theirs. */
+export function treeContextSummary(text) {
+  const words = String(text || '').trim().split(/\s+/).filter(Boolean).length
+  return `what the tree told this agent when it started · ${words} words`
+}
+
+/* WHAT THE CAP TOOK, SAID OUT LOUD. A per-turn cap a person cannot see is a
+   cap that lies about how much the agent did. */
+export function foldedActionsLine(count) {
+  const many = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0
+  if (many === 0) return ''
+  return many === 1 ? 'and 1 more step' : `and ${many} more steps`
+}
+
 export function activityLine(activity) {
   if (!activity || typeof activity !== 'object') return ''
   if (activity.kind === 'call') {
     if (activity.command) {
-      const command = activity.command.length > ACTIVITY_COMMAND_MAX
-        ? `${activity.command.slice(0, ACTIVITY_COMMAND_MAX)}…`
-        : activity.command
+      /* Same summary rule as the chat rows: the command, not the shell
+         wrapper the engine delivered it in. */
+      const spoken = commandSummary(activity.command)
+      const command = spoken.length > ACTIVITY_COMMAND_MAX
+        ? `${spoken.slice(0, ACTIVITY_COMMAND_MAX)}…`
+        : spoken
       return `Running a command: ${command}`
     }
     if (activity.tool === 'fileChange') return 'Editing files.'
@@ -603,7 +1428,11 @@ export const START_REFUSAL = Object.freeze({
      program that runs an agent, and Codex is a separate install. It walks the
      person to the two lines they have to type; it does not offer to type them,
      because it cannot. The commands are imported, not retyped. */
-  assistantProgramMissing: `Nothing was started. Codex is the program that actually runs an agent, and this computer does not have it yet. Open Windows Terminal and run "${CODEX_SETUP_COMMANDS.install}". Then run "${CODEX_SETUP_COMMANDS.signIn}" in the same window. Come back here and press Start again.`,
+  /* NOT "in the same window" for the sign-in. That wording stuck the first
+     external user: the window the install ran in never re-reads the PATH the
+     installer wrote, and answers "'codex' is not recognized". Reproduced
+     2026-08-19; src/first-run-needs.js carries the full account. */
+  assistantProgramMissing: `Nothing was started. Codex is the program that actually runs an agent, and this computer does not have it yet. Open Windows Terminal and run "${CODEX_SETUP_COMMANDS.install}". Then open a new terminal window and run "${CODEX_SETUP_COMMANDS.signIn}". Come back here and press Start again.`,
   /* The second line of the same answer, kept apart so the panel can show it
      quietly. A machine that already has Node usually has the second route. */
   assistantProgramNote: `If you already have Node, "${CODEX_SETUP_COMMANDS.installWithNode}" does the same job.`,
@@ -677,6 +1506,18 @@ function endSentence(text) {
   return /[.!?…]$/.test(value) ? value : `${value}.`
 }
 
+/* The availability table's sentences are written lower-case first because two
+   of their three surfaces read "unavailable · <phrase>" and "refused ·
+   <phrase>" (agent-session.js), where a capital would be wrong. This surface
+   is the third, and it puts a full stop in front of them -- which rendered
+   "Nothing was started. this copy starts Codex agents…" on the installed
+   1.0.17, measured. Capitalise HERE, at the one join that needs it, rather
+   than in twenty strings the other two surfaces also read. */
+function startCapital(text) {
+  const value = String(text ?? '')
+  return value.length === 0 ? value : value[0].toUpperCase() + value.slice(1)
+}
+
 /* DID THE PRODUCT ACTUALLY LEARN ANYTHING? The engine's own `reason` is good
    English and worth showing, but two things arrive in that field that are not:
    an empty string, and a `reason` that is itself a machine code, which really
@@ -715,11 +1556,59 @@ function readableReason(result) {
  *      Falling through to the shared generic remedy here produced two "Nothing"
  *      sentences back to back, which is the density this flow exists to remove.
  */
-export function startRefusalSentence(result) {
+/* WHAT IS MISSING FOR THE TIER THAT WAS ACTUALLY REFUSED, AND NOTHING ELSE.
+ *
+ * THE DEFECT THIS CLOSES. AGENT_TIER_NO_LAUNCHER is raised by resolveStartTier()
+ * for whichever provider THIS build carries no launcher for, and the shared
+ * table in src/agent-availability-copy.js is keyed by the code alone -- so its
+ * sentence had to describe every provider the code could ever be raised for. It
+ * named Claude and local together, and then the Claude engine shipped
+ * (capability/src/lib/agent-engine/claude-cli-process.js, present in the
+ * installed 1.0.20) and the gate stopped raising it for Claude. The sentence
+ * went on naming Claude anyway, on a build that runs Claude.
+ *
+ * THE TREE IS THE ONE SURFACE THAT KNOWS WHICH TIER WAS PICKED, because the
+ * press carried it: startAgentForNode() has the tier in hand when it calls this,
+ * and passes it back in. So this names the provider of the tier that was
+ * refused, which the refusal itself proves has no launcher here, and never a
+ * provider that was not asked for.
+ *
+ * IT IS TRUE BY CONSTRUCTION RATHER THAN BY UPKEEP. The sentence is only ever
+ * produced for a tier the shell just refused, and the refusal MEANS this build
+ * has no launcher for that tier. A build that gains an engine stops raising the
+ * code for it and this sentence stops being said about it, with no edit here.
+ * An unknown or absent tier returns null and the caller falls back to the shared
+ * table, which names no provider at all.
+ */
+const TIER_PROVIDER_MISSING = Object.freeze({
+  codex: 'the part that runs a Codex agent',
+  claude: 'the part that runs a Claude agent',
+  /* Not "a local agent": the phrase a person can act on is what the machine
+     would be doing, and "on this computer itself" is the distinction from the
+     two above -- both of which also run on this computer, through a program
+     signed in to a service. */
+  local: 'the part that runs an agent on this computer itself',
+})
+
+export function tierNoLauncherSentence(tier) {
+  const row = LAUNCH_TIERS.find(candidate => candidate.id === tier)
+  const missing = row ? TIER_PROVIDER_MISSING[row.provider] : null
+  if (!missing) return null
+  return `Nothing was started. This copy of ToolsEnabled does not carry ${missing}, and nothing on this computer is broken. The model menu marks every type this copy cannot start; pick one it does not mark.`
+}
+
+export function startRefusalSentence(result, { tier = null } = {}) {
   const code = refusalCodeOf(result)
+  /* Before the tables, because both of them answer this code without the one
+     fact that makes the answer specific. A tier this module does not recognise
+     falls through to the shared sentence rather than inventing a provider. */
+  if (code === 'AGENT_TIER_NO_LAUNCHER') {
+    const named = tierNoLauncherSentence(tier)
+    if (named) return named
+  }
   if (code && Object.prototype.hasOwnProperty.call(REFUSAL_BY_CODE, code)) return REFUSAL_BY_CODE[code]
   if (code && Object.prototype.hasOwnProperty.call(UNAVAILABLE_TEXT, code)) {
-    return `${NOTHING_STARTED} ${endSentence(unavailableReason(code))}`
+    return `${NOTHING_STARTED} ${startCapital(endSentence(unavailableReason(code)))}`
   }
   if (readableReason(result) || refusalRemedy(code) !== GENERIC_REMEDY) return refusalSentence(result)
   return START_REFUSAL.noReasonGiven
@@ -746,6 +1635,13 @@ export const SECOND_TREE = Object.freeze({
      speaks. Named with the node so a person who dropped the wrong thing sees
      it immediately. */
   detached: (name) => `${name} is now its own tree. Everything under it came along.`,
+  /* THE GESTURE WAS UNDERSTOOD AND NOTHING MOVED, which is a third answer and
+     used to be reported as the first. fleet-trees.js accepts a drag-out of a
+     node that is ALREADY the sole root of its own tree -- correctly, the
+     gesture's meaning is satisfied -- and answers `unchanged: true`. The page
+     printed "is now its own tree" over it anyway, so a person was told a move
+     had happened when the tree was exactly as before. */
+  alreadyOwnTree: (name) => `${name} is already its own tree, so nothing moved.`,
 })
 
 /**

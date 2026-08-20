@@ -231,6 +231,23 @@ const AUTONOMY_WRITE_FLAGS = Object.freeze({
  * ordered SAFEST FIRST, and the tier ceiling below is expressed as a maximum
  * index into that order -- so "clamp to what this level allows" is one comparison
  * and cannot accidentally be written the permissive way round. */
+/* THE TWO SENTENCES THESE ROWS CAN TRUTHFULLY SAY ABOUT THEMSELVES.
+ *
+ * They live here, beside the rows, and not in the two screens that print
+ * them. Both screens carried their own copy of one sentence about "the last
+ * four rows", and the moment one row started being acted on BOTH sentences
+ * became wrong -- in two files, either of which could have been missed. A
+ * claim about a set of rows belongs with the rows. */
+export const INTENT_IN_USE = 'This one is in use now.'
+export const INTENT_RECORDED_ONLY = 'Recorded, not yet acted on.'
+export const INTENT_BANNER_TITLE = 'What these rows do today.'
+export const INTENT_BANNER_BODY = [
+  'This program records all of them and keeps them.',
+  'The row about running out of an account is acted on when you start an assistant.',
+  'The parts that would act on the others are still being built.',
+  'Each is set to its cautious end unless you moved it.',
+].join(' ')
+
 export const PROFILE_INTENT = Object.freeze([
   Object.freeze({
     id: 'approvals',
@@ -275,7 +292,28 @@ export const PROFILE_INTENT = Object.freeze([
     id: 'failover',
     name: 'If an account runs out',
     lane: 'multi-account-build',
-    enforced: false,
+    /* ENFORCED SINCE 2026-08-18, AND WHAT THAT WORD HAS TO MEAN HERE.
+ *
+ * This row shipped as `enforced: false` and was honest about it: the screen
+ * said "recorded, not yet acted on" and nothing anywhere read the answer.
+ * The owner's standing rule is that a setting is a row, a real enforcement
+ * site, and a control a person can reach -- anything less is a lie told in
+ * a settings list. Two of the three were already here. This is the third.
+ *
+ * WHERE IT IS ACTED ON, precisely, so this claim can be checked rather than
+ * believed: the main process reads this answer and passes it to the payload
+ * rotation module as its `mode`, and that module is what decides whether a
+ * spent account may hand the session to the next one. `manual` refuses the
+ * switch and reports which account is spent and which is ready; `auto`
+ * performs it. Both directions are asserted in the payload's own
+ * tests/multi-account-rotation.test.js.
+ *
+ * ONE ANSWER, ONE READER. The value is not copied into a second store on
+ * its way there. A settings screen that shows one thing while a different
+ * copy of the answer drives the behaviour is worse than an unenforced row,
+ * because it looks true. */
+    enforced: true,
+    enforcedBy: 'the account switching in the assistant program',
     order: Object.freeze(['manual', 'auto']),
     labels: Object.freeze({
       manual: 'Stop and let me switch',
@@ -615,6 +653,43 @@ export function stepsAreReachable(steps) {
 
 export function intentField(id) {
   return INTENT_BY_ID.get(id) || null
+}
+
+/* WHY THERE IS NO START CONTROL, IN THE PERSON'S OWN WORDS.
+ *
+ * Two genuinely different ways to arrive at a machine that cannot start an
+ * agent, and telling them apart is the whole value of the sentence: the
+ * walkthrough's autonomy answer, or the Settings switch on a machine that never
+ * recorded a profile. Telling somebody setup did it when they turned it off
+ * themselves an hour ago is the product misdescribing its own state.
+ *
+ * IT LIVES HERE, not on the two screens that say it, because both of them say
+ * it: the agent page's switched-off surface and the fleet page's start panel.
+ * Two copies of one explanation is how one of them comes to be wrong. */
+/* THE WORDS ON THE SWITCH THAT TURNS IT BACK ON.
+ *
+ * Here for the same reason startControlOffBecause() is, and the reason is now
+ * literally true of two surfaces rather than one: the agent page's switched-off
+ * surface has carried this button since R1529, and the fleet page's start panel
+ * carries it as of 2026-08-18. Both had to name the same control, and a label
+ * typed twice is a label that reads differently on the two screens the first
+ * time only one is edited.
+ *
+ * It says what the press DOES, not what the setting is called. "Turn on running
+ * agents" is a verb a person can act on; "agent-session" is the row it writes,
+ * and a row identifier in front of a person is the defect
+ * tools/check-plain-language.mjs exists to catch. */
+export const START_CONTROL_ON = Object.freeze({
+  label: 'Turn on running agents',
+})
+
+export function startControlOffBecause(scope = globalThis) {
+  let stored = null
+  try { stored = readStoredProfile(scope) } catch { stored = null }
+  const chosen = stored ? autonomyChoice(stored.answers?.autonomy) : null
+  return chosen && chosen.consequence
+    ? `Setup recorded “${chosen.label}”, and that answer switches off starting an assistant.`
+    : 'Starting an assistant is switched off for this computer.'
 }
 
 export function autonomyChoice(value) {

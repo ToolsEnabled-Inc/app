@@ -377,13 +377,68 @@
    edge: an offset shadow made of light, not a progress sweep.
    Colour = live fleet load, three states.
    ============================================================ */
-.uring.crescent { --cres-halo-o: 0.85; }
+/* `--cres-gain` scales the corona's brightness per sheet, and it exists because
+   the two grounds need different amounts of light to say the same thing. On
+   paper the corona composites as ink and reaches 4.3-6.1:1 against the sheet on
+   its own. On the near-black sheet it ADDS light instead, and at parity of gain
+   it measured only 2.2-2.5:1 — below the 3:1 floor this mark is held to, since
+   it is a non-text graphical object carrying the page's only status. Lifting
+   the dark sheet's gain is what brings it back over. Measured, not guessed; the
+   numbers are in the header of crescent-mount.js. */
+/* `--cres-chroma` is how much extra saturation rides the middle of the paper
+   ramp. The corona's composited colour is mixed from the sheet to the status hue
+   in OKLab rather than being left to the compositor, which fades in gamma space
+   and slides through desaturated grey — the mid-tone is most of the mark's area,
+   so that grey path is what made it read as a stain. 0.35 is the owner's choice
+   from a rendered comparison at 0 / 0.35 / 0.7. */
+.uring.crescent { --cres-halo-o: 0.85; --cres-gain: 1; --cres-state-gain: 1; --cres-chroma: 0.35; }
 .uring.crescent .uring-rim { stroke: var(--ink-4); }
+
+/* The three layers are elements wearing the computed light field as a mask
+   (src/crescent-field.js), not stroked arcs under a blur filter. Everything
+   below this line — the opacity ladder, the per-theme hue table, the halo dose,
+   the peak pulse, the reduced-motion opt-out — is unchanged and still targets
+   the same three class names, which is the point: the design is stated here and
+   only its rendering moved.
+
+   The box is positioned by components.js from crescentSpec(), because how far
+   the light reaches is a property of the light, not a number to keep in step by
+   hand. It sits UNDER the rim, as the arcs did when they were painted before
+   the rim circle in the same SVG; absolute positioning would otherwise lift it
+   above a static sibling. */
+/* The GPU corona. It sits under the rim, as the light always did — absolute
+   positioning would otherwise lift it above a static sibling. */
+.uring.crescent .cres-gl { position: absolute; z-index: 0; pointer-events: none; }
+/* On the near-black sheet the corona ADDS light, which is what makes it read as
+   an eclipse rather than as coloured ink. On the two paper sheets there is no
+   headroom to add into — every one of these hues is darker than the page — so
+   it composites normally and reads as pigment. Same shader, two grounds. */
+:root[data-theme="black"] .uring.crescent .cres-gl { mix-blend-mode: plus-lighter; }
+
+/* The colour carrier. Hidden, but a real element, so the transition below is
+   the ONE statement of how a state change is timed: the shader samples this
+   element while the browser interpolates it. */
+.uring.crescent .cres-probe {
+  position: absolute; width: 1px; height: 1px;
+  opacity: 0; pointer-events: none;
+  background-color: var(--load-col, var(--s-good));
+  transition: background-color 1.4s var(--ease);
+}
+
+.uring.crescent .cres-layers { position: absolute; z-index: 0; }
+.uring.crescent > svg { position: relative; z-index: 1; }
+.uring.crescent .uring-center { z-index: 2; }
+/* Masks arrive a few frames after mount. Until then these are three solid
+   rectangles, so they do not paint at all. */
+.uring.crescent .cres-layers:not([data-ready]) { visibility: hidden; }
 .uring.crescent .cres-haze,
 .uring.crescent .cres-halo,
 .uring.crescent .cres-core {
-  stroke: var(--load-col, var(--s-good));
-  transition: stroke 1.4s var(--ease);
+  position: absolute; inset: 0;
+  background-color: var(--load-col, var(--s-good));
+  transition: background-color 1.4s var(--ease);
+  -webkit-mask-size: 100% 100%; mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
 }
 /* three layers, each wider + softer + fainter than the one inside it —
    that gradient is what reads as light rather than a thick coloured stroke */
@@ -420,6 +475,15 @@
    quiet green "all clear". Same neutral --ink-4 the rim already uses,
    theme-aware without needing a per-theme override. */
 .uring.crescent[data-load="unknown"] { --load-col: var(--ink-4); }
+/* ...and it barely glows. Driving the PACKAGED build caught this: in `unknown`
+   the hue is neutral --ink-4, so on a paper sheet there is no colour to carry
+   the light and the corona reads as a plain grey drop shadow hanging off the
+   circle — the exact failure this design was rebuilt to escape. Quieting it is
+   also the honest reading of the state: no measurement has arrived, so there is
+   nothing for the light to say. The rim still draws the circle; the fact row
+   below still says it in words. A separate token from --cres-gain so the black
+   sheet's lift and this can both apply without a specificity fight. */
+.uring.crescent[data-load="unknown"] { --cres-state-gain: 0.28; }
 
 /* TAN (#f2e5bc) — Gruvbox Light Soft, so the states take the published faded
    family the rest of this theme is built from rather than a second palette:
@@ -434,7 +498,7 @@
    signal. Lifting the ramp costs nothing and buys headroom: 7.55 / 8.16 /
    5.11. The blurred halo is also far louder over black than over paper, so
    it comes down a step — the crescent stays a state indicator, not a bloom. */
-:root[data-theme="black"] .uring.crescent { --cres-halo-o: 0.5; }
+:root[data-theme="black"] .uring.crescent { --cres-halo-o: 0.5; --cres-gain: 1.9; }
 :root[data-theme="black"] .uring.crescent[data-load="idle"] { --load-col: #35c17c; }
 :root[data-theme="black"] .uring.crescent[data-load="busy"] { --load-col: #f0a02e; }
 :root[data-theme="black"] .uring.crescent[data-load="peak"] { --load-col: #fb4934; }
@@ -528,19 +592,82 @@ a.home-fact:focus-visible {
   list-style: none;
   margin: 0; padding: 0;
 }
+/* TWO ROWS PER RUN, NOT ONE LINE.
+   The head is the run and its verdict; under it, what the agent was and what it
+   was asked, and -- for a refusal -- why it did not start. Every one of those
+   lines is omitted when the record does not carry it, so a row with nothing to
+   add is byte-for-byte the row this list always drew. */
 .home-run {
-  display: flex; align-items: baseline; gap: 12px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 12px;
   padding: 9px 0;
   border-bottom: 1px solid var(--line);
   font-size: 13px;
 }
 .home-run:last-child { border-bottom: 0; }
+.home-run .run-head {
+  grid-column: 1;
+  display: flex; align-items: baseline; gap: 12px;
+  min-width: 0;
+}
 .home-run .run-what { color: var(--ink-2); }
+.home-run .run-agent,
+.home-run .run-asked,
+.home-run .run-did,
+.home-run .run-said,
+.home-run .run-why,
+.home-run .run-gap {
+  grid-column: 1 / -1;
+  min-width: 0;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+/* The agent's own role reads as its name, so it carries the ink the head does
+   rather than the dim of the lines under it. */
+.home-run .run-agent { color: var(--ink-2); }
+.home-run .run-why { color: var(--c-failed, #c24b4b); }
+/* WHAT IT DID and WHAT IT SAID, which are the two lines the owner's report was
+   about. The answer carries the ink a person reads first, because it is the
+   output; the turn line sits at the dim of the other supporting lines because
+   it is a measurement about the answer rather than the answer. */
+.home-run .run-said {
+  color: var(--ink-2);
+  border-left: 2px solid var(--line);
+  padding-left: 8px;
+}
+/* A run whose brief or answer was never written down says so, quietly. It is
+   not a fault, so it does not carry the failure colour, and it is not a fact
+   about the agent, so it does not carry the ink of one. */
+.home-run .run-gap { font-style: italic; opacity: 0.85; }
+/* Live, and only while this window is actually watching the turn arrive. */
+.home-run .run-live {
+  flex: none;
+  color: var(--s-good, #3fa66a);
+  font-size: 12px;
+}
+.home-run .run-live::before {
+  content: '';
+  display: inline-block;
+  width: 6px; height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: home-run-live 1.6s ease-in-out infinite;
+}
+@keyframes home-run-live { 0%, 100% { opacity: 1 } 50% { opacity: 0.25 } }
+@media (prefers-reduced-motion: reduce) {
+  .home-run .run-live::before { animation: none; }
+}
 /* The time sits at the right rail so a column of them scans as one list rather
    than as ragged prose. */
 .home-run .run-when {
-  margin-left: auto;
+  grid-column: 2;
+  grid-row: 1;
   flex: none;
+  text-align: right;
   color: var(--ink-3);
   font-size: 12.5px;
 }

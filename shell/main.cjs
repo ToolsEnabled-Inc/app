@@ -1,3 +1,58 @@
+/* THE FIRST THING THIS FILE DOES, AND IT MUST STAY FIRST: refuse to start the
+ * application when what was actually asked for is one of our own programs.
+ *
+ * THE DEFECT, MEASURED ON A STAGED BUILD 2026-08-18. A generated `.mcp.json` (or
+ * the confined `config.toml`) names this executable as the runtime for
+ * `<engine>\src\mcp-server.js`. An Electron binary handed a script argument
+ * WITHOUT ELECTRON_RUN_AS_NODE ignores the argument and boots the whole
+ * application, so the agent CLI got a window instead of a server: no answer to
+ * `initialize`, 0 tools advertised, 5 new top-level windows owned by that child.
+ * The user saw "a second ToolsEnabled that looks outdated" every time they
+ * started an agent, and -- the half nobody had seen -- every app-started session
+ * ran with NONE of this product's own MCP tools.
+ *
+ * The generators no longer write such a document. THIS EXISTS FOR THE ONES
+ * ALREADY ON DISK: a `.mcp.json` in a person's own folder, written by an
+ * earlier build, that their agent client will read tomorrow morning. Nothing
+ * regenerates a file this application does not know about, so the repair has to
+ * live at the point the mistake arrives.
+ *
+ * THE TEST IS "A SCRIPT INSIDE THIS BUILD'S OWN RESOURCES", NOT "AN EXTRA
+ * ARGUMENT". Re-entering as Node on any unrecognised argv would turn every
+ * mistyped shortcut, every file association and every future command-line flag
+ * into a silent headless exit with no window -- which is the SAME failure in the
+ * other direction, and this project has already lost two diagnoses to it. The
+ * question asked is narrow and answerable: does argv name a .js/.cjs/.mjs file
+ * that lives under process.resourcesPath, i.e. a program we ship.
+ *
+ * It uses only node built-ins and runs before `require('electron')`, so nothing
+ * in this file has resolved userData or written a byte when it decides. */
+;(() => {
+  if (process.env.ELECTRON_RUN_AS_NODE === '1') return
+  const resources = typeof process.resourcesPath === 'string' ? process.resourcesPath : ''
+  if (!resources) return
+  const nodePath = require('node:path')
+  const root = nodePath.resolve(resources)
+  const forwarded = process.argv.slice(1)
+  const ours = forwarded.some((argument) => {
+    if (typeof argument !== 'string' || !/\.[cm]?js$/i.test(argument)) return false
+    const resolved = nodePath.resolve(argument)
+    return resolved === root || resolved.startsWith(root + nodePath.sep)
+  })
+  if (!ours) return
+  /* stdio is INHERITED, which is the whole point: the handles this process was
+     given are the pipes the agent CLI is speaking JSON-RPC over, and they must
+     reach the program that can answer. windowsHide because the child is our own
+     Node-mode binary and STANDING-ORDERS class LOCAL-WORK rule 3 is absolute. */
+  const { spawnSync } = require('node:child_process')
+  const result = spawnSync(process.execPath, forwarded, {
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    stdio: 'inherit',
+    windowsHide: true,
+  })
+  process.exit(typeof result.status === 'number' ? result.status : 1)
+})()
+
 // Desktop shell: serves the built dist/ over loopback HTTP (file:// would
 // break fetch() and the router's absolute asset paths) and hosts it in a
 // frameless window with native Windows caption buttons drawn over our own
@@ -14,15 +69,18 @@ const dns = require('dns')
 const path = require('path')
 const fs = require('fs')
 const { randomBytes, randomUUID, createHash } = require('crypto')
-const { createAgentHost, engineAvailability } = require('./agent-host.cjs')
+const { createAgentHost, engineAvailability, engineCandidates } = require('./agent-host.cjs')
 const { readAgentConfinement, listAgentTools } = require('./agent-confinement-read.cjs')
+const { providerCliPresence } = require('./provider-cli-presence.cjs')
 const { createSpawnRecorder } = require('./spawn-record.cjs')
-const { recordCanonical: recordCanonicalIn } = require('./canonical-audit.cjs')
+const { createUsageRecorder, turnUsageFrom } = require('./usage-record.cjs')
+const { recordCanonical: recordCanonicalIn, closeCanonical: closeCanonicalLedger } = require('./canonical-audit.cjs')
 const { sharedAccountStore, UNAUTHENTICATED_PRINCIPAL } = require('./product-account.cjs')
 const { createGoogleSignIn } = require('./google-signin.cjs')
 const { resolveGoogleSignInConfig } = require('./google-signin-config.cjs')
 const { vaultRecordPresence: readVaultRecordPresence } = require('./vault-presence.cjs')
 const { readBridgeProof } = require('./bridge-proof.cjs')
+const { readStandingRequests } = require('./standing-requests-read.cjs')
 const { resolveEnvBridgeProof, recordEnvProofRefusal } = require('./bridge-env-path.cjs')
 const {
   guiEnvironment,
@@ -42,6 +100,7 @@ const {
   checkWorkspace,
   recordWorkspaces,
   ensureDispatchAssistantConfig,
+  refreshChosenAssistantConfig,
 } = require('./setup-record.cjs')
 const { createAgentOrgRecord } = require('./agent-org-record.cjs')
 const { wireSingleInstance } = require('./single-instance.cjs')
@@ -64,8 +123,9 @@ const {
 } = require('./port-scan.cjs')
 const { createRendererPrefs } = require('./renderer-prefs.cjs')
 const { adoptLegacyUserData } = require('./userdata-adoption.cjs')
-const { RETENTION_PREF_KEY, syncRecordedChoice } = require('./uninstall-retention.cjs')
+const { isRetentionPrefKey, mirrorRetentionChoice } = require('./uninstall-retention.cjs')
 const { planReset, eraseLocalData } = require('./local-data-reset.cjs')
+const { readProductSettings, setProductSetting } = require('./product-settings.cjs')
 const { createSubscribeEndpoint } = require('./subscribe-endpoint.cjs')
 
 const fatalStartup = createFatalStartupHandler({
@@ -235,6 +295,19 @@ const sessionProfiles = createSessionProfileStore({
   file: path.join(app.getPath('userData'), 'session-profiles.json'),
 })
 
+/* The person's own provider accounts: which Codex and Claude sign-ins this
+   computer knows about, and where each one keeps its home.
+
+   ITS FILE IS THE ENGINE'S FILE, AND THAT IS THE ONLY REASON IT WORKS. The
+   rotation reads <LOCALAPPDATA>\ToolsEnabled\accounts.json, beside machine.json,
+   and it is the only reader that matters -- a list kept next to
+   session-profiles.json in userData would be a screen showing one answer while
+   the thing that starts agents obeyed another. So the path is resolved the way
+   the engine's resolveServicesRoot() resolves it, in shell/account-registry.cjs,
+   rather than assembled here from app.getPath(). */
+const { createAccountRegistryStore, accountsRegistryFile } = require('./account-registry.cjs')
+const accountRegistry = createAccountRegistryStore({ file: accountsRegistryFile() })
+
 /* The renderer's settings, kept where no port can partition them. See
    shell/renderer-prefs.cjs for what was wrong and why this is one file rather
    than a second copy of anything. */
@@ -392,7 +465,7 @@ function parseAgentStart(value) {
   // startSession(), which resolves it, and the compose panel, which must offer
   // it. Shipping any one of them alone leaves a control that looks real and is
   // not, which is the defect f1ce3ec removed three sliders for.
-  const payload = agentPayload(value, ['sessionId', 'cwd', 'surface', 'tier', 'effort', 'profileId', 'resumeThreadId'])
+  const payload = agentPayload(value, ['sessionId', 'cwd', 'surface', 'tier', 'effort', 'profileId', 'resumeThreadId', 'requestKeys'])
   const sessionId = Object.prototype.hasOwnProperty.call(payload, 'sessionId')
     ? payload.sessionId
     : `chat-${randomUUID()}`
@@ -461,6 +534,30 @@ function parseAgentStart(value) {
     // or be refused -- it cannot smuggle a working directory.
     result.profileId = boundedAgentString(payload.profileId, 'profileId', 128)
   }
+  if (Object.prototype.hasOwnProperty.call(payload, 'requestKeys')) {
+    // The standing-request scope keys for this session's boot brief: the tree
+    // node ids above this node (top-down) and the id of its own conversation.
+    // IDS, never paths -- they key ledger FILENAMES through the engine's own
+    // SAFE_KEY rule, and the host re-validates the shape. Riding the START
+    // rather than the brief text because a RESUME sends no brief, and a
+    // restarted conversation is exactly when a thread rule must ride again.
+    const keys = payload.requestKeys
+    if (keys !== null && (typeof keys !== 'object' || Array.isArray(keys))) {
+      agentIpcError('MC_AGENT_INVALID_PAYLOAD', 'requestKeys must be an object of scope keys')
+    }
+    if (keys) {
+      const anchors = keys.treeAnchors === undefined ? [] : keys.treeAnchors
+      if (!Array.isArray(anchors) || anchors.length > 16) {
+        agentIpcError('MC_AGENT_INVALID_PAYLOAD', 'requestKeys.treeAnchors must be an array of at most 16 ids')
+      }
+      result.requestKeys = {
+        treeAnchors: anchors.map(anchor => boundedAgentString(anchor, 'requestKeys.treeAnchors entry', 128)),
+        threadId: keys.threadId === undefined || keys.threadId === null
+          ? null
+          : boundedAgentString(keys.threadId, 'requestKeys.threadId', 128),
+      }
+    }
+  }
   return result
 }
 
@@ -528,6 +625,10 @@ function bindAgentOwner(owner) {
     const closing = []
     for (const [sessionId, session] of agentSessions) {
       if (session.owner !== owner) continue
+      /* THE WINDOW IS GONE, so the app is on its way out (window-all-closed
+         quits it) and these sessions end because of that. Best-effort and
+         synchronous, BEFORE the session leaves the map -- see recordSessionEnd. */
+      recordSessionEnd(session, sessionId, 'app-shutdown')
       agentSessions.delete(sessionId)
       if (agentHost) {
         closing.push(
@@ -550,6 +651,150 @@ function getSpawnRecorder() {
     directory: app.getPath('userData'),
   })
   return spawnRecorder
+}
+
+/* The usage recorder is built lazily for exactly the two reasons the spawn
+   recorder above is: safeStorage is only meaningful after the app is ready, and
+   userData is not resolvable before then. It shares that recorder's key and
+   keeps its own chain -- see shell/usage-record.cjs. */
+let usageRecorder = null
+function getUsageRecorder() {
+  if (usageRecorder) return usageRecorder
+  usageRecorder = createUsageRecorder({
+    safeStorage,
+    directory: app.getPath('userData'),
+  })
+  return usageRecorder
+}
+
+/* WHAT THE TURNS ON THIS COMPUTER COST, for the metrics page. A read, like
+   history() beside it, and with the same never-throws contract. */
+function usageRecordHistory(limit) {
+  try {
+    return getUsageRecorder().usage({ limit })
+  } catch (error) {
+    return Object.freeze({
+      ok: false,
+      code: typeof error?.code === 'string' ? error.code : 'SPAWN_RECORD_UNAVAILABLE',
+    })
+  }
+}
+
+/* THE LABELS THAT RIDE WITH A USAGE RECORD, BOUNDED HERE RATHER THAN AT THE
+ * WRITER.
+ *
+ * The writer refuses anything outside these shapes outright, and that strictness
+ * is the guarantee that a figure on a screen cannot be a path. But a person may
+ * name their own provider sign-in anything at all, and a refused LABEL must
+ * never cost us the READING it was attached to -- losing a turn's tokens because
+ * an account is called "work (old)" would be this feature failing for a reason
+ * nobody could see. So a label that is not the bounded shape becomes null here,
+ * which every reader downstream already renders as "the record does not say".
+ */
+function usageLabel(value, pattern) {
+  return typeof value === 'string' && pattern.test(value) ? value : null
+}
+const USAGE_TURN_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
+const USAGE_TIER_PATTERN = /^[a-z][a-z0-9-]{0,63}$/
+const USAGE_ACCOUNT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
+const USAGE_STATUS_PATTERN = /^[a-z][a-z_]{0,31}$/
+
+/* How many unfinished turns one session may hold a reading for. A turn that
+   never completes never writes one, so without a ceiling a session that is
+   interrupted repeatedly would grow this map for the life of the process. */
+const MAX_PENDING_TURN_USAGE = 32
+
+/* WRITE DOWN WHAT A TURN COST, FROM THE EVENTS THAT ALREADY PASS THROUGH HERE.
+ *
+ * This is the recording side of the metrics repair, and it lives in the event
+ * fan-out because that is the one place every session's events cross -- one
+ * listener, in the main process, which is also the only process that may hold
+ * the signing key. Doing it in the renderer would make the count depend on which
+ * page happened to be open.
+ *
+ * RECORDED AT `turn_completed`, NOT AT EVERY `usage` EVENT, and the difference
+ * is the difference between a figure and a fiction. Codex emits a usage event on
+ * every thread/tokenUsage/updated -- several per turn -- each carrying the
+ * session's RUNNING TOTAL and the last turn's figures. Writing one record per
+ * event would put the same tokens on the page as many times as the engine
+ * happened to report them. So the latest reading for a turn is held, and it is
+ * written once, when the engine says that turn is over.
+ *
+ * AND NOTHING IS FLUSHED WHEN A SESSION CLOSES MID-TURN, deliberately. The
+ * reading held for an unfinished turn is whatever the engine last said, and for
+ * codex that can still be the PREVIOUS turn's figures -- so writing it out at
+ * close would attribute one turn's tokens to another. A turn that never
+ * completed is a turn this record has no figure for, which is the honest state
+ * and the one the page can say.
+ */
+function noteAgentTurnUsage(session, packet) {
+  const event = packet && typeof packet === 'object' ? packet.event : null
+  if (!event || typeof event !== 'object') return
+  const turnId = typeof event.turnId === 'string' && event.turnId.length > 0 ? event.turnId : ''
+
+  if (event.type === 'usage') {
+    const reading = turnUsageFrom(event.usage)
+    if (!reading) return
+    if (!session.usageByTurn) session.usageByTurn = new Map()
+    if (!session.usageByTurn.has(turnId) && session.usageByTurn.size >= MAX_PENDING_TURN_USAGE) {
+      session.usageByTurn.delete(session.usageByTurn.keys().next().value)
+    }
+    session.usageByTurn.set(turnId, reading)
+    return
+  }
+  if (event.type !== 'turn_completed') return
+  const reading = session.usageByTurn && session.usageByTurn.get(turnId)
+  if (!reading) return
+  session.usageByTurn.delete(turnId)
+
+  try {
+    getUsageRecorder().recordTurn({
+      sessionId: packet.sessionId,
+      /* The same identity the run record carries, read in the main process from
+         the account store -- never from the renderer, for the reason
+         accountPrincipal() states at length. */
+      principal: accountPrincipal(),
+      turnId: usageLabel(turnId, USAGE_TURN_PATTERN),
+      tier: usageLabel(session.tier, USAGE_TIER_PATTERN),
+      account: usageLabel(session.account, USAGE_ACCOUNT_PATTERN),
+      status: usageLabel(typeof event.status === 'string' ? event.status.toLowerCase() : null, USAGE_STATUS_PATTERN),
+      usage: reading,
+    })
+  } catch {
+    /* A record that cannot be written must never be able to stop an agent from
+       answering. The page reads an empty record as an empty record and says so. */
+  }
+}
+
+/* COUNT THE TURNS THAT ENDED, AND KEEP THE ENGINE'S LAST WORD FOR ONE, so the
+ * session's end record can say how much it did and how its last turn went.
+ *
+ * COUNTED HERE, IN THE SAME FAN-OUT THE USAGE RECORD USES, because this is the
+ * one place every session's events cross in the main process. `usageByTurn`
+ * beside it holds only PENDING readings and forgets a turn the moment it ends,
+ * so it never was a count of anything; this is. It counts the engine's own
+ * `turn_completed` events -- the contract's single word for "this turn is over",
+ * whatever its status -- so a turn the person interrupted counts as a turn that
+ * ended, which is what it was.
+ *
+ * ZERO IS A TRUE ANSWER, not an unknown. The session is put in the map before
+ * the engine is asked to start it (mc-agent:start), and this listener is bound
+ * when the host is built, so every completion for a session this process holds
+ * passes through here. A session stopped before it answered genuinely completed
+ * none. (For a RESUMED thread this counts the turns of THIS run only; the turns
+ * an earlier run completed were that run's to record.)
+ *
+ * THE STATUS IS KEPT VERBATIM. codex says `completed`, the Claude CLI says
+ * `success`, the host says `failed` for a child that died mid-turn -- three
+ * words for two outcomes, and the two engines disagree on the first. Nothing
+ * here lower-cases, maps or normalises it (the usage record beside this does
+ * lower-case its copy, for its own reasons; this one does not). The recorder
+ * bounds it to a bare word and REFUSES anything else, and the reader translates. */
+function noteAgentTurnCompleted(session, packet) {
+  const event = packet && typeof packet === 'object' ? packet.event : null
+  if (!event || typeof event !== 'object' || event.type !== 'turn_completed') return
+  session.turnsCompleted = (Number.isSafeInteger(session.turnsCompleted) ? session.turnsCompleted : 0) + 1
+  session.lastTurnStatus = typeof event.status === 'string' && event.status.length > 0 ? event.status : null
 }
 
 function spawnRecordAvailability() {
@@ -842,6 +1087,79 @@ function recordSpawnOutcome(request, receipt, result, reason) {
   }
 }
 
+/* HOW THE SESSION ENDED, recorded when it is known.
+ *
+ * THE LEDGER WROTE TWO LINES PER RUN AND NEVER A THIRD. The intent before the
+ * spawn; started/refused when the start resolved; and then nothing, ever, no
+ * matter how the session ended -- so the product could not truthfully show a
+ * finished state or a duration anywhere, and the home screen says so in as many
+ * words. This is the third record. It is a SEPARATE line, for the same reason
+ * the outcome is: the chain is append-only, and `end.resolves` names the start
+ * it ends explicitly rather than by adjacency.
+ *
+ * WHERE THE ENDINGS ARE OBSERVABLE, VERIFIED AGAINST THE CODE RATHER THAN
+ * ASSUMED, and each one hooked where it is:
+ *
+ *   closed        mc-agent:close, AFTER agentHost.closeSession() resolves. A
+ *                 close that rejects leaves the session in the map and this
+ *                 record unwritten, because the process may still be alive.
+ *   exited        the host's onSessionExit report (shell/agent-host.cjs
+ *                 observeEngineExit), which is the ONLY place the child's own
+ *                 exit is visible shell-side: neither adapter emits an event
+ *                 for it, and this file had no view of it at all before that
+ *                 hook existed. The host reports it only for a session it did
+ *                 not close itself.
+ *   app-shutdown  best-effort, on the two orderly ways out: the window's owner
+ *                 being destroyed (bindAgentOwner) and before-quit. Written
+ *                 synchronously before the session leaves the map, so an
+ *                 orderly quit usually lands it. A quit that does not -- a hard
+ *                 kill, a crash, a power cut -- leaves NO end record, and that
+ *                 absence must keep reading as "this record does not say".
+ *                 NOTHING backfills it on the next launch: an ending this
+ *                 process did not observe is not this process's to assert.
+ *   crashed       in the recorder's closed set and written by NOTHING here.
+ *                 A truthful `crashed` needs evidence -- a start with no end
+ *                 AND a dead pid this app owns -- and this file records no pid.
+ *
+ * ONE END PER SESSION, ENFORCED HERE. The endings race: a stop from the
+ * interface kills the child, whose exit the host then suppresses because the
+ * close was requested -- but the owner-destroyed path and before-quit can both
+ * see the same session, and `ended` is what keeps a second line from being
+ * written for it. It is set BEFORE the write, so a write that throws leaves the
+ * session with no end record rather than with a later, different reason.
+ *
+ * NO DURATION, BY DESIGN. The start record and this one are two signed instants
+ * and the reader subtracts them; a span computed here would be a claim the chain
+ * cannot check, signed with an authority it has not earned.
+ *
+ * IT CANNOT FAIL ANYTHING. Same rule as recordSpawnOutcome: a session that has
+ * ended is not made un-ended by a note about it failing to save. Every failure
+ * is swallowed and the run is left with no end record, which the reader shows
+ * as an ending it does not know -- never as still running, never as finished. */
+function recordSessionEnd(session, sessionId, reason) {
+  if (!session || session.ended === true) return
+  /* Only a session whose start was recorded as `started` has a start to
+     resolve. A refused start never ran, and its cleanup is not an ending. */
+  if (!session.started || !Number.isSafeInteger(session.started.sequence)) return
+  session.ended = true
+  try {
+    getSpawnRecorder().record({
+      action: 'agent_session_end',
+      sessionId,
+      principal: accountPrincipal(),
+      details: {},
+      end: {
+        resolves: session.started.sequence,
+        reason,
+        turns: session.turnsCompleted,
+        lastTurnStatus: session.lastTurnStatus,
+      },
+    })
+  } catch {
+    /* Deliberately silent; see above. */
+  }
+}
+
 /* WHY THE DEFAULT CWD IS THE WORKSPACE AND NOT `__dirname/..`.
  *
  * This used to be `path.join(__dirname, '..')`. In a checkout that is the repo
@@ -883,6 +1201,44 @@ function ensureWorkspaceRoot() {
   return WORKSPACE_ROOT
 }
 
+/* THE FOLDER THE PERSON CHOSE IN SETUP, OR NULL — the answer to "where should
+ * an agent that names no folder run".
+ *
+ * Measured on the 2026-08-18 fresh-install walkthrough: setup created and
+ * git-initialised the chosen folder, and the agent then ran in
+ * <userData>\workspace while the audit recorded cwd:null. The fence — the
+ * permission level's write confinement, which both engines anchor on the
+ * session's working directory — was real but anchored on a folder nobody
+ * chose, and the promised undo history sat on a folder nothing used.
+ *
+ * `chosen` IS THE GATE, not the mere presence of roots. recordTier picks a
+ * default folder silently before the workspace question is shown, and
+ * setup-record.cjs stamps `workspaceChosen` only when a person was shown the
+ * question and answered it. A default nobody saw stays what it always was:
+ * nothing, and the start falls back to WORKSPACE_ROOT above.
+ *
+ * The folder is re-created if it was deleted — an empty directory is the same
+ * promise setup made, and refusing every future start over a folder the person
+ * removed would strand them. A folder that cannot be created is left for
+ * normalizeCwd in the host, which refuses the start loudly and by name rather
+ * than silently moving the agent somewhere nobody chose. */
+function chosenWorkspaceCwd() {
+  try {
+    const state = readWorkspaceState()
+    if (!state || state.ok !== true || state.available !== true) return null
+    if (state.chosen !== true) return null
+    const roots = Array.isArray(state.roots)
+      ? state.roots.filter(entry => typeof entry === 'string' && entry.trim() !== '')
+      : []
+    if (roots.length === 0) return null
+    const root = roots[0]
+    try { fs.mkdirSync(root, { recursive: true }) } catch { /* the host's normalizeCwd refuses an unusable folder loudly */ }
+    return root
+  } catch {
+    return null
+  }
+}
+
 /* THE TOOL CHECKBOXES, ENFORCED — the settings row the research page writes,
  * read back at the one point every agent child's environment is composed.
  *
@@ -919,18 +1275,129 @@ function agentToolAllowlistExtras() {
   return { ok: true, env: { TOOLSENABLED_TOOL_ALLOWLIST: allowed.join(',') } }
 }
 
+/* WHICH OF THE PERSON'S OWN SIGN-INS A SESSION RUNS ON, AND WHO DECIDES.
+ *
+ * THE ANSWER COMES FROM THE ROW THE PERSON ACTUALLY SET. `failover` is the
+ * walkthrough question "If an account runs out", and its two answers are its
+ * own words: "Stop and let me switch" and "Switch to another account
+ * automatically". Until now nothing read it, which is what made it a setting in
+ * name only. This is the reader. There is exactly ONE, and it reads the store
+ * the screen writes -- not a copy -- so the screen and the behaviour cannot
+ * disagree.
+ *
+ * IT DEFAULTS TO THE CAUTIOUS HALF ON EVERY UNCERTAINTY. An unreadable record, a
+ * missing answer, an answer that is not one of the two: all mean "stop and let
+ * me switch". Switching accounts spends a different subscription, and doing that
+ * because a file would not parse is not a decision anybody made.
+ *
+ * IT NEVER STOPS A START IT HAS NO REASON TO STOP. A payload without the module,
+ * a machine with no account list, a fault anywhere in here: all answer null, and
+ * null is the path this program took before any of this existed.
+ *
+ * PROVIDER LIMITS ARE SURFACED, NEVER WORKED AROUND. Rotation moves between
+ * accounts the same person subscribes to; each account's own limit is respected
+ * on its own terms, an exhausted one is skipped rather than retried, and moving
+ * at all is the person's explicit choice recorded above. */
+function failoverModeFromProfile() {
+  try {
+    const stored = rendererPrefs.snapshot().values['mc.setup.profile']
+    if (typeof stored !== 'string') return 'manual'
+    const parsed = JSON.parse(stored)
+    const answer = parsed && parsed.answers && parsed.answers.failover
+    return answer === 'auto' ? 'auto' : 'manual'
+  } catch {
+    return 'manual'
+  }
+}
+
+let rotationModule
+function loadRotation() {
+  if (rotationModule !== undefined) return rotationModule
+  rotationModule = null
+  try {
+    /* The SAME engine trees the agent host itself resolves, in the same order,
+       so rotation can never be read out of one copy while sessions start from
+       another. engineCandidates() names the engine module; its tree is three
+       directories up, which is how the host derives it too. */
+    for (const candidate of engineCandidates()) {
+      try {
+        const engineRoot = path.resolve(path.dirname(candidate.value), '..', '..', '..')
+        const loaded = require(path.join(engineRoot, 'src', 'lib', 'multi-account', 'rotation.js'))
+        if (loaded && typeof loaded.resolveAccountForSession === 'function') { rotationModule = loaded; break }
+      } catch { /* try the next tree */ }
+    }
+  } catch {
+    /* A copy whose engine predates this module keeps starting sessions on the
+       one sign-in it has, which is exactly what it did before. */
+  }
+  return rotationModule
+}
+
+async function resolveSessionAccount({ provider }) {
+  const rotation = loadRotation()
+  if (!rotation) return null
+  try {
+    return await rotation.resolveAccountForSession({
+      provider,
+      servicesRoot: resolveServicesRootForAccounts(),
+      mode: failoverModeFromProfile(),
+    })
+  } catch {
+    return null
+  }
+}
+
+/* The same directory the machine record lives in, resolved the same way the
+   payload resolves it. Two answers to "where is this computer's account list"
+   would be two account lists. */
+function resolveServicesRootForAccounts() {
+  const localAppData = process.env.LOCALAPPDATA
+  if (typeof localAppData === 'string' && path.isAbsolute(localAppData)) {
+    return path.join(localAppData, 'ToolsEnabled')
+  }
+  return path.join(require('node:os').homedir(), '.toolsenabled')
+}
+
 function getAgentHost() {
   if (agentHost) return agentHost
   ensureWorkspaceRoot()
-  const host = createAgentHost({ defaultCwd: WORKSPACE_ROOT, sessionEnvironmentExtras: agentToolAllowlistExtras })
+  const host = createAgentHost({
+    defaultCwd: WORKSPACE_ROOT,
+    sessionEnvironmentExtras: agentToolAllowlistExtras,
+    accountResolver: resolveSessionAccount,
+  })
   removeAgentEventListener = host.onEvent((packet) => {
     const session = agentSessions.get(packet.sessionId)
-    if (!session || session.owner.isDestroyed()) return
-    try {
-      session.owner.send(AGENT_EVENT_CHANNEL, packet)
-    } catch {
-      // Destruction can race this check; the owner cleanup closes the session.
+    if (!session) return
+    if (!session.owner.isDestroyed()) {
+      try {
+        session.owner.send(AGENT_EVENT_CHANNEL, packet)
+      } catch {
+        // Destruction can race this check; the owner cleanup closes the session.
+      }
     }
+    /* AFTER the forward, and outside the owner check. After, because a screen
+       must not wait on a disk write for its text; outside, because what a turn
+       cost is a fact about this computer, not about whether a window is still
+       open to look at it. */
+    noteAgentTurnUsage(session, packet)
+    noteAgentTurnCompleted(session, packet)
+  })
+  /* THE CHILD'S OWN EXIT -- the second genuine ending, and the one this file
+     could not see until the host reported it. Recorded against the session
+     this process holds; the session is deliberately LEFT in the map, exactly
+     as the host leaves its own, so a stop the person presses afterwards still
+     resolves (and writes no second ending, see recordSessionEnd). */
+  host.onSessionExit((report) => {
+    const session = agentSessions.get(report.sessionId)
+    if (!session) return
+    if (!session.started) {
+      /* Died before the start was written down as started: remember it, and
+         let mc-agent:start record the ending once the start receipt exists. */
+      session.exitedBeforeStarted = true
+      return
+    }
+    recordSessionEnd(session, report.sessionId, 'exited')
   })
   agentHost = host
   return host
@@ -990,6 +1457,254 @@ ipcMain.handle('mc-agent:tools', async (event) => {
   return listAgentTools({ capabilityRoot: resolveCapabilityRoot() })
 })
 
+/* THE MESSAGES THIS COMPUTER HAS ALREADY WRITTEN DOWN, for the comms page.
+ *
+ * A fourth channel that starts nothing. It exists because the preload is
+ * sandboxed under contextIsolation and cannot reach the message fabric itself,
+ * and no existing mc-agent channel carries messages -- so the page had no way to
+ * show a real one and was showing nothing, or something it made up.
+ *
+ * IT IS A READ OF A RECORD THAT ALREADY EXISTS. Every local send writes the
+ * owner journal; this reads it. It is emphatically not a second copy of the
+ * message store, which would be two answers to one question the first time they
+ * disagreed.
+ *
+ * IT CARRIES NO PATH AND NO INTERNAL IDENTIFIER a person cannot act on: a
+ * message is {id, sender, at, text}, `at` RFC3339, `sender` the circle name.
+ *
+ * IT DEGRADES HONESTLY RATHER THAN THROWING. A payload cut before the provider
+ * grew ownerJournal() answers {ok:false, reason} -- a sentence the page can show
+ * -- instead of rejecting the invoke, because "this build cannot read messages
+ * yet" and "the messages could not be read" are different things to be told. */
+ipcMain.handle('mc-agent:local-messages', async (event, value) => {
+  assertTrustedAgentSender(event)
+  try {
+    const engineRoot = resolveCapabilityRoot()
+    if (!engineRoot) return { ok: false, reason: 'the live message reader is not available in this build' }
+    const journal = require(path.join(engineRoot, 'src', 'lib', 'providers', 'agent-comms-local.js'))
+    /* Bounded here rather than trusted from the page: the renderer is the one
+       caller, and a caller that can ask for everything is a caller that can be
+       made to. */
+    const limit = Number.isSafeInteger(value?.limit) ? Math.min(Math.max(value.limit, 1), 200) : 100
+    return await journal.ownerJournal({ limit })
+  } catch {
+    return { ok: false, reason: 'the live message reader is not available in this build' }
+  }
+})
+
+/* WHICH TIERS THIS INSTALLATION CAN ACTUALLY START.
+ *
+ * The renderer used to answer this from a frozen list of provider names, so the
+ * tier menu said "cannot start from a tree yet" on a build that could, and would
+ * have kept saying it after the engine shipped. This is the shell answering with
+ * what it really resolved: startableTiers() runs the SAME resolveStartTier() the
+ * press runs, so the menu and the press cannot disagree.
+ *
+ * FAIL-CLOSED AT THE OTHER END. A renderer that gets no answer, or an answer it
+ * cannot parse, must fall back to codex-only -- exactly today's behaviour -- so
+ * an older payload or a browser with no bridge is unchanged. This end simply
+ * refuses to invent one: if the host cannot be built, the invoke rejects and the
+ * renderer takes its fallback.
+ *
+ * It starts nothing and carries no path; tier ids are the renderer's own words. */
+ipcMain.handle('mc-agent:startable-tiers', async (event) => {
+  assertTrustedAgentSender(event)
+  const host = await getAgentHost()
+  return host.startableTiers()
+})
+
+/* WHICH ASSISTANT PROGRAMS ARE ON THIS COMPUTER, AND WHICH ARE SIGNED IN.
+ *
+ * The third channel that starts nothing. It exists because the product could
+ * not answer the first question a person has after being told an agent needs
+ * Codex, Claude or Gemini: have I got it, and am I signed in. The guide printed
+ * the commands and could not say whether they had already been run.
+ *
+ * IT READS NO CREDENTIAL AND SPAWNS NOTHING, and neither is a promise made
+ * here. shell/provider-cli-presence.cjs contains no call that returns file
+ * contents and none that starts a process; tools/test/provider-cli-presence.test.mjs
+ * reads that source and fails on eighteen of them, because the property is an
+ * ABSENCE of code and no behavioural test can observe an absence.
+ *
+ * IT CARRIES NO PATH, exactly like the two channels above it. The answer is
+ * {ok, providers:[{id, installed, signedIn}]} and every value is a word from a
+ * closed set -- so the resolution can look at %APPDATA%, at PATH, and at a home
+ * directory without any of those reaching a renderer. That is the BLOCKER 2 rule
+ * this file already applies to the engine resolver's own message.
+ *
+ * SAME SENDER CHECK AS EVERY OTHER AGENT CHANNEL. What is installed on this
+ * machine and who is signed in to it is not something any frame that happens to
+ * be loaded may ask for, even though nothing here can change anything.
+ *
+ * IT CANNOT FAIL, which is why there is no {ok:false} branch to write. Every
+ * uncertainty this read can suffer is already expressed as 'unknown' on the one
+ * provider it applies to; an envelope-level failure would be a second way of
+ * saying the same thing, and a caller branching on it would be branching on
+ * nothing. */
+ipcMain.handle('mc-providers:presence', async (event) => {
+  assertTrustedAgentSender(event)
+  return providerCliPresence()
+})
+
+/* THE PERSON'S OWN ACCOUNTS, OVER THE SAME BOUNDARY AND UNDER THE SAME CHECK.
+ *
+ * SAME SENDER TEST AS EVERY OTHER AGENT CHANNEL, and here it is not a formality:
+ * `add` writes a file the engine reads to decide which sign-in an agent runs on.
+ * A frame that could reach it could point somebody's next agent at a directory
+ * they never chose.
+ *
+ * THE COMMAND IS BUILT HERE, NOT IN THE WINDOW. Each listed account carries the
+ * exact line a person pastes into their terminal to sign that folder in, and
+ * that line contains a resolved absolute path. The window never assembles one --
+ * it prints what this process worked out, which is the same division the session
+ * profiles already use for folders.
+ *
+ * `active` RIDES ALONG WITH THE LIST because they are one question on screen:
+ * "which of my accounts is this computer on right now" is unanswerable from the
+ * list alone. It is a separate read in the store and a separate optional file on
+ * disk, and a missing one degrades to "not known" rather than to a failure. */
+ipcMain.handle('mc-accounts:list', (event) => {
+  assertTrustedAgentSender(event)
+  try {
+    const answer = accountRegistry.list()
+    return {
+      ...answer,
+      accounts: answer.accounts.map(account => ({
+        ...account,
+        command: accountRegistry.signInCommand({ provider: account.provider, directory: account.directory }),
+      })),
+      active: accountRegistry.activeAccount(),
+    }
+  } catch (error) {
+    throw rendererSafeAgentError(error)
+  }
+})
+
+ipcMain.handle('mc-accounts:add', (event, value) => {
+  assertTrustedAgentSender(event)
+  try {
+    const payload = agentPayload(value, ['name', 'provider', 'directory', 'priority'])
+    return accountRegistry.add({
+      name: boundedAgentString(payload.name, 'name', 64),
+      provider: boundedAgentString(payload.provider, 'provider', 32),
+      directory: boundedAgentString(payload.directory, 'directory', 1024),
+      ...(payload.priority === undefined ? {} : { priority: payload.priority }),
+    })
+  } catch (error) {
+    throw rendererSafeAgentError(error)
+  }
+})
+
+ipcMain.handle('mc-accounts:remove', (event, value) => {
+  assertTrustedAgentSender(event)
+  try {
+    const payload = agentPayload(value, ['name', 'provider'])
+    return accountRegistry.remove({
+      name: boundedAgentString(payload.name, 'name', 64),
+      provider: boundedAgentString(payload.provider, 'provider', 32),
+    })
+  } catch (error) {
+    throw rendererSafeAgentError(error)
+  }
+})
+
+/* ================= PROVIDER LOGIN SPAWN REGION (lane: provider-login) =====
+ *
+ * THE ONE CHANNEL THAT STARTS A PROVIDER'S OWN SIGN-IN, and the reason it may:
+ * the first external user of 1.0.20 was told to run "codex login" in the
+ * window their install had just finished in, and that window answered
+ * "'codex' is not recognized" -- a shell never re-reads the PATH an installer
+ * wrote. shell/provider-login.cjs resolves the program fresh at every press
+ * and starts the program's OWN login command, hidden, with stdin closed, so
+ * no terminal exists to be stale and no pasted code can pass through us.
+ *
+ * WHAT CROSSES EACH WAY. In: a provider id from the closed set, nothing else.
+ * Out: bounded colour-stripped lines, https links, and an exit number --
+ * never a path, never an environment, never a byte of what the program
+ * writes. The person's browser is opened by the PROGRAM itself, or from
+ * here by the open-url channel below, which only ever opens the https line
+ * the shell itself captured -- a renderer cannot send a URL in.
+ *
+ * SAME SENDER CHECK AS EVERY OTHER AGENT CHANNEL, and here it guards a spawn:
+ * a frame that could reach this could start the sign-in flow of a program on
+ * this computer, which is exactly the class of thing the check exists for. */
+const { createProviderLoginService } = require('./provider-login.cjs')
+const providerLoginService = (() => {
+  const root = resolveCapabilityRoot()
+  if (!root) return null
+  try {
+    const seam = require(path.join(root, 'src', 'lib', 'proc', 'hidden-spawn.js'))
+    return createProviderLoginService({
+      spawnHidden: seam.spawnHidden,
+      resolveHiddenInvocation: seam.resolveHiddenInvocation,
+    })
+  } catch {
+    return null
+  }
+})()
+
+const PROVIDER_LOGIN_UNAVAILABLE = Object.freeze({
+  ok: false,
+  code: 'PROVIDER_LOGIN_UNAVAILABLE',
+  reason: 'This copy cannot start sign-ins. Running the command above in a new terminal window still works.',
+})
+
+ipcMain.handle('mc-provider-login:start', (event, value) => {
+  assertTrustedAgentSender(event)
+  if (!providerLoginService) return PROVIDER_LOGIN_UNAVAILABLE
+  const payload = agentPayload(value, ['provider'])
+  const provider = boundedAgentString(payload.provider, 'provider', 32)
+  const sender = event.sender
+  return providerLoginService.start(provider, packet => {
+    if (sender.isDestroyed()) return
+    sender.send('mc-provider-login:event', { provider, ...packet })
+  })
+})
+
+ipcMain.handle('mc-provider-login:stop', (event, value) => {
+  assertTrustedAgentSender(event)
+  if (!providerLoginService) return PROVIDER_LOGIN_UNAVAILABLE
+  const payload = agentPayload(value, ['provider'])
+  return providerLoginService.stop(boundedAgentString(payload.provider, 'provider', 32))
+})
+
+/* The install, same shape as the sign-in start and over the same event
+   channel. What it runs is the OFFICIAL `npm install -g` for the named
+   provider -- the packages are never bundled (Claude Code's licence grants no
+   redistribution; REQ-engine-bundle-provider-clis.md records the ruling), so
+   the person's machine fetches from the provider's own channel. */
+ipcMain.handle('mc-provider-login:install', (event, value) => {
+  assertTrustedAgentSender(event)
+  if (!providerLoginService) return PROVIDER_LOGIN_UNAVAILABLE
+  const payload = agentPayload(value, ['provider'])
+  const provider = boundedAgentString(payload.provider, 'provider', 32)
+  const sender = event.sender
+  return providerLoginService.installStart(provider, packet => {
+    if (sender.isDestroyed()) return
+    sender.send('mc-provider-login:event', { provider, ...packet })
+  })
+})
+
+/* The browser the program said to use, opened without the URL ever crossing
+   the bridge inbound: the renderer names the provider, the shell opens the
+   https line IT captured from that program's own output, or refuses. */
+ipcMain.handle('mc-provider-login:open-url', (event, value) => {
+  assertTrustedAgentSender(event)
+  if (!providerLoginService) return PROVIDER_LOGIN_UNAVAILABLE
+  const payload = agentPayload(value, ['provider'])
+  const url = providerLoginService.lastUrl(boundedAgentString(payload.provider, 'provider', 32))
+  if (!url || !url.startsWith('https://')) {
+    return { ok: false, code: 'PROVIDER_LOGIN_NO_URL', reason: 'The sign-in program has not printed a page to open yet.' }
+  }
+  electronShell.openExternal(url)
+  return { ok: true }
+})
+
+app.on('will-quit', () => {
+  if (providerLoginService) providerLoginService.stopAll()
+})
+/* =============== END PROVIDER LOGIN SPAWN REGION ========================= */
+
 /* The second agent channel that starts nothing, and the only one that reads
    backwards. Same sender check as every other agent channel: this returns a
    record of what ran on this machine, which is not something any frame that
@@ -998,6 +1713,15 @@ ipcMain.handle('mc-agent:history', async (event, value) => {
   assertTrustedAgentSender(event)
   const payload = agentPayload(value === undefined || value === null ? {} : value, ['limit'])
   return spawnRecordHistory(payload.limit)
+})
+
+/* The third agent channel that starts nothing. Same sender check and same
+   never-throws contract as history() above; it returns what the turns on this
+   computer cost, which is no more anybody's to ask for than the run record is. */
+ipcMain.handle('mc-agent:usage', async (event, value) => {
+  assertTrustedAgentSender(event)
+  const payload = agentPayload(value === undefined || value === null ? {} : value, ['limit'])
+  return usageRecordHistory(payload.limit)
 })
 
 ipcMain.handle('mc-agent:start', async (event, value) => {
@@ -1019,6 +1743,19 @@ ipcMain.handle('mc-agent:start', async (event, value) => {
     }
     delete request.profileId
   }
+  /* A START THAT NAMES NO FOLDER RUNS IN THE ONE THE PERSON CHOSE IN SETUP.
+     Resolved HERE, before recordSpawnIntent below, so the signed record and
+     the app-local record both carry the real folder instead of cwd:null —
+     and so the confinement the host binds at spawn anchors on the chosen
+     folder rather than on <userData>\workspace, which stays only as the
+     fallback for a machine where nobody was ever asked (chosenWorkspaceCwd
+     answers null there, and the host's defaultCwd takes over exactly as it
+     always has). A profile pick above still wins: it is the more specific
+     answer, given per-session rather than once at setup. */
+  if (request.cwd === undefined) {
+    const chosen = chosenWorkspaceCwd()
+    if (chosen) request.cwd = chosen
+  }
   if (agentSessions.has(request.sessionId)) {
     agentIpcError('MC_AGENT_SESSION_EXISTS', 'Session already exists: ' + request.sessionId)
   }
@@ -1030,13 +1767,41 @@ ipcMain.handle('mc-agent:start', async (event, value) => {
      nothing needs unwinding -- which is why it comes first. */
   const record = recordSpawnIntent(request)
 
-  const session = { owner: event.sender, state: 'starting' }
+  /* `turnsCompleted` starts at ZERO, not undefined, because zero is the true
+     count for a session that is stopped before it ever answered, and the end
+     record must be able to say so rather than "unknown". */
+  const session = { owner: event.sender, state: 'starting', turnsCompleted: 0, lastTurnStatus: null, ended: false }
   agentSessions.set(request.sessionId, session)
   bindAgentOwner(event.sender)
   try {
     const result = await getAgentHost().startSession(request)
     session.state = 'ready'
+    /* WHAT THIS SESSION IS RUNNING AS, kept so every usage record it writes can
+       say which model row and which of the person's own sign-ins it belongs to.
+     *
+     * `request.tier`, NOT `result.tier`, AND THAT WAS MEASURED THE WRONG WAY
+     * ROUND FIRST. The two fields share a name and mean different things:
+     * `request.tier` is the MODEL ROW a person chose (`luna`, `claude-sonnet` --
+     * the START_TIERS table in shell/agent-host.cjs), while the result's `tier`
+     * is the CONFINEMENT level the session was planned at. A real luna turn on
+     * 2026-08-18 wrote `tier: "unrestricted"` into its usage record, so the
+     * metrics page grouped a Codex session under "Not recorded" -- a true
+     * statement about a sandbox level, filed as an answer to "which assistant".
+     *
+     * Null when the person named no row, which is the honest "this record does
+     * not say" every reader downstream already handles. The account comes from
+     * the result because the result is the only place that says which of the
+     * person's sign-ins actually served. */
+    session.tier = typeof request.tier === 'string' ? request.tier : null
+    session.account = typeof result.account === 'string' ? result.account : null
     recordSpawnOutcome(request, record, 'started', null)
+    /* THE START THIS SESSION'S ENDING WILL RESOLVE. Kept on the session object
+       so recordSessionEnd() can name it from any of the places a session ends,
+       and set only now -- after `started` is written -- because a refused start
+       has no run to end. If the child was already reported gone (see the
+       onSessionExit hook in getAgentHost), that ending is written here. */
+    session.started = { sequence: record.sequence }
+    if (session.exitedBeforeStarted === true) recordSessionEnd(session, request.sessionId, 'exited')
     /* The receipt travels back with the session so the surface can show that
        the start was recorded, rather than asserting it. */
     return { ...result, record: { sequence: record.sequence, eventHash: record.eventHash } }
@@ -1084,6 +1849,61 @@ ipcMain.handle('mc-agent:send', async (event, value) => {
       ...(request.images ? { images: request.images } : {}),
       ...(request.model ? { options: { model: request.model } } : {}),
     })
+  } catch (error) {
+    throw rendererSafeAgentError(error)
+  }
+})
+
+/* FILE ONE STANDING REQUEST -- the /Request family typed into the chat box.
+   The PRODUCT does the filing (owner design, engine src/lib/r-ledger.js): the
+   renderer sends the scope, the id it already holds for that scope, and the
+   person's words; the host appends them verbatim through the payload's own
+   ledger module and answers the minted id for the one-sentence confirmation.
+   No session is required -- a rule can be filed before any agent runs -- so
+   this goes through getAgentHost() like a start does. Bounds: the words cap
+   matches the module's own MAX_WORDS_BYTES (16KB); scope and key are bounded
+   identifiers, never paths, and the reply carries no path either. */
+ipcMain.handle('mc-agent:request', async (event, value) => {
+  assertTrustedAgentSender(event)
+  try {
+    const payload = agentPayload(value, ['scope', 'key', 'words'])
+    const scope = boundedAgentString(payload.scope, 'scope', 16)
+    const words = boundedAgentString(payload.words, 'words', 16 * 1024)
+    const key = payload.key === undefined || payload.key === null
+      ? null
+      : boundedAgentString(payload.key, 'key', 128)
+    return await getAgentHost().fileStandingRequest({ scope, key, words })
+  } catch (error) {
+    throw rendererSafeAgentError(error)
+  }
+})
+
+/* READ BACK THE STANDING REQUESTS ONE SCOPE CARRIES -- the other half of the
+   handler above, which was write-only. A person could file a rule with
+   /RequestTree, see the confirmation, and then had no way to learn what rules
+   this tree carries while every agent in it was being told them at boot.
+
+   IT IS A READ AND NOTHING MORE. No delete, no edit: the ledger file's own
+   header states the owner's design -- "edit or delete any entry by hand ...
+   no tool rewrites them" -- so the product reads those files and never
+   rewrites them. See shell/standing-requests-read.cjs.
+
+   THE SAME BOUNDS AS THE WRITE, because it is the same vocabulary: scope and
+   key are bounded identifiers, never paths, and the reply carries words and
+   ids only -- readLedger's own `path` is dropped in the reader and never
+   reaches this process's answer. No session and no engine process is needed;
+   a scope's rules are a file parse, so this does not go through
+   getAgentHost() and cannot be blocked by an agent runtime that will not
+   construct. */
+ipcMain.handle('mc-agent:requests', (event, value) => {
+  assertTrustedAgentSender(event)
+  try {
+    const payload = agentPayload(value === undefined || value === null ? {} : value, ['scope', 'key'])
+    const scope = boundedAgentString(payload.scope, 'scope', 16)
+    const key = payload.key === undefined || payload.key === null
+      ? null
+      : boundedAgentString(payload.key, 'key', 128)
+    return readStandingRequests({ scope, key })
   } catch (error) {
     throw rendererSafeAgentError(error)
   }
@@ -1265,6 +2085,11 @@ ipcMain.handle('mc-agent:close', async (event, value) => {
     const request = parseAgentSessionCommand(value)
     const session = ownedAgentSession(event.sender, request.sessionId)
     const result = await agentHost.closeSession(request)
+    /* THE PERSON STOPPED IT -- the first genuine ending. Recorded once the
+       close has actually resolved (a close that rejects throws past this line
+       and leaves the session, and its record, exactly as they were), and
+       before the session leaves the map. */
+    recordSessionEnd(session, request.sessionId, 'closed')
     if (agentSessions.get(request.sessionId) === session) {
       agentSessions.delete(request.sessionId)
     }
@@ -2162,20 +2987,68 @@ ipcMain.on('mc-prefs:drain', (event, request) => {
  * already withdrawn. The destructive direction is the one that must not be
  * reachable by forgetting a branch.
  *
+ * A BRANCH WAS FORGOTTEN, and the sentence above is why this comment now names
+ * it rather than being quietly edited. This setting is `mc.set.*`, which
+ * public/durable-storage.js scopes TO THE SIGNED-IN ACCOUNT: while somebody is
+ * signed in the key on the wire is `acct:<id>:mc.set.uninstall_data` and the
+ * bare name is never written. The old match was the bare literal, so for every
+ * customer with an account the mirror never ran -- "Remove everything" reached
+ * no policy file, and a "Remove everything" chosen before signing in and
+ * withdrawn afterwards stayed on disk and stayed armed.
+ *
+ * THREE THINGS CHANGE THE ANSWER, AND ONLY ONE OF THEM IS A SETTINGS WRITE.
+ * Signing in and signing out change which stored copy the settings page is
+ * showing without any key being written at all, so they mirror too, and so does
+ * launch -- a session can expire between runs, which silently moves the person
+ * from their account's answer back to the device's. Where the value comes from
+ * is shell/uninstall-retention.cjs's decision, not this file's; here there is
+ * only the list of moments it can have changed.
+ *
  * Failures are deliberately NOT surfaced as a refusal of the settings write.
  * The preference itself saved correctly; what failed is a derived file. Turning
  * that into "your setting could not be saved" would be a lie about the thing
  * the person actually did, and would make an unrelated disk problem look like a
- * broken settings page. */
+ * broken settings page. That is also why this cannot throw: it is called from
+ * account handlers whose own result must not be lost to a disk error in a file
+ * they are not about. */
 function mirrorUninstallRetention() {
-  const snapshot = rendererPrefs.snapshot()
-  const value = snapshot && snapshot.values ? snapshot.values[RETENTION_PREF_KEY] : undefined
-  return syncRecordedChoice({ userDataDir: app.getPath('userData'), value })
+  /* THE SAME FENCE THE THREE PREFS WRITERS CARRY. After `mc-reset:erase` the
+     person has removed this computer's data, and a policy file written back
+     into the folder they just emptied would recreate it -- with a token about
+     data that is no longer there. */
+  if (localDataErased) return { ok: true, skipped: 'the data on this computer was removed' }
+  let account = null
+  /* An account store that cannot be built is not "signed out". It is not
+     knowable, and uninstall-retention.cjs renders the unknown as `ask` -- never
+     as the device value, which here would be a deletion on a guess. */
+  try { account = getAccountStore() } catch { account = null }
+  try {
+    return mirrorRetentionChoice({
+      userDataDir: app.getPath('userData'),
+      prefs: rendererPrefs,
+      account,
+    })
+  } catch (error) {
+    return { ok: false, reason: error?.message || String(error) }
+  }
 }
 
 function mirrorUninstallRetentionIfRelevant(key) {
-  if (key !== RETENTION_PREF_KEY) return
+  if (!isRetentionPrefKey(key)) return
   mirrorUninstallRetention()
+}
+
+/* An account channel that MUTATES runs the mirror after it, whatever it
+   answered. Deliberately after failures too: the mirror recomputes the current
+   truth rather than applying a delta, so running it on a refused sign-in costs
+   one small write and running it only on success is one more branch that can be
+   got wrong in the direction that leaves a live `remove-everything` behind. */
+async function withAccountMutation(event, action) {
+  try {
+    return await withFleetProfileSender(event, action)
+  } finally {
+    mirrorUninstallRetention()
+  }
 }
 
 /* WRITING A SETTING BACK INTO A DIRECTORY SOMEBODY JUST EMPTIED.
@@ -2263,8 +3136,108 @@ ipcMain.on('mc-setup:bootstrap', (event) => { event.returnValue = setupBootstrap
    point of the document written there is that the two agree about which
    directory a lane runs in; deriving it twice is how they would stop agreeing.
    See ensureDispatchAssistantConfig() in shell/setup-record.cjs. */
-ipcMain.handle('mc-setup:choose-tier', (event, tier) =>
-  withFleetProfileSender(event, () => recordTier(typeof tier === 'string' ? tier : '', { dispatchRoot: WORKSPACE_ROOT })))
+/* THE PERMISSION LEVEL GOES INTO THE SIGNED LEDGER, AND THE WIDEST LEVEL IS
+   REFUSED WITHOUT A CONFIRMED CONSENT (owner, X4, 2026-08-15). This channel
+   used to write the machine record and nothing else: a person moving this
+   computer to the level at which an agent can read, change and delete any file
+   on it left no signed trace. It now goes through shell/tier-consent.cjs --
+   intent row, the write, outcome row, the same shape auditedAccountAction uses
+   above and for the same reason -- and it refuses to move TO the widest level
+   unless the page hands over a consent saying the risk was shown, in which
+   words, and confirmed. The refusal lives here rather than only on the screen so
+   a renderer that forgot to ask could not widen anything.
+
+   The level this computer holds NOW is read here, never taken from the page: it
+   decides whether this is an enable (consent required) or a re-record of a
+   level already held (not), and it is what the ledger row names as `from`.
+   The principal is read here for the reason accountPrincipal() states.
+
+   The require sits beside its one caller on purpose: this block is the whole
+   of this file's use of the module, and a sibling lane holds other regions of
+   this file, so the edit stays in one place. */
+const { auditedTierChoice, readConsentState } = require('./tier-consent.cjs')
+const { canonicalAudit: canonicalAuditFor } = require('./canonical-audit.cjs')
+
+ipcMain.handle('mc-setup:choose-tier', (event, tier, consent) =>
+  withFleetProfileSender(event, () => {
+    const requested = typeof tier === 'string' ? tier : ''
+    let known = []
+    let previousTier = null
+    try {
+      const state = readTierState()
+      known = Array.isArray(state?.tiers) ? state.tiers : []
+      previousTier = state && state.configured === true && typeof state.tier === 'string' ? state.tier : null
+    } catch { /* recordTier below answers with its own refusal */ }
+    /* A level this product does not offer is refused by recordTier with
+       SETUP_TIER_UNKNOWN and is not worth two ledger rows; only a real level
+       is recorded. */
+    if (!known.includes(requested)) return recordTier(requested, { dispatchRoot: WORKSPACE_ROOT })
+    return auditedTierChoice({
+      tier: requested,
+      previousTier,
+      consent,
+      principal: accountPrincipal(),
+      record: recordCanonical,
+      run: () => recordTier(requested, { dispatchRoot: WORKSPACE_ROOT }),
+    })
+  }))
+
+/* What the ledger holds about the widest level: whether a CONFIRMED choice of
+   it is on record here, and when. Read from the same canonical chain the row
+   above writes to, so the Settings row can say "confirmed on <date>" only when
+   that is what the record says, and say plainly that nothing is on record for
+   a machine that reached this level before this product asked. */
+ipcMain.handle('mc-setup:tier-consent', event =>
+  withFleetProfileSender(event, () => {
+    const loaded = canonicalAuditFor({ stateRoot: CAPABILITY_STATE_ROOT })
+    if (!loaded.ok) return { ok: false, code: loaded.code, reason: loaded.reason }
+    return readConsentState({ findEvents: selector => loaded.audit.findEvents(selector) })
+  }))
+
+/* ---------- the installation's own settings, changed from inside the window ----------
+ *
+ * WHAT WAS MISSING, in the owner's own rule: a user setting is a registry row,
+ * a real enforcement, and a control in the software -- or it is a lie. The
+ * research family had a row and an enforcer and NO control anywhere, so the
+ * research page's sentence ("the research pipeline is switched off in settings")
+ * pointed at a switch that did not exist and the only way to run anything was to
+ * hand-write the settings file. See shell/product-settings.cjs for why the
+ * writer lives in the shell and why it consults the payload's validator rather
+ * than restating it.
+ *
+ * SAME SENDER CHECK AS EVERY OTHER WRITE HERE, for the same reason: this changes
+ * a record on disk that decides whether unattended work may run on this
+ * computer, and only this application's own main frame may do that.
+ *
+ * THE CHANGE IS RECORDED, AND A FAILURE TO RECORD DOES NOT SILENTLY PASS. This
+ * is a permission being granted, which is exactly the class of act the signed
+ * ledger exists for. It is reported rather than thrown, and the write is NOT
+ * rolled back on an unrecordable ledger: a person who has turned research on has
+ * turned it on, and quietly reverting their choice because a log was unavailable
+ * would be a worse lie than an unrecorded change. The control says which
+ * happened. */
+ipcMain.handle('mc-settings:read', event =>
+  withFleetProfileSender(event, () => readProductSettings()))
+
+ipcMain.handle('mc-settings:set', (event, request) =>
+  withFleetProfileSender(event, () => {
+    const id = typeof request?.id === 'string' ? request.id : ''
+    const value = request ? request.value : undefined
+    const result = setProductSetting({ id, value })
+    if (!result.ok) return result
+    /* The BOUND wrapper, never the raw import: the raw call carried no state
+     * root, was refused, and -- before canonical-audit.cjs stopped caching
+     * caller errors -- poisoned every later record in the process. */
+    const recorded = recordCanonical('settings.set', id, {
+      value: result.value,
+      revision: result.revision,
+      provenance: result.provenance?.source ?? null,
+    })
+    if (!recorded.ok) {
+      console.warn(`[settings] the change to "${id}" was applied but could not be written to the signed record: ${recorded.code ?? ''} ${recorded.reason ?? ''}`)
+    }
+    return { ...result, recorded }
+  }))
 
 /* ---------- the declared organisation ----------
  *
@@ -2408,8 +3381,15 @@ ipcMain.handle('mc-account:availability', event =>
 ipcMain.handle('mc-account:current', event =>
   withFleetProfileSender(event, () => getAccountStore().currentForRenderer()))
 
+/* EVERY MUTATING ACCOUNT CHANNEL BELOW GOES THROUGH `withAccountMutation`, and
+   the ones that plainly cannot move the uninstall choice -- a display name, a
+   payment attachment -- go through it too. The rule "an account mutation
+   mirrors" is one a later edit can keep; "these four of the nine mutations
+   mirror" is a rule that needs the list re-derived every time a channel is
+   added, and the cost of getting that wrong is a live deletion token. The reads
+   are left alone. */
 ipcMain.handle('mc-account:create', (event, value) =>
-  withFleetProfileSender(event, () => auditedAccountAction({
+  withAccountMutation(event, () => auditedAccountAction({
     action: 'account.create',
     username: typeof value?.username === 'string' ? value.username : '',
     run: () => getAccountStore().createAccount({
@@ -2426,7 +3406,7 @@ ipcMain.handle('mc-account:create', (event, value) =>
    same code either way. It can therefore show that somebody tried repeatedly
    without telling a reader which names exist. */
 ipcMain.handle('mc-account:sign-in', (event, value) =>
-  withFleetProfileSender(event, () => auditedAccountAction({
+  withAccountMutation(event, () => auditedAccountAction({
     action: 'account.sign_in',
     username: typeof value?.username === 'string' ? value.username : '',
     run: () => getAccountStore().signIn({
@@ -2438,7 +3418,7 @@ ipcMain.handle('mc-account:sign-in', (event, value) =>
 /* Signing out names the session that ENDS, which is known before it ends and
    unknowable after, so the principal is read first. */
 ipcMain.handle('mc-account:sign-out', event =>
-  withFleetProfileSender(event, () => {
+  withAccountMutation(event, () => {
     const principal = accountPrincipal()
     return auditedAccountAction({
       action: 'account.sign_out',
@@ -2448,10 +3428,10 @@ ipcMain.handle('mc-account:sign-out', event =>
   }))
 
 ipcMain.handle('mc-account:sign-out-everywhere', event =>
-  withFleetProfileSender(event, () => getAccountStore().signOutEverywhere()))
+  withAccountMutation(event, () => getAccountStore().signOutEverywhere()))
 
 ipcMain.handle('mc-account:change-password', (event, value) =>
-  withFleetProfileSender(event, () => getAccountStore().changePassword({
+  withAccountMutation(event, () => getAccountStore().changePassword({
     currentPassword: typeof value?.currentPassword === 'string' ? value.currentPassword : '',
     newPassword: typeof value?.newPassword === 'string' ? value.newPassword : '',
   })))
@@ -2469,7 +3449,7 @@ ipcMain.handle('mc-account:change-password', (event, value) =>
  *
  * The slice is the boundary doing its own job. The store bounds it again. */
 ipcMain.handle('mc-account:change-display-name', (event, value) =>
-  withFleetProfileSender(event, () => getAccountStore().changeDisplayName({
+  withAccountMutation(event, () => getAccountStore().changeDisplayName({
     displayName: typeof value?.displayName === 'string' ? value.displayName.slice(0, 1024) : null,
   })))
 
@@ -2491,8 +3471,13 @@ ipcMain.handle('mc-account:data', event =>
 ipcMain.handle('mc-account:setting-get', (event, value) =>
   withFleetProfileSender(event, () => getAccountStore().getSetting(typeof value?.key === 'string' ? value.key : '')))
 
+/* THE ACCOUNT-SCOPED SETTINGS WRITE, AND THE ONE THAT WAS NOT MIRRORED.
+   `mc-prefs:write` carries the namespaced key and this carries the bare one --
+   public/durable-storage.js sends both for a single settings click, the
+   namespaced one synchronously and this one after it. Both mirror, because
+   either can be the write that lands. */
 ipcMain.handle('mc-account:setting-put', (event, value) =>
-  withFleetProfileSender(event, () => getAccountStore().putSetting({
+  withAccountMutation(event, () => getAccountStore().putSetting({
     key: typeof value?.key === 'string' ? value.key : '',
     /* `null` removes. Anything that is not a string and not null is refused by
        the store rather than coerced -- a setting stored as "[object Object]" is
@@ -2508,14 +3493,14 @@ ipcMain.handle('mc-account:setting-put', (event, value) =>
  * allowlist and writes it down. Nothing here moves money and there is no code
  * path from this channel to anything that does. */
 ipcMain.handle('mc-account:payment-attach', (event, value) =>
-  withFleetProfileSender(event, () => getAccountStore().attachPaymentMethod({
+  withAccountMutation(event, () => getAccountStore().attachPaymentMethod({
     vaultKey: typeof value?.vaultKey === 'string' ? value.vaultKey : '',
     vaultStore: path.join(CAPABILITY_STATE_ROOT, 'vault', 'secrets.json'),
     note: typeof value?.note === 'string' ? value.note : null,
   })))
 
 ipcMain.handle('mc-account:payment-detach', event =>
-  withFleetProfileSender(event, () => getAccountStore().detachPaymentMethod()))
+  withAccountMutation(event, () => getAccountStore().detachPaymentMethod()))
 
 /* IS THE ATTACHED RECORD ACTUALLY IN THIS INSTALLATION'S VAULT.
  *
@@ -2598,7 +3583,7 @@ ipcMain.handle('mc-account:google-availability', event =>
   }))
 
 ipcMain.handle('mc-account:google-sign-in', event =>
-  withFleetProfileSender(event, async () => {
+  withAccountMutation(event, async () => {
     const config = googleSignInConfig()
     if (config.ok !== true) return { ok: false, code: config.code, reason: config.reason }
 
@@ -2775,8 +3760,20 @@ ipcMain.handle('mc-reset:erase', event =>
       revoked = { ok: false, reason: error?.message || 'The sign-in could not be ended.' }
     }
 
-    /* The layer holds the ledger and the vault open. It is stopped here rather
-       than at quit, because quit is after the deletion. */
+    /* THIS PROCESS WAS ONE OF THE HOLDERS, AND NOBODY HAD ASKED IT TO LET GO.
+       Stopping the child below was written on the belief that the capability
+       layer held the ledger open. It does -- and so does this window, which
+       loads the payload's ledger writer into itself and keeps its database
+       handle for the life of the process (shell/canonical-audit.cjs). Measured
+       2026-08-18: the removal reported the vault, its access log and the signed
+       ledger still on the disk, and sweeping four more times over 2.7s did not
+       shift them, because the handle was in the process doing the sweeping.
+       Closed BEFORE the child is stopped, because this half costs nothing and
+       failing to do it is what made the promise false. */
+    const ledgerClosed = closeCanonicalLedger()
+
+    /* The layer holds the ledger and the vault open too. It is stopped here
+       rather than at quit, because quit is after the deletion. */
     const child = capabilityLayer?.child || capabilityLayerChild
     capabilityLayer = null
     capabilityLayerChild = null
@@ -2808,7 +3805,16 @@ ipcMain.handle('mc-reset:erase', event =>
         'uninstall-data-policy.txt', 'workspace', 'Local Storage', 'shell-state.json'],
     })
 
-    return { ok: true, plan, revoked: { ok: revoked.ok === true, revokedSessions: revoked.revoked === true }, swept }
+    return {
+      ok: true,
+      plan,
+      revoked: { ok: revoked.ok === true, revokedSessions: revoked.revoked === true },
+      /* Reported, never assumed: a ledger this process could not close is the
+         one thing most likely to leave a file behind, and the screen has to be
+         able to say so rather than presenting an unexplained survivor. */
+      ledgerClosed: { ok: ledgerClosed.ok === true, closed: ledgerClosed.closed === true, reason: ledgerClosed.reason ?? null },
+      swept,
+    }
   }))
 
 /* Two ways to get the bootstrap proof, and the order matters.
@@ -2934,6 +3940,19 @@ function startSupervisedCapabilityLayer() {
     if (!dispatchAssistantConfig.ok) {
       console.error(`[capability-layer] the dispatch root has no assistant configuration: ${dispatchAssistantConfig.code}`)
     }
+    /* AND THE PERSON'S OWN COPY, WHICH NOTHING HAS EVER REVISITED. Their folder's
+       `.mcp.json` names an executable and an engine directory belonging to the
+       COPY THAT WROTE IT, and setup runs once -- so an updated, moved or second
+       installation left them a document pointing at the old build. Their agent
+       client then started that build: an extra application window per session,
+       and no ToolsEnabled tools in it, because a GUI launch never speaks
+       JSON-RPC. Refreshed only where a document already exists, so the
+       unanswered folder question still provisions nothing. */
+    const chosenAssistantConfig = refreshChosenAssistantConfig({})
+    if (!chosenAssistantConfig.ok && chosenAssistantConfig.code !== 'SETUP_ASSISTANT_CONFIG_ABSENT'
+      && chosenAssistantConfig.code !== 'SETUP_ASSISTANT_CONFIG_NOT_RECORDED') {
+      console.error(`[capability-layer] the chosen folder's assistant configuration was not refreshed: ${chosenAssistantConfig.code}`)
+    }
 
     const started = await startCapabilityLayer({
       root,
@@ -3014,6 +4033,17 @@ async function capabilityLayerSettled() {
 }
 
 async function createWindow() {
+  /* RECONCILED AT LAUNCH, BECAUSE A SESSION CAN END WITHOUT ANYBODY CLICKING.
+     The uninstall choice is account-scoped, so who is signed in decides which
+     stored answer the settings page shows -- and a session that expired, or was
+     revoked from another window, moves that from the account's answer back to
+     the device's with no settings write and no sign-out on this run to notice
+     it. Left to the next click, the policy file would sit stale for however
+     long the person does not open Settings, and the stale direction that
+     matters is an armed `remove-everything`. Cheap: one snapshot, one session
+     read, and at most one small file written. */
+  mirrorUninstallRetention()
+
   /* THE BOOT THEME COMES FROM THE SETTINGS FILE, NOT FROM shell-state.json.
      Both files carry a theme, and before the settings file existed they could
      disagree in a way a person actually saw: shell-state.json remembered black
@@ -3137,6 +4167,13 @@ app.on('before-quit', (event) => {
   if (agentShutdownPromise) return
 
   const host = agentHost
+  /* THE APP IS CLOSING -- best-effort, synchronous, before the map is emptied.
+     Each write is fsync'd, so on an orderly quit these usually land; a quit
+     that never reaches here (a hard kill, a crash) leaves no end record, and
+     that absence stays readable as "does not say". Nothing backfills it. */
+  for (const [sessionId, session] of agentSessions) {
+    recordSessionEnd(session, sessionId, 'app-shutdown')
+  }
   agentSessions.clear()
   agentShutdownPromise = host.closeAll()
     .catch(error => console.error('Failed to close all Codex sessions:', error))

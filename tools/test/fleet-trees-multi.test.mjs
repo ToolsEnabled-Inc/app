@@ -238,7 +238,12 @@ test('section 8 tells the truth about profiles: ids cross the boundary, paths ne
    *    dialog, refusing everything else. */
   const shell = read('shell/main.cjs')
   const parse = shell.slice(shell.indexOf('function parseAgentStart('))
-  assert.ok(/\['sessionId', 'cwd', 'surface', 'tier', 'effort', 'profileId', 'resumeThreadId'\]/.test(parse.slice(0, 1800)),
+  /* Re-measured 2026-08-19 (request-contract lane): the allowlist gained
+     `requestKeys` — the standing-request scope keys, tree node IDS and the
+     conversation's own id, bounded at the same boundary. The security shape
+     is unchanged: ids cross, paths never do, and a raw cwd is still refused
+     by name. Section 8 was rewritten in the same commit, per this pin. */
+  assert.ok(/\['sessionId', 'cwd', 'surface', 'tier', 'effort', 'profileId', 'resumeThreadId', 'requestKeys'\]/.test(parse.slice(0, 1800)),
     'parseAgentStart\'s allowlist moved again. Re-measure section 8 rather than editing this assertion.')
   assert.ok(/MC_AGENT_CWD_NOT_YOURS/.test(parse.slice(0, 2600)),
     'a renderer-sent working folder must be refused by name at the boundary — profiles are the one route to a folder')

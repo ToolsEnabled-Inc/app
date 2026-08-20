@@ -64,6 +64,9 @@ import {
   noteTierRecorded,
 } from '../setup-state.js'
 import { setupAccountStepMarkup } from '../account-markup.js'
+/* One reader for "why was that folder refused", shared with the settings screen
+   that asks the same question, so the two cannot explain one refusal two ways. */
+import { setupRefusalDetail } from '../setup-profile-settings.js'
 import {
   ACCOUNT_QUESTION,
   ACCOUNT_QUESTION_SUB,
@@ -92,17 +95,27 @@ import {
   stepAfter,
   stepBefore,
   writeStoredProfile,
+  INTENT_BANNER_BODY,
+  INTENT_BANNER_TITLE,
 } from '../setup-profile.js'
 /* The remedy commands and the per-code sentences, taken from the module that
    owns them rather than restated here. Setup, the home screen and the agent
    page all tell a person how to get Codex working; three hand-written copies of
    a command line is three chances to ship one that does not run. */
-import { CODEX_SETUP_COMMANDS, unavailableReason } from '../agent-availability-copy.js'
+/* The decision itself, DOM-free, so the suite drives it rather than reading it. */
+import { codexReadiness } from '../setup-review-readiness.js'
 /* WHAT EACH SWITCH GRANTS, WHAT IT RISKS, AND WHAT WAS WITHHELD (owner, R1529).
    The statements are data in src/permission-guidance.js so this screen, the
    settings page and the drawer cannot describe one switch three ways. */
 import { guidanceMarkup, withheldMarkup } from '../guided-step.js'
 import { probe, refreshCapabilityProbes } from '../capability-probes.js'
+/* THE MOMENT OF CHOOSING FULL ACCESS (owner, X4, 2026-08-15). Pressing the
+   widest level on this screen does not select it: the risk goes on the glass in
+   the Terms' own words and the person is asked; only the confirm button makes
+   it the selection Continue will record, and Continue hands the shell the
+   consent with the words attached. Same module, same words, same gate as the
+   Settings row, so a person meets one sentence in both places. */
+import { createRiskGate, requiresRiskConsent, unrestrictedRiskMarkup } from '../unrestricted-consent.js'
 
 import '../settings.css'
 import '../fleet-profile-settings.css'
@@ -124,6 +137,23 @@ const esc = value => String(value ?? '')
 const STEPS = Object.freeze(['tier', 'workspace', 'account', 'autonomy', 'review'])
 const QUESTION_STEPS = Object.freeze(['tier', 'workspace', 'autonomy'])
 
+/* THE WALK THE PERSON IS IN RIGHT NOW, held for the life of the PAGE rather
+ * than of one view instance. Null whenever no walk is open.
+ *
+ * `resumeStep` reads the stored profile and the recorded tier, and both of
+ * those are ANSWERS THAT ARRIVE LATE: the tier is recorded by an await inside
+ * commit(), and the router can re-mount this view while that await is in
+ * flight (measured 2026-08-19 -- the checkout probe's settle event re-entered
+ * render() over '#/setup' and the surviving copy opened on question 1 while
+ * the person's copy stood at the review, until the retirement timer removed
+ * it). A re-mount inside one page is not a returning visitor; it is the same
+ * person, mid-walk, and their current step is the truth. So every move the
+ * walk makes records itself here, the next mount in the same page adopts it,
+ * and finishing or skipping clears it. Disk state still decides everything on
+ * the NEXT launch, where this record no longer exists -- so the measured
+ * resume-at-exact-step behaviour from Settings -> "Open setup" is unchanged. */
+let liveWalk = null
+
 const WRITE_FLAG_IDS = WRITE_ACTION_FLAGS.map(flag => flag.id)
 const LIVE_FLAG_IDS = LIVE_VIEW_FLAGS.map(flag => flag.id)
 
@@ -131,6 +161,13 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
   const state = SETUP_RESOLUTION
   let chosen = TIER_IDS.includes(state.tier) ? state.tier : DEFAULT_TIER
   let busy = false
+  /* The gate for the widest level, and the consent it produced. `consent` is
+     non-null ONLY after the person pressed confirm on this screen for the
+     level `chosen` now names; every other move clears it. Continue sends it to
+     the shell, which refuses the widest level without it -- so a walkthrough
+     that somehow skipped the words could not widen anything. */
+  const riskGate = createRiskGate({ via: 'setup' })
+  let consent = null
   /* Non-null only when the app cannot record an answer, or a save failed. The
      screen still renders the question in that case -- a reader is entitled to
      see what the levels ARE even where this copy cannot set one -- but the
@@ -146,6 +183,10 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
      that starts anything. */
   let answers = stored ? stored.answers : { ...RECOMMENDED_ANSWERS, workspaceRoots: [] }
   let step = resumeStep(stored, { tierRecorded: state.configured, steps: STEPS })
+  if (liveWalk && STEPS.includes(liveWalk.step)) {
+    step = liveWalk.step
+    answers = liveWalk.answers
+  }
   /* The workspace facts come from the shell, so until they arrive the step says
      it is loading rather than showing an empty folder list that looks like an
      answer. `null` means "not asked for yet", which is distinct from a reply
@@ -170,6 +211,10 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
    * still worth saving on a machine where Codex is not installed yet. It tells
    * the person what remains and lets them finish. */
   let agentReadiness = null
+  /* What THIS COMPUTER has, per assistant program, from mcProviders.presence().
+     null while unasked; `known:false` when it could not be asked, which the
+     review says out loud rather than rounding to a tick. */
+  let codexPresence = null
 
   /* The sign-in step's own state. `null` means "not asked yet", which is
      distinct from a reply that came back unavailable -- painting an empty form
@@ -196,8 +241,13 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
   let segCleanups = []
   let destroyed = false
 
-  function choiceMarkup(choice) {
-    return `<article class="settings-row setup-choice" data-setup-choice="${esc(choice.tier)}" aria-current="${choice.tier === chosen ? 'true' : 'false'}">
+  /* The whole card selects, not only the small seg button above: the card is
+     what a person is reading when they decide, so it is also pressable. It
+     carries the SAME attribute the seg buttons do and lands in the SAME
+     handler -- pressing the widest level's card meets the same consent words
+     the seg press does, never a way around them. */
+  function choiceMarkup(choice, lit = chosen) {
+    return `<article class="settings-row setup-choice is-pressable" data-setup-choice="${esc(choice.tier)}" data-setup-tier="${esc(choice.tier)}" aria-current="${choice.tier === lit ? 'true' : 'false'}">
       <div class="settings-copy">
         <div class="settings-name">${esc(choice.label)}${choice.note ? ` — ${esc(choice.note)}` : ''}</div>
         <div class="settings-desc">${esc(choice.detail)}</div>
@@ -213,7 +263,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     if (refusal) {
       return `<div class="fleet-profile-status is-serious" data-setup-status role="alert">
         <strong>${esc(refusal.title || 'This copy cannot record a permission level')}</strong>
-        <span>${esc(refusal.reason || 'The application did not say why.')}</span>
+        <span>${esc(setupRefusalDetail(refusal))}</span>
       </div>`
     }
     return `<div class="fleet-profile-status is-warn" data-setup-status role="status">
@@ -223,6 +273,13 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
   }
 
   function markup() {
+    /* WHILE THE QUESTION IS OPEN the seg lights the button that was pressed,
+       because on this screen the seg is a selection in progress and that is
+       what was pressed; `chosen` -- the level Continue would record -- has not
+       moved, and declining puts the light back where it was. (The Settings row
+       does the opposite, and rightly: its seg shows the level the machine
+       HOLDS, and nothing has moved there either.) */
+    const lit = riskGate.pending || chosen
     return `<h1 class="setup-title">${esc(TIER_QUESTION)}</h1>
       <div class="settings-section-rows">
         <article class="settings-row fleet-profile-block setup-question">
@@ -232,15 +289,18 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
           </div>
           <div class="fleet-profile-fields">
             <div class="seg settings-seg setup-seg" role="group" aria-labelledby="setup-tier-label">
-              ${TIER_CHOICES.map(choice => `<button type="button" data-setup-tier="${esc(choice.tier)}" aria-pressed="${choice.tier === chosen ? 'true' : 'false'}" class="${choice.tier === chosen ? 'on' : ''}" ${busy ? 'disabled' : ''}>${esc(choice.label)}</button>`).join('')}
+              ${TIER_CHOICES.map(choice => `<button type="button" data-setup-tier="${esc(choice.tier)}" aria-pressed="${choice.tier === lit ? 'true' : 'false'}" class="${choice.tier === lit ? 'on' : ''}" ${busy ? 'disabled' : ''}>${esc(choice.label)}</button>`).join('')}
             </div>
           </div>
         </article>
-        ${TIER_CHOICES.map(choiceMarkup).join('')}
+        ${TIER_CHOICES.map(choice => choiceMarkup(choice, lit)).join('')}
+        ${riskGate.pending ? unrestrictedRiskMarkup({ id: 'setup-unrestricted-risk', busy, declineLabel: `No, keep “${TIER_CHOICES.find(choice => choice.tier === chosen)?.label || 'the safer level'}”` }) : ''}
       </div>
       ${disclosureMarkup()}
       <div class="setup-actions">
-        <button type="button" class="ctl-btn" data-setup-continue ${refusal || busy ? 'disabled' : ''}>${busy ? 'Saving…' : 'Continue'}</button>
+        ${riskGate.pending || refusal ? '' : `<button type="button" class="setup-skip" data-setup-skip-first ${busy ? 'disabled' : ''}>Skip the rest for now</button>`}
+        <span class="setup-actions-spacer"></span>
+        <button type="button" class="ctl-btn" data-setup-continue ${refusal || busy || riskGate.pending ? 'disabled' : ''}>${busy ? 'Saving…' : 'Continue'}</button>
       </div>`
   }
 
@@ -256,18 +316,62 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
      by clicking between them has not decided anything yet, and writing a
      configuration on every click would record levels nobody chose. */
   function select(tier) {
-    if (busy || !TIER_IDS.includes(tier) || tier === chosen) return
+    if (busy || !TIER_IDS.includes(tier)) return
+    if (requiresRiskConsent(tier)) {
+      /* Not selected yet. The words go on the glass and the two buttons under
+         them decide; a second press on the same button while the question is
+         open changes nothing. Asked EVERY time, whatever this screen or the
+         ledger remembers -- that is clause four of the ruling. */
+      if (riskGate.pending === tier) return
+      riskGate.request(tier)
+      paint()
+      return
+    }
+    /* A narrower press answers an open question with "no" and clears any
+       consent that was given for the widest level: what Continue records is
+       always the level that is lit, with the consent that belongs to it. */
+    const wasAsking = riskGate.pending !== null
+    riskGate.clear()
+    consent = null
+    if (tier === chosen && !wasAsking) return
     chosen = tier
     paint()
   }
 
+  function confirmUnrestricted() {
+    if (busy) return
+    const given = riskGate.confirm()
+    if (!given) return
+    consent = given
+    chosen = 'unrestricted'
+    paint()
+  }
+
+  function declineUnrestricted() {
+    if (busy) return
+    riskGate.decline()
+    consent = null
+    paint()
+  }
+
   async function commit() {
-    if (busy || refusal) return
+    if (busy || refusal || riskGate.pending) return
+    /* The widest level leaves this screen only with the words attached. If it
+       is somehow the selection with no consent behind it -- this branch should
+       be unreachable, and the shell refuses it anyway -- ask, rather than send
+       a choice nobody confirmed. A machine that ALREADY holds the widest level
+       is the one exception: re-recording the level it has is not enabling it,
+       and the shell treats it the same way. */
+    if (requiresRiskConsent(chosen) && !consent?.confirmed && state.tier !== chosen) {
+      riskGate.request(chosen)
+      paint()
+      return
+    }
     busy = true
     paint()
     let result
     try {
-      result = await globalThis.mcSetup.chooseTier(chosen)
+      result = await globalThis.mcSetup.chooseTier(chosen, consent)
     } catch (error) {
       result = { ok: false, reason: error?.message || String(error) }
     }
@@ -284,9 +388,47 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     refusal = {
       title: 'That level was not saved',
       code: result?.code || 'MC_SETUP_SAVE_FAILED',
-      reason: result?.reason || 'The application did not say why. Nothing on this computer was changed.',
+      reason: setupRefusalDetail(result, 'The application did not say why. Nothing on this computer was changed.'),
     }
     paint()
+  }
+
+  /* SKIP, FROM THE VERY FIRST SCREEN, IN ONE PRESS. Skip used to appear only
+   * after the level question was answered, so leaving early was two decisions
+   * and a wait. It cannot simply leave: with no level recorded the first-run
+   * gate bounces straight back to this screen (src/main.js, shouldOpenSetup),
+   * which is a trap wearing a skip button. So the press records the level that
+   * is LIT -- for a person who decided nothing, the preselected narrowest one
+   * -- and then applies the safe answers, which switch nothing on.
+   *
+   * NO CONSENT SURFACE IS PASSED. Only the widest level carries one, and the
+   * lit level can only BE the widest after its words were answered on this
+   * screen (`consent` is non-null exactly then); while the question is OPEN
+   * the button is not rendered at all. The shell refuses the widest level
+   * without consent besides. */
+  async function skipFromFirstQuestion() {
+    if (busy || refusal || riskGate.pending) return
+    if (state.configured) { skip(); return }
+    busy = true
+    paint()
+    let result
+    try {
+      result = await globalThis.mcSetup.chooseTier(chosen, consent)
+    } catch (error) {
+      result = { ok: false, reason: error?.message || String(error) }
+    }
+    busy = false
+    if (!result?.ok) {
+      refusal = {
+        title: 'That level was not saved',
+        code: result?.code || 'MC_SETUP_SAVE_FAILED',
+        reason: setupRefusalDetail(result, 'The application did not say why. Nothing on this computer was changed.'),
+      }
+      paint()
+      return
+    }
+    noteTierRecorded(result.tier || chosen)
+    skip()
   }
 
   /* ---------- the derived profile, recomputed rather than cached ---------- */
@@ -484,6 +626,21 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
       return
     }
     await loadAccount()
+    /* Tell the settings store who is signed in now, exactly as
+       src/views/account.js does after its own sign-in. Without this poke the
+       durable store spends the WHOLE FIRST SESSION believing nobody is signed
+       in (it hydrates the account asynchronously at launch, and this walkthrough
+       is the launch), so every account-scoped setting the person chooses in
+       their first hour -- the theme, the settings page, the purchase selection
+       -- is written to the DEVICE record. On the next launch the store hydrates
+       the account correctly, consults ONLY the account overlay for those keys
+       (the no-leak rule in public/durable-storage.js), finds nothing, and the
+       person opens an app wearing none of the choices they just made. Measured
+       on the staged packaged build, 2026-08-18: theme chosen black after an
+       in-walkthrough account creation, renderer-prefs.json carrying a bare
+       `mc.theme` device key, and both relaunches painting white. Optional and
+       guarded because a plain browser has no storage layer to tell. */
+    try { if (globalThis.mcDurableStorage) globalThis.mcDurableStorage.onAccountChanged() } catch (error) { /* storage layer is optional */ }
     goTo('autonomy')
   }
 
@@ -512,7 +669,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
       return `<h1 class="setup-title">Which folder should your assistant work in?</h1>
         <div class="fleet-profile-status is-serious" role="alert">
           <strong>This copy cannot record a folder</strong>
-          <span>${esc(workspace.reason || 'The application did not say why.')} Nothing on this computer has been changed, and the rest of setup still works.</span>
+          <span>${esc(setupRefusalDetail(workspace))} Nothing on this computer has been changed, and the rest of setup still works.</span>
         </div>
         ${actionsMarkup({ back: stepBefore(STEPS, 'workspace'), next: stepAfter(STEPS, 'workspace') })}`
     }
@@ -524,9 +681,28 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
         <article class="settings-row fleet-profile-block setup-question">
           <div class="settings-copy">
             <div class="settings-name">Working folder</div>
+            ${/* THE SINGULAR BRANCH IS THE GUIDED ONE -- `multiple` is
+                  recordedTier() !== 'guided' -- and it PROMISED WRITING at the
+                  one level that has none. Guided maps to sandbox 'read-only'
+                  (agent-session-confinement.js:114), and this product's own
+                  vetted sentence for that sandbox says the opposite of this one:
+                  agent-confinement-copy.js:70, "It can read files, and this
+                  computer refuses any attempt it makes to change one."
+
+                  Two shipped surfaces disagreed and the false one was the
+                  first a new person reads, at the recommended default. So the
+                  very first thing a first-timer asks for -- change something in
+                  the folder I just chose -- is refused, having just been told in
+                  writing that it would work. Nothing tells them why.
+
+                  Only the guided sentence changes. Above guided the level does
+                  ask for write access, and whether the engine HONOURS that is a
+                  separate, real defect being fixed at the session seam where the
+                  engine answers -- not something to pre-announce here, where no
+                  engine has been chosen yet. */''}
             <div class="settings-desc">${esc(multiple
               ? 'Your assistant may read and change things inside these folders. Everything outside them is off limits at the permission level you chose.'
-              : 'Your assistant may read and change things inside this one folder. Everything else on this computer is off limits at the permission level you chose.')}</div>
+              : 'Your assistant may read what is inside this one folder. At the permission level you chose it cannot change anything — not here, and not anywhere else on this computer.')}</div>
           </div>
           <div class="fleet-profile-fields">
             ${roots.length
@@ -597,7 +773,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
             </div>
           </div>
         </article>
-        ${AUTONOMY_CHOICES.map(choice => `<article class="settings-row setup-choice" aria-current="${choice.value === answers.autonomy ? 'true' : 'false'}">
+        ${AUTONOMY_CHOICES.map(choice => `<article class="settings-row setup-choice is-pressable" data-setup-set="autonomy" data-setup-value="${esc(choice.value)}" aria-current="${choice.value === answers.autonomy ? 'true' : 'false'}">
           <div class="settings-copy">
             <div class="settings-name">${esc(choice.label)}${choice.note ? ` — ${esc(choice.note)}` : ''}</div>
             <div class="settings-desc">${esc(choice.detail)}</div>
@@ -654,41 +830,37 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
    * not have Codex yet, and a walkthrough that refuses to end until an unrelated
    * program is installed is a worse first hour than one that says what is left.
    * The state it reports is read, never written. */
+  /* WHICH QUESTION IS BEING ANSWERED, AND BY WHOM.
+   *
+   * This block makes two claims about CODEX -- that it is installed here, and
+   * that somebody is signed in to it -- and it used to read both of them off
+   * mcAgent.availability(), which answers a different question: can this
+   * installation start ANY agent. That short-circuit is correct and deliberate
+   * (d1eb2a5): a person with Claude installed and no Codex is not a broken
+   * machine, and telling them so would be the product calling itself broken on
+   * a correctly set-up computer.
+   *
+   * But a provider-agnostic yes rendered as a fact about Codex is how the last
+   * screen of setup came to say "Codex is installed on this computer and signed
+   * in" on a machine with no Codex on PATH and nobody signed in to it --
+   * measured on the packaged build 2026-08-16, where the sentence flipped on
+   * whether CLAUDE was installed. Worse than the false sentence: it made the
+   * not-installed branch below -- the one carrying the paste-able install
+   * command -- unreachable for exactly the person who needed it.
+   *
+   * So the copy asks the bridge that answers per program. mcProviders.presence()
+   * reports `installed` and `signedIn` for codex on their own, from the
+   * filesystem, with 'unknown' as a real answer it uses rather than rounding
+   * off. The short-circuit is untouched; what changed is that this screen stops
+   * quoting it as evidence about a program it never mentioned.
+   *
+   * A KNOWN-BAD ENGINE STILL SPEAKS, because "Codex is here and signed in" is
+   * not the whole of "an agent can start": a build with no engine payload
+   * refuses whatever is installed. That answer is availability()'s to give and
+   * it keeps its branch, above the provider ones. */
   function codexReadinessMarkup() {
-    const heading = 'Before an agent can run'
-    if (agentReadiness === null) {
-      return statusBlock('', heading, ['Checking whether Codex is installed and signed in on this computer.'])
-    }
-    if (agentReadiness.known !== true) {
-      return statusBlock('is-warn', heading, [
-        'This copy could not check whether Codex is installed here, so it will not tell you either way.',
-        `Codex is the program that runs an agent. If it is not installed, run "${CODEX_SETUP_COMMANDS.install}" in Windows Terminal, then "${CODEX_SETUP_COMMANDS.signIn}".`,
-      ])
-    }
-    if (agentReadiness.ok === true) {
-      return statusBlock('', heading, [
-        'Codex is installed on this computer and signed in, so an agent can start when you finish here.',
-      ])
-    }
-    if (agentReadiness.code === 'AGENT_CODEX_CLI_NOT_INSTALLED') {
-      return statusBlock('is-warn', heading, [
-        'Codex is not installed on this computer. It is a separate free program from OpenAI, and it is the thing that actually runs an agent; ToolsEnabled drives it.',
-        `Open Windows Terminal and run: ${CODEX_SETUP_COMMANDS.install}`,
-        `If you already have Node, this works too: ${CODEX_SETUP_COMMANDS.installWithNode}`,
-        `Then sign in to it: ${CODEX_SETUP_COMMANDS.signIn}`,
-        'You can finish setup first and do this afterwards. Everything you chose is still saved.',
-      ])
-    }
-    if (agentReadiness.code === 'AGENT_CONFINEMENT_SIGNED_OUT') {
-      return statusBlock('is-warn', heading, [
-        'Codex is installed on this computer, but nobody is signed in to it, and the permission level you chose builds each session from that sign-in.',
-        `Open Windows Terminal and run: ${CODEX_SETUP_COMMANDS.signIn}`,
-        'You can finish setup first and do this afterwards. Everything you chose is still saved.',
-      ])
-    }
-    return statusBlock('is-warn', heading, [
-      `An agent cannot start on this computer yet: ${unavailableReason(agentReadiness.code)}.`,
-    ])
+    const block = codexReadiness({ engine: agentReadiness, codex: codexPresence })
+    return statusBlock(block.tone, block.heading, block.lines)
   }
 
   function statusBlock(modifier, heading, lines) {
@@ -734,6 +906,63 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
           ? `It is off because the “${tierLabel}” permission level does not include it. Choosing a wider level at the permission question is what would change that.`
           : 'It is off because the answer you chose does not ask for it. Changing that answer, or the switch itself in Settings, is what would turn it on.',
       })).join('')}`
+  }
+
+  /* THE QUICK BRIEF ON STANDING REQUESTS (owner, 2026-08-19: "they should be
+   * shown a quick brief about /Request functions and such in setup").
+   *
+   * A CARD ON THE REVIEW, NOT A STEP: the walkthrough stays three questions,
+   * and this asks nothing. Presentation only -- it writes nothing, gates
+   * nothing, and sits clear of the consent machinery.
+   *
+   * EVERY SCOPE SENTENCE WAS CHECKED AGAINST THE SKILL DEFINITIONS
+   * (the request skills' SKILL.md files in the canonical checkout), never
+   * remembered: global is read by every agent at boot until the owner edits
+   * or deletes it; session covers the working session and everything it
+   * spawns and no other session; tree covers the anchor agent and every
+   * agent below it, never parents or siblings; thread covers one
+   * conversation and is re-read after the conversation is condensed. */
+  function requestBriefMarkup() {
+    return `<h2 class="setup-subtitle">Standing requests, in one minute</h2>
+      <p class="setup-lede">Start a message to an agent with /Request and the words after it become a standing rule. Every agent reads it when it starts, until you edit or delete it.</p>
+      <div class="settings-section-rows" data-setup-request-brief>
+        <article class="settings-row setup-choice">
+          <div class="settings-copy">
+            <div class="settings-name">/Request — for everyone</div>
+            <div class="settings-desc">The rule stands for every agent, everywhere, until you edit or delete it.</div>
+          </div>
+        </article>
+        <article class="settings-row setup-choice">
+          <div class="settings-copy">
+            <div class="settings-name">/RequestSession — for one working session</div>
+            <div class="settings-desc">The rule stands for that working session and every agent it starts. Other sessions never see it.</div>
+          </div>
+        </article>
+        <article class="settings-row setup-choice">
+          <div class="settings-copy">
+            <div class="settings-name">/RequestTree — for one agent and its helpers</div>
+            <div class="settings-desc">The rule stands for that agent and every agent working under it. It never reaches its neighbours or its manager.</div>
+          </div>
+        </article>
+        <article class="settings-row setup-choice">
+          <div class="settings-copy">
+            <div class="settings-name">/RequestThread — for one conversation</div>
+            <div class="settings-desc">The rule stands in that one conversation only. The agent re-reads it, so even a very long conversation cannot forget it.</div>
+          </div>
+        </article>
+        <article class="settings-row setup-choice">
+          <div class="settings-copy">
+            <div class="settings-name">One example</div>
+            <div class="settings-desc">Type: /Request Always ask before spending money. From then on, every agent starts its work knowing that rule.</div>
+          </div>
+        </article>
+        <article class="settings-row setup-choice">
+          <div class="settings-copy">
+            <div class="settings-name">Two things worth saying out loud</div>
+            <div class="settings-desc">These commands work right in the chat box, where you already talk to an agent. And to point any agent at this computer's tools, just say: “Ok, use ToolsEnabled and …” — agents here are told what that means. <a href="#/guide">The guide has the longer story.</a></div>
+          </div>
+        </article>
+      </div>`
   }
 
   function reviewMarkup() {
@@ -801,21 +1030,31 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
         )).join('')}
       </div>
 
+      ${requestBriefMarkup()}
+
       <div class="fleet-profile-status is-warn" role="status">
-        <strong>What those four do today, stated plainly.</strong>
-        <span>They record what you want, and this program keeps them. The parts that would act on them are still being built. So today they change what is remembered, not what happens. They are set to the cautious end unless you moved them.</span>
+        <strong>${INTENT_BANNER_TITLE}</strong>
+        <span>${INTENT_BANNER_BODY}</span>
         <span>The only account this setup asks for is the one on this computer, described where it was offered. Nothing in this setup asks for a subscription, key or password for Claude, ChatGPT or Google, and this program stores none. Those stay in their own programs.</span>
       </div>
 
       ${refusal ? `<div class="fleet-profile-status is-serious" data-setup-status role="alert">
         <strong>${esc(refusal.title || 'That was not saved')}</strong>
-        <span>${esc(refusal.reason || 'The application did not say why.')}</span>
+        <span>${esc(setupRefusalDetail(refusal))}</span>
       </div>` : ''}
 
       ${actionsMarkup({ back: stepBefore(STEPS, 'review'), next: 'finish', nextLabel: busy ? 'Saving…' : 'Finish setup' })}`
   }
 
   /* ---------- moving between steps ---------- */
+
+  /* Progress as the person has it, beside the durable write: the stored
+     profile is what the NEXT launch resumes from, `liveWalk` is what a
+     re-mount inside THIS page adopts, and writing them in the same breath is
+     what keeps the two from disagreeing. */
+  function holdWalk() {
+    liveWalk = { step, answers }
+  }
 
   function goTo(next) {
     if (!STEPS.includes(next)) return
@@ -825,6 +1064,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
        nothing on this computer beyond the permission level they explicitly
        saved, and reopening setup resumes on this step. */
     writeStoredProfile({ status: 'in-progress', step, answers })
+    holdWalk()
     paint()
     if ((step === 'workspace' || step === 'review') && workspace === null) loadWorkspace()
     /* Re-asked every time the review step is REACHED, not cached for the life
@@ -848,15 +1088,42 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     }
     if (destroyed) return
     workspace = result?.ok === false
-      ? { available: false, reason: result.reason || 'The application did not say why.' }
+      ? { available: false, reason: setupRefusalDetail(result) }
       : result
     paint()
+  }
+
+  /* IS THE CODEX PROGRAM ITSELF HERE, asked of the bridge that answers per
+     program rather than inferred from "can anything start". Same rule as
+     everything else on this screen: an answer that cannot be got stays
+     unanswered, and 'unknown' from the shell survives as 'unknown' here. */
+  async function loadCodexPresence() {
+    if (!globalThis.mcProviders?.presence) {
+      codexPresence = { known: false }
+      return
+    }
+    let answer
+    try {
+      answer = await globalThis.mcProviders.presence()
+    } catch {
+      answer = null
+    }
+    if (destroyed) return
+    const codex = answer && answer.ok === true && Array.isArray(answer.providers)
+      ? answer.providers.find(provider => provider.id === 'codex')
+      : null
+    codexPresence = codex
+      ? { known: true, installed: codex.installed, signedIn: codex.signedIn }
+      : { known: false }
   }
 
   /* Fails to an honest silence, never to a green tick. Every branch that cannot
      get an answer leaves `agentReadiness` reporting `unknown`, and the review
      step then says it could not check rather than implying it passed. */
   async function loadAgentReadiness() {
+    /* Asked on the same beat, because the review reads both: the engine's own
+       verdict, and what this machine has installed. */
+    void loadCodexPresence().then(() => { if (!destroyed) paint() })
     if (!globalThis.mcAgent?.availability) {
       agentReadiness = { known: false }
       paint()
@@ -896,13 +1163,17 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     workspaceBusy = false
     if (result?.canceled) { paint(); return }
     if (!result?.ok) {
-      workspaceRefusal = result?.reason || 'The application did not say why.'
+      /* Both shapes, one reader -- see setupRefusalDetail. This line used to
+         read `result?.reason` alone and printed "The application did not say
+         why." over a shell reply that carried the sentence in `error.message`. */
+      workspaceRefusal = setupRefusalDetail(result)
       paint()
       return
     }
     const current = mode === 'add' ? workspaceRoots() : []
     answers = { ...answers, workspaceRoots: current.includes(result.path) ? current : [...current, result.path] }
     writeStoredProfile({ status: 'in-progress', step, answers })
+    holdWalk()
     paint()
   }
 
@@ -912,6 +1183,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     roots.splice(index, 1)
     answers = { ...answers, workspaceRoots: roots }
     writeStoredProfile({ status: 'in-progress', step, answers })
+    holdWalk()
     paint()
   }
 
@@ -974,7 +1246,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
         refusal = {
           title: 'That folder was not saved',
           code: result?.code || 'MC_SETUP_WORKSPACE_FAILED',
-          reason: `${result?.reason || 'The application did not say why.'} Nothing else was changed either.`,
+          reason: `${setupRefusalDetail(result)} Nothing else was changed either.`,
         }
         /* A refusal a torn-down section cannot show is still a refusal, so the
            run stops here rather than completing a setup whose folder failed. */
@@ -986,6 +1258,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
 
     applyDerived()
     writeStoredProfile({ status: 'complete', step: 'review', answers })
+    liveWalk = null
     busy = false
     navigate('#/')
   }
@@ -1004,6 +1277,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     answers = { ...SAFE_ANSWERS, workspaceRoots: [] }
     applyDerived()
     writeStoredProfile({ status: 'skipped', step: 'review', answers })
+    liveWalk = null
     navigate('#/')
   }
 
@@ -1029,6 +1303,8 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
   function onClick(event) {
     const option = event.target.closest('[data-setup-tier]')
     if (option) { select(option.dataset.setupTier); return }
+    if (event.target.closest('[data-unrestricted-confirm]')) { confirmUnrestricted(); return }
+    if (event.target.closest('[data-unrestricted-decline]')) { declineUnrestricted(); return }
     if (event.target.closest('[data-setup-continue]')) { commit(); return }
 
     const back = event.target.closest('[data-setup-back]')
@@ -1041,6 +1317,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
       return
     }
 
+    if (event.target.closest('[data-setup-skip-first]')) { skipFromFirstQuestion(); return }
     if (event.target.closest('[data-setup-skip]')) { skip(); return }
     if (event.target.closest('[data-setup-choose-root]')) { pickWorkspace('replace'); return }
     if (event.target.closest('[data-setup-add-root]')) { pickWorkspace('add'); return }
@@ -1099,6 +1376,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     if (!next) return
     answers = next
     writeStoredProfile({ status: 'in-progress', step, answers })
+    holdWalk()
     paint()
   }
 

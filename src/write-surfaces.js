@@ -29,6 +29,25 @@
 
 import { el } from './components.js'
 import { bridgeStatus, bridgeReachable, postBridgeAction } from './mission-bridge.js'
+/* THE ANSWER TO A WRITE THIS SURFACE ALREADY SENT AND NEVER GOT TO SHOW.
+ *
+ * Three keys -- BRIDGE_DISPATCH, BRIDGE_DECISION, BRIDGE_QUEUE -- were declared
+ * in ./write-outcomes.js and consumed by NOTHING. Every settle path in this file
+ * returned on `destroyed` BEFORE it had a sentence, so an audited dispatch, an
+ * approval or a queue close whose answer arrived a moment after the person left
+ * the page ended in silence, and silence about a write reads as "it did not
+ * happen". The three sibling controllers that got this right -- agent-loops,
+ * agent-teams, cloud-tasks-controller, mission-bridge's archive -- file the
+ * outcome first and ask about their own screen second. So does this file now,
+ * and the stylesheet's `.write-restated` rules, which have shipped for a line no
+ * code rendered, finally have one to colour. */
+import {
+  WRITE_OUTCOME_KEYS,
+  clearUndeliveredWrite,
+  recordUndeliveredWrite,
+  restatedMessage,
+  undeliveredWrite,
+} from './write-outcomes.js'
 import { retryWhileUnavailable } from './bridge-retry.js'
 import { isWriteEnabled } from './write-flags.js'
 /* The identifier goes on the node as `data-refusal-code`, never into the
@@ -39,6 +58,13 @@ import { markRefusalCode, refusalCodeOf, refusalSentence } from './refusal-copy.
    ids and effort words in the visible text -- a second copy of a list that is
    already data, and one that would go stale silently. */
 import { LAUNCH_TIERS } from './orchestration-controls.js'
+/* The panel's words for how a job ended, and the loop that waits for them.
+   Kept in their own module so a test can drive them without a browser. */
+import { launchOutcomeCopy, watchLaunchOutcome } from './launch-outcome-copy.js'
+/* The ledger panel's own words, in a module with no browser in it, so a check
+   can compose the whole panel for a state instead of reading one string at a
+   time. See ./ledger-copy.js. */
+import { DECISION_FORM, QUEUE_FORM, decisionOff, queueSnapshotLine } from './ledger-copy.js'
 
 const esc = value => String(value)
   .replace(/&/g, '&amp;')
@@ -50,6 +76,7 @@ function actionState(node, kind, text) {
   node.dataset.state = kind
   node.textContent = text
 }
+
 
 /* THE ASSISTANTS, GROUPED BY WHO MAKES THEM AND ORDERED AS THEY ARE DECLARED.
  *
@@ -110,10 +137,11 @@ function configureQueueSnapshots(surface, queues) {
       /* WHAT THIS LINE USED TO SAY: "strict snapshot ready · indexed corpus",
          or "queue unavailable · no strict snapshot". Three mechanism names in
          two states, above a field the person cannot type into anyway. What they
-         need to know is whether the two buttons will work and, if not, why. */
-      actionState(output, ready ? 'ready' : 'unavailable', ready
-        ? 'This folder’s work list was read just now, so Claim and Close are ready.'
-        : `This folder’s work list could not be read, so Claim and Close are off. ${snapshot?.reason || 'Pick another folder, or press Retry above.'}`)
+         need to know is whether the two buttons will work and, if not, why.
+         The sentence itself lives in ./ledger-copy.js so the composed panel can
+         be measured without a browser. */
+      const line = queueSnapshotLine(snapshot)
+      actionState(output, line.tone, line.text)
     }
     select.addEventListener('change', update)
     update()
@@ -188,6 +216,50 @@ async function prepareSurface(surface) {
   return result
 }
 
+/**
+ * The carried-over answer, drawn into the form that would have shown it.
+ *
+ * ITS OWN LINE, NEVER THE <output>. prepareSurface() finishes a fraction of a
+ * second after mount and writes the bridge handshake's state into every
+ * `[data-action-output]` on the surface, and configureQueueSnapshots() writes
+ * the ready line after that. A restatement placed in the output is erased by
+ * both, which is exactly the race tools/write-outcome-restate-qa.cjs was written
+ * to catch. It sits ABOVE the output so the two read in the order they happened.
+ *
+ * `role="status"` and not `alert`: this is something that already finished. An
+ * assertive live region interrupts whatever a screen reader is reading to
+ * announce a result the person can act on at their leisure, which is shouting.
+ */
+function restateInto(form, key) {
+  if (!form) return
+  const missedOutcome = undeliveredWrite(key)
+  if (!missedOutcome) return
+  const line = el(`<p class="write-restated" role="status" data-undelivered-outcome="true"></p>`)
+  line.dataset.state = missedOutcome.tone
+  line.textContent = restatedMessage(missedOutcome)
+  const output = form.querySelector('[data-action-output]')
+  if (output) output.insertAdjacentElement('beforebegin', line)
+  else form.appendChild(line)
+}
+
+/**
+ * File the outcome, THEN ask whether this screen is still here.
+ *
+ * The order is the whole repair. Every caller below used to read
+ * `if (destroyed) return` before it had composed its sentence, so the sentence
+ * was never composed and the outcome was never filed -- and a refusal that
+ * vanishes is indistinguishable from a write that succeeded quietly, which is
+ * the direction this project has decided never to guess in.
+ *
+ * Returns whether the surface survived, so the caller paints only when there is
+ * something to paint on.
+ */
+function settleWrite({ destroyed, key, tone, message }) {
+  if (destroyed) recordUndeliveredWrite(key, { tone, message })
+  else clearUndeliveredWrite(key)
+  return !destroyed
+}
+
 export function mountAgentWriteSurface(root, { agentId, live = false }) {
   /* SAME FENCE, SAME REASON as mountAgentSessionSurface -- see the long note at
      its head for the measurement. This surface dispatches a real audited agent
@@ -231,6 +303,7 @@ export function mountAgentWriteSurface(root, { agentId, live = false }) {
   void prepareSurface(surface).then(() => { if (destroyed) surface.remove() })
 
   const dispatchForm = surface.querySelector('[data-dispatch-form]')
+  restateInto(dispatchForm, WRITE_OUTCOME_KEYS.BRIDGE_DISPATCH)
   dispatchForm?.addEventListener('submit', async event => {
     event.preventDefault()
     const output = dispatchForm.querySelector('[data-action-output]')
@@ -242,8 +315,6 @@ export function mountAgentWriteSurface(root, { agentId, live = false }) {
       tier: data.get('tier'), objectiveRef: data.get('objectiveRef'), brief: data.get('brief'),
       cap: { kind: 'turns', value: 8, capMs: 20 * 60_000 },
     })
-    if (destroyed) return
-    setBusy(dispatchForm, false)
     /* The code is resolved ONCE and used for both channels. Resolving it matters
        on the sentence side too: an unresolved code falls to the generic remedy,
        and `BRIDGE_REFUSED` has a curated one. */
@@ -252,12 +323,38 @@ export function mountAgentWriteSurface(root, { agentId, live = false }) {
        a 20-character key, in front of a person who had just handed a job to an
        assistant and wanted to know whether it had started. The id is kept where
        a support conversation can still reach it and out of the sentence. */
+    const tone = result.ok ? 'confirmed' : 'refused'
+    const message = result.ok
+      ? 'Handed over, and written down on this computer. The assistant is working on it now.'
+      : `Nothing was handed over. ${refusalSentence(refusal, { fallback: 'The audited connection refused it and gave no receipt.' })}`
+    /* A REAL LANE MAY HAVE STARTED. Composed and filed before this asks whether
+       its own screen survived -- see settleWrite(). */
+    if (!settleWrite({ destroyed, key: WRITE_OUTCOME_KEYS.BRIDGE_DISPATCH, tone, message })) return
+    setBusy(dispatchForm, false)
     if (result.ok) output.dataset.launchId = result.receipt.launchId
     else delete output.dataset.launchId
-    actionState(output, result.ok ? 'confirmed' : 'refused', result.ok
-      ? 'Handed over, and written down on this computer. The assistant is starting on it now.'
-      : `Nothing was handed over. ${refusalSentence(refusal, { fallback: 'The audited connection refused it and gave no receipt.' })}`)
+    actionState(output, tone, message)
     markRefusalCode(output, refusal)
+    /* AND THEN KEEP LOOKING. Everything above happens in the first second; the
+       job runs for minutes. Without this the sentence above was the panel's last
+       word, whatever actually became of the assistant. */
+    if (!result.ok) return
+    const watchedId = result.receipt.launchId
+    void watchLaunchOutcome({
+      launchId: watchedId,
+      capMs: 20 * 60_000,
+      sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
+      /* `false` means stop asking: the panel is gone, or the person has handed
+         over another job and this answer is no longer the one on screen. */
+      ask: id => (destroyed || output.dataset.launchId !== watchedId
+        ? false
+        : postBridgeAction('launch-status', { launchId: id })),
+      onOutcome: receipt => {
+        if (destroyed || output.dataset.launchId !== watchedId) return
+        const copy = launchOutcomeCopy(receipt)
+        actionState(output, copy.kind === 'pending' ? 'confirmed' : copy.kind, copy.text)
+      },
+    })
   })
 
   const reportForm = surface.querySelector('[data-report-form]')
@@ -291,41 +388,140 @@ export function mountAgentWriteSurface(root, { agentId, live = false }) {
   return () => { destroyed = true }
 }
 
-export function mountLedgerWriteSurface(root) {
+export function mountLedgerWriteSurface(root, { onMount = () => {} } = {}) {
   const decisionEnabled = isWriteEnabled('decision')
   const queueEnabled = isWriteEnabled('queue')
   if (!decisionEnabled && !queueEnabled) return () => {}
   const surface = el(`<section class="write-surface ledger-write-surface" aria-label="Audited ledger actions">
-    <header><strong>Audited actions</strong><span data-write-status role="status">Not connected yet</span></header>
+    <header>
+      <strong>Audited actions</strong>
+      <span data-write-status role="status">Not connected yet</span>
+      ${queueEnabled ? `<button type="button" class="write-status-retry" data-queue-reveal aria-expanded="false" aria-controls="ledger-queue-form">${esc(QUEUE_FORM.reveal)}</button>` : ''}
+    </header>
     <div class="write-surface-grid">
       ${decisionEnabled ? `<form class="write-form" data-decision-form>
-        <span class="write-form-title">Approve or decline a request</span>
-        <label>Which request<input name="target" maxlength="160" placeholder="its number, as shown in the list" required /></label>
-        <label class="write-wide">Why<input name="reason" maxlength="2000" required /></label>
-        <div class="write-choice"><button type="button" data-decision="approve">Approve</button><button type="button" data-decision="decline">Decline</button></div>
+        <span class="write-form-title">${esc(DECISION_FORM.title)}</span>
+        <label>${esc(DECISION_FORM.targetLabel)}<input name="target" maxlength="160" required aria-describedby="ledger-decision-hint" /></label>
+        <p class="write-wide write-form-hint" id="ledger-decision-hint" data-decision-hint>${esc(DECISION_FORM.targetHintTyped)}</p>
+        <label class="write-wide">${esc(DECISION_FORM.reasonLabel)}<input name="reason" maxlength="2000" required aria-describedby="ledger-decision-why" /></label>
+        <p class="write-wide write-form-hint" id="ledger-decision-why">${esc(DECISION_FORM.reasonHint)}</p>
+        <div class="write-choice"><button type="button" data-decision="approve">${esc(DECISION_FORM.approve)}</button><button type="button" data-decision="decline">${esc(DECISION_FORM.decline)}</button></div>
         <output data-action-output role="status"></output>
       </form>` : ''}
-      ${queueEnabled ? `<form class="write-form" data-queue-form>
-        <span class="write-form-title">Take or finish queued work</span>
-        <label>Folder<select data-root-select aria-label="The folder whose work list this is"></select></label>
-        <label>Which item<input name="phaseId" maxlength="4" placeholder="its number, as shown in the list" required /></label>
-        <!-- THE FIELD A PERSON CANNOT TYPE INTO, AND USED TO BE ASKED TO.
-             It was labelled "Observed queue SHA-256". It is filled in for them
-             from the list that was just read, it is read-only, and its whole job
-             is to make sure nobody closes an item on a stale view of the list.
-             So the label says what it is FOR. The field name is unchanged. -->
-        <label class="write-wide">Proof you are looking at the current list<input name="expectedHash" minlength="64" maxlength="64" required /></label>
-        <label class="write-wide">Why you are closing it<input name="reason" maxlength="2000" placeholder="needed only when you close one" /></label>
-        <div class="write-choice"><button type="button" data-queue-operation="claim">Claim</button><button type="button" data-queue-operation="close">Close</button></div>
+      ${queueEnabled ? `<form class="write-form" id="ledger-queue-form" data-queue-form hidden>
+        <span class="write-form-title">${esc(QUEUE_FORM.title)}</span>
+        <label>${esc(QUEUE_FORM.rootLabel)}<select data-root-select aria-label="The folder whose work list this is"></select></label>
+        <label>${esc(QUEUE_FORM.itemLabel)}<input name="phaseId" maxlength="4" required aria-describedby="ledger-queue-item-hint" /></label>
+        <p class="write-wide write-form-hint" id="ledger-queue-item-hint">${esc(QUEUE_FORM.itemHint)}</p>
+        <!-- THE FIELD A PERSON COULD NOT TYPE INTO, AND WAS ASKED TO ANYWAY.
+             It was labelled "Observed queue SHA-256", then "Proof you are
+             looking at the current list", and both were a 64-character box the
+             product fills in for them and marks read-only. Its whole job is to
+             stop somebody closing an item on a stale view of the list, and that
+             is a promise the panel can simply MAKE -- it is said in the line
+             under the buttons instead. The field, the value it carries and the
+             guard it feeds are all unchanged; only the demand that a person
+             read a hash is gone. -->
+        <input type="hidden" name="expectedHash" />
+        <label class="write-wide">${esc(QUEUE_FORM.reasonLabel)}<input name="reason" maxlength="2000" aria-describedby="ledger-queue-reason-hint" /></label>
+        <p class="write-wide write-form-hint" id="ledger-queue-reason-hint">${esc(QUEUE_FORM.reasonHint)}</p>
+        <div class="write-choice"><button type="button" data-queue-operation="claim">${esc(QUEUE_FORM.claim)}</button><button type="button" data-queue-operation="close">${esc(QUEUE_FORM.close)}</button></div>
         <output data-action-output role="status"></output>
       </form>` : ''}
     </div>
   </section>`)
   root.querySelector('.ledger-toolbar')?.insertAdjacentElement('afterend', surface)
   let destroyed = false
-  void prepareSurface(surface).then(() => { if (destroyed) surface.remove() })
+  void prepareSurface(surface).then(() => {
+    if (destroyed) surface.remove()
+    else applyDecisionAvailability()
+  })
+
+  /* PROGRESSIVE DISCLOSURE, AND IT IS NOT A TIDINESS PREFERENCE. Approving a
+     request is something anybody who uses this product might do. Claiming an
+     item out of a folder's build queue is something exactly one kind of person
+     does, and it opened at full complexity -- five fields, one of them a
+     64-character box -- in front of everybody else. It is one button away now,
+     and nothing about it has been taken out. */
+  const revealButton = surface.querySelector('[data-queue-reveal]')
+  revealButton?.addEventListener('click', () => {
+    const form = surface.querySelector('[data-queue-form]')
+    const showing = form.hasAttribute('hidden')
+    form.toggleAttribute('hidden', !showing)
+    revealButton.setAttribute('aria-expanded', showing ? 'true' : 'false')
+    revealButton.textContent = showing ? QUEUE_FORM.hide : QUEUE_FORM.reveal
+  })
+
+  /* WHAT THE REGISTER IS DOING, HANDED STRAIGHT TO THE CONTROL THAT ACTS ON IT.
+   *
+   * The form asked for "its number, as shown in the list" whether the list
+   * beside it was full, empty or unreadable, because nothing joined the two.
+   * Now: rows, and it is a picker filled from them; no rows, and it is off with
+   * the reason on screen. A disabled control with no sentence beside it is the
+   * most common lie a screen tells -- it reads as though the person did
+   * something wrong. */
+  let registerView = null
+  function showRegister(view) {
+    registerView = view
+    const form = surface.querySelector('[data-decision-form]')
+    if (!form) return
+    const rows = (view && Array.isArray(view.items)) ? view.items : []
+    const before = form.elements.target
+    if (rows.length > 0 && before.tagName !== 'SELECT') {
+      /* Swapped for a picker, keeping the NAME the audited connection is
+         posted. A label is for the person and a field name is for the wire. */
+      const select = document.createElement('select')
+      select.name = 'target'
+      select.required = true
+      select.setAttribute('aria-describedby', 'ledger-decision-hint')
+      before.replaceWith(select)
+    } else if (rows.length === 0 && before.tagName === 'SELECT') {
+      const input = document.createElement('input')
+      input.name = 'target'
+      input.maxLength = 160
+      input.required = true
+      input.setAttribute('aria-describedby', 'ledger-decision-hint')
+      before.replaceWith(input)
+    }
+    const target = form.elements.target
+    if (target.tagName === 'SELECT') {
+      const chosen = target.value
+      target.replaceChildren(...rows.map(row => {
+        const option = document.createElement('option')
+        option.value = row.id
+        option.textContent = row.label || row.id
+        return option
+      }))
+      if (rows.some(row => row.id === chosen)) target.value = chosen
+    }
+    const off = decisionOff(view)
+    const hint = form.querySelector('[data-decision-hint]')
+    hint.textContent = off ? off.text : (rows.length > 0 ? DECISION_FORM.targetHint : DECISION_FORM.targetHintTyped)
+    /* THE COLOUR COMES WITH THE SENTENCE. "There is nothing to approve" is not
+       a failure and must not be painted as one -- that is the register's own
+       defect one level down, where the words said there was nothing and the
+       chrome said something had gone wrong. */
+    hint.dataset.state = off ? off.tone : 'note'
+    surface.dataset.registerState = (view && view.kind) || 'unknown'
+    applyDecisionAvailability()
+  }
+
+  /* TWO INDEPENDENT REASONS THE CONTROL CAN BE OFF -- the audited connection is
+     not up, and there is nothing to act on -- and neither may un-press the
+     other. prepareSurface() enables every control on the surface when the
+     handshake lands; without this it would enable Approve over an empty
+     register a fraction of a second after this had turned it off. */
+  function applyDecisionAvailability() {
+    const form = surface.querySelector('[data-decision-form]')
+    if (!form || surface.dataset.bridgeState !== 'ready') return
+    const off = Boolean(decisionOff(registerView))
+    for (const control of form.querySelectorAll('button, input, select')) control.disabled = off
+  }
+
+  onMount({ showRegister })
 
   const decisionForm = surface.querySelector('[data-decision-form]')
+  restateInto(decisionForm, WRITE_OUTCOME_KEYS.BRIDGE_DECISION)
   decisionForm?.addEventListener('click', async event => {
     const button = event.target.closest('button[data-decision]')
     if (!button || !decisionForm.reportValidity()) return
@@ -337,20 +533,27 @@ export function mountLedgerWriteSurface(root) {
       idempotencyKey: crypto.randomUUID(), target: data.get('target'),
       decision: button.dataset.decision, reason: data.get('reason'),
     })
-    if (destroyed) return
-    setBusy(decisionForm, false)
     /* A REVISION NUMBER IS NOT AN ANSWER. What a person wants to know, having
        just approved something, is that it is recorded and that other parts of
        the system will act on it. The revision is kept on the node. */
+    const tone = result.ok ? 'confirmed' : 'refused'
+    const message = result.ok
+      ? `${button.dataset.decision === 'approve' ? 'Approved' : 'Declined'}, with your reason, on the permanent record. This is what the rest of the system acts on.`
+      : `Nothing was recorded, so nothing was ${button.dataset.decision === 'approve' ? 'approved' : 'declined'}. ${refusalSentence(result, { fallback: 'The audited connection refused it and did not say why.' })}`
+    /* An approval is permanent. Filed before this asks about its own screen. */
+    if (!settleWrite({ destroyed, key: WRITE_OUTCOME_KEYS.BRIDGE_DECISION, tone, message })) return
+    setBusy(decisionForm, false)
+    /* setBusy re-enables everything it disabled, including a control the empty
+       register had turned off. The register's answer wins. */
+    applyDecisionAvailability()
     if (result.ok) output.dataset.revision = String(result.receipt.revision)
     else delete output.dataset.revision
-    actionState(output, result.ok ? 'confirmed' : 'refused', result.ok
-      ? `${button.dataset.decision === 'approve' ? 'Approved' : 'Declined'}, with your reason, on the permanent record. This is what the rest of the system acts on.`
-      : `Nothing was recorded, so nothing was ${button.dataset.decision === 'approve' ? 'approved' : 'declined'}. ${refusalSentence(result, { fallback: 'The audited connection refused it and did not say why.' })}`)
+    actionState(output, tone, message)
     markRefusalCode(output, result.ok ? null : result)
   })
 
   const queueForm = surface.querySelector('[data-queue-form]')
+  restateInto(queueForm, WRITE_OUTCOME_KEYS.BRIDGE_QUEUE)
   queueForm?.addEventListener('click', async event => {
     const button = event.target.closest('button[data-queue-operation]')
     if (!button || !queueForm.reportValidity()) return
@@ -364,16 +567,20 @@ export function mountLedgerWriteSurface(root) {
       expectedHash: data.get('expectedHash'), phaseId: data.get('phaseId'),
       operation: button.dataset.queueOperation, reason: data.get('reason') || undefined,
     })
-    if (destroyed) return
-    setBusy(queueForm, false)
     /* `result.receipt.action` is the operation's own key, so the confirmation
        used to answer a press of Claim with the word "claim". It said nothing the
        press had not already said, and nothing about what it now means. */
-    actionState(output, result.ok ? 'confirmed' : 'refused', result.ok
+    const tone = result.ok ? 'confirmed' : 'refused'
+    const message = result.ok
       ? (claiming
         ? 'Claimed. It is yours now, and nobody else will pick it up.'
         : 'Closed. Everything else in the system now treats this work as finished.')
-      : `${claiming ? 'It was not claimed' : 'It was not closed'}, and nothing changed. ${refusalSentence(result, { fallback: 'The audited connection refused it and did not say why.' })}`)
+      : `${claiming ? 'It was not claimed' : 'It was not closed'}, and nothing changed. ${refusalSentence(result, { fallback: 'The audited connection refused it and did not say why.' })}`
+    /* A claim other people are now excluded from, or a close the whole system
+       acts on. Filed before this asks about its own screen. */
+    if (!settleWrite({ destroyed, key: WRITE_OUTCOME_KEYS.BRIDGE_QUEUE, tone, message })) return
+    setBusy(queueForm, false)
+    actionState(output, tone, message)
     markRefusalCode(output, result.ok ? null : result)
     if (result.ok) queueForm.elements.expectedHash.value = result.receipt.nextHash
   })

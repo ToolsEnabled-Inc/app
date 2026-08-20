@@ -27,6 +27,7 @@
 
 import { sim } from '../sim.js'
 import { el, countUp, buildChat, attachSeg } from '../components.js'
+import { onNextFrame } from '../page-frames.js'
 import { pick, ROLES } from '../vocab.js'
 import { FLEET } from '../fleet-profile.js'
 import { isLiveView } from '../live-flags.js'
@@ -34,7 +35,7 @@ import { fetchOps } from '../live-status.js'
 /* The shared empty-state notice — see projectionUnavailableEl below for why this
    board does not write its own. src/guide.css carries the two placements this
    page needs (`.comms .chip-preview .host-absent`, `.comms .chat-log .host-absent`). */
-import { hostAbsentMarkup } from '../first-run-needs.js'
+import { commsQuietMarkup, hostAbsentMarkup } from '../first-run-needs.js'
 import '../comms.css'
 
 const H = 3600e3
@@ -601,7 +602,12 @@ export function commsView() {
       state.pinnedToBottom = true
       state.newCount = 0
       updateChip()
-      requestAnimationFrame(() => { logEl.scrollTop = logEl.scrollHeight })
+      /* PIN AFTER LAYOUT, NOT AFTER A FRAME THAT MAY NEVER COME. A covered
+         window gets no frames, so this callback -- and the log it closed
+         over -- stayed in the browser's queue for ever (measured: +2 per lap
+         of the ring at this site). onNextFrame flushes layout and pins now on
+         such a page, and is the ordinary requestAnimationFrame otherwise. */
+      onNextFrame(() => { logEl.scrollTop = logEl.scrollHeight })
       return
     }
     topicEl.innerHTML = `key <b>${esc(def.key)}</b> — ${esc(def.topic)}`
@@ -621,7 +627,7 @@ export function commsView() {
     state.pinnedToBottom = true
     state.newCount = 0
     updateChip()
-    requestAnimationFrame(() => { logEl.scrollTop = logEl.scrollHeight })
+    onNextFrame(() => { logEl.scrollTop = logEl.scrollHeight })
   }
 
   function updateChip() {
@@ -675,7 +681,7 @@ export function commsView() {
       if (dk !== state.lastDayKey) { logEl.appendChild(dividerEl(dk)); state.lastDayKey = dk }
       logEl.appendChild(msgEl(m, true))
       if (state.pinnedToBottom) {
-        requestAnimationFrame(() => { logEl.scrollTop = logEl.scrollHeight })
+        onNextFrame(() => { logEl.scrollTop = logEl.scrollHeight })
       } else {
         state.newCount += 1
         updateChip()
@@ -861,7 +867,7 @@ export function commsView() {
     if (d.unavailable) pv.appendChild(projectionUnavailableEl(d.unavailable))
     else if (d.hist.length) for (const m of d.hist.slice(-14)) pv.appendChild(previewLineEl(d, m))
     else if (liveMode) pv.appendChild(projectionNoticeEl('No messages have been seen for this exact channel.'))
-    requestAnimationFrame(() => { pv.scrollTop = pv.scrollHeight })
+    onNextFrame(() => { pv.scrollTop = pv.scrollHeight })
 
     box._pvFollow = true
     box._chatFollow = true
@@ -1214,6 +1220,25 @@ export function commsView() {
     headName.textContent = channelDefs[0]?.name || ''
     renderLog(state.active)
     renderBoard()
+    /* THE QUIET BOARD SAYS WHY IT IS QUIET, AND KEEPS ITS DOOR.
+       On a payload that carries the live message reader, a fresh install
+       reaches THIS branch -- the read works and answers zero rows -- so the
+       host-absent notice above, which used to carry this screen's explanation
+       and its guide link, never renders. Measured on the 2026-08-19 re-cut
+       confirming run: the board said only "No services are on record for this
+       computer. No messages have been seen for this exact channel." and was
+       the one screen on the first-run ring without a door to the guide.
+       The words are the copy module's (src/first-run-needs.js), the same
+       place the host-absent words live, and the packaged driver reads the
+       same module. Mount and removal are both here because this runs every
+       few seconds: the notice must neither stack on itself nor outlive the
+       first message it explained the absence of. It never shows while the
+       read itself failed -- that state has its own honest sentence and this
+       one would call a refused read a quiet one. */
+    const quiet = !services.length && !liveMessagesReason && rawMessages.length === 0
+    const quietEl = root.querySelector('[data-comms-quiet]')
+    if (quiet && !quietEl) root.querySelector('.comms-body')?.appendChild(el(commsQuietMarkup()))
+    else if (!quiet && quietEl) quietEl.remove()
   }
 
   /* FLIP the whole board through a structural change: measure every box,
@@ -1476,7 +1501,7 @@ export function commsView() {
        (the gap only closes), wrong when shrinking (the gap keeps opening
        after the pin; measured 72-124px adrift on the S step). The second
        pass lands after the transition settles. */
-    requestAnimationFrame(repin)
+    onNextFrame(repin)
     clearTimeout(setSize._repinTimer)
     setSize._repinTimer = setTimeout(repin, 520)
   }
@@ -1492,9 +1517,123 @@ export function commsView() {
   headName.textContent = defOf(state.active)?.name || ''
   renderLog(state.active)
   if (liveMode) {
-    fetchOps().then(applyLiveProjection).catch((err) => {
-      applyLiveProjection({ ok: false, reason: `ops projection request failed: ${err?.message || err}` })
-    })
+    /* THE MESSAGE PANE, READ AT RUN TIME INSTEAD OF FROZEN AT BUILD TIME.
+     *
+     * THE OWNER'S FINDING: "i couldnt verify if the comms page is wired because
+     * i couldnt get the agents to communicate." Both halves were real, and this
+     * is the second one. Every readout on this page came from
+     * public/data/ops.json, which tools/gen-ops.mjs writes on the machine that
+     * CUTS THE RELEASE and which then lives inside the application archive.
+     * A customer's agent messages do not exist when that runs, and the file
+     * cannot be written afterwards -- it is inside the asar. So the message
+     * pane could never have shown a message, however well the channel worked,
+     * and no amount of work on the channel would have changed that. That is why
+     * this needs a second source rather than a better generator.
+     *
+     * THE STATIC PROJECTION STAYS. Services on record, channels seen running
+     * and the tool-link counts are genuinely build-time-and-CLI facts and are
+     * still read exactly as before; only the messages are read live, and only
+     * they are merged in below. Nothing that legitimately used ops.json lost it.
+     *
+     * DEGRADES BY SAYING SO. A build whose shell exposes no message reader --
+     * an older payload, a window that is not the app -- takes the same path the
+     * page already had for an unreadable source, and the pane says the messages
+     * could not be read WITH the reason. It never shows an empty conversation
+     * as though the agents had nothing to say. */
+    const readLiveMessages = async () => {
+      const bridge = typeof window !== 'undefined' ? window.mcAgent : null
+      /* EVERY SENTENCE BELOW SAYS WHAT TO DO NEXT, and that is a standing bar
+         rather than a nicety: a page whose failure text ends at the failure is
+         what the owner filed as a finding in its own right. A person reading
+         this pane wants to know whether their agents are silent or the page is,
+         and each answer points at the one thing that would tell them. */
+      if (!bridge || typeof bridge.localMessages !== 'function') {
+        return { ok: false, reason: 'this copy of the program cannot read messages between agents yet — update it, and until then read each agent\'s own conversation on the Computers page' }
+      }
+      try {
+        const answer = await bridge.localMessages({ limit: 200 })
+        if (!answer || answer.ok !== true || !Array.isArray(answer.messages)) {
+          return {
+            ok: false,
+            reason: (answer && answer.reason)
+              || 'the program did not answer when asked for messages between agents. Start an agent from the tree; if this keeps saying so, restart the program.',
+          }
+        }
+        return { ok: true, messages: answer.messages }
+      } catch (error) {
+        return {
+          ok: false,
+          reason: `messages between agents could not be read (${error?.message || error}) — this pane will try again on its own in a few seconds, and the Computers page still shows each agent's own conversation`,
+        }
+      }
+    }
+
+    /* The live messages are folded into the SAME envelope shape the projection
+       already renders, so applyLiveProjection is unchanged: one code path draws
+       the page whether the messages came from a file or from the fabric. */
+    const LIVE_CHANNEL_ID = 'agent-tree'
+    const withLiveMessages = (result, live) => {
+      const envelope = result.ok ? result.data : null
+      /* THE STATIC PROJECTION BEING UNREADABLE MUST NOT HIDE A LIVE
+         CONVERSATION, and the first version of this let it.
+         MEASURED on a driven two-node run: the agents talked, the shell handed
+         over both messages, and the page still said "This computer's live comms
+         data could not be read" -- because ops.json is UNAVAILABLE on any
+         computer that is not the one that cut the release (it is written from a
+         builder-side CLI), and an unavailable envelope short-circuits the whole
+         page before the messages are looked at. That is the ordinary state of a
+         customer's machine, so the failure would have been universal: the exact
+         defect the owner filed, reappearing one layer up.
+         The two sources are independent, so they fail independently. */
+      if (!envelope?.data && !live.ok) return result
+      const base = envelope?.data || {
+        declaredServices: [],
+        channels: { ok: true, reason: null, observedAt: null, value: [] },
+        mcp: { ok: false, reason: result.reason || 'the services on record could not be read', observedAt: null, value: null },
+        messages: { ok: false, reason: 'not read yet', observedAt: null, value: null },
+      }
+      const carrier = envelope || { domain: 'ops', ok: true, reason: null, generatedAt: new Date().toISOString() }
+      const data = { ...base }
+      if (!live.ok) {
+        data.messages = { ok: false, reason: live.reason, observedAt: null, value: null }
+        return { ok: true, data: { ...carrier, ok: true, data } }
+      }
+      data.messages = {
+        ok: true,
+        reason: null,
+        observedAt: new Date().toISOString(),
+        value: live.messages.map(message => ({ ...message, channelId: LIVE_CHANNEL_ID })),
+      }
+      /* A message needs a channel to land in -- messageRows() above filters by
+         id -- and the agents on this computer are not a declared service and
+         not something the preflight CLI can see. They are their own channel. */
+      const channels = data.channels.ok && Array.isArray(data.channels.value) ? [...data.channels.value] : []
+      if (!channels.some(channel => channel.id === LIVE_CHANNEL_ID)) {
+        channels.push({
+          id: LIVE_CHANNEL_ID,
+          name: 'agents on this computer',
+          state: 'healthy',
+          observedAt: new Date().toISOString(),
+          detail: `${live.messages.length} message${live.messages.length === 1 ? '' : 's'} between agents on this computer's tree`,
+        })
+      }
+      data.channels = { ok: true, reason: null, observedAt: new Date().toISOString(), value: channels }
+      return { ok: true, data: { ...carrier, ok: true, data } }
+    }
+
+    const loadLive = () => Promise.all([fetchOps(), readLiveMessages()])
+      .then(([ops, live]) => { if (!destroyed) applyLiveProjection(withLiveMessages(ops, live)) })
+      .catch((err) => {
+        if (!destroyed) applyLiveProjection({ ok: false, reason: `ops projection request failed: ${err?.message || err}` })
+      })
+
+    loadLive()
+    /* A CONVERSATION IS NOT A SNAPSHOT. The page was fetch-once, which is
+       correct for a file that never changes and wrong for the thing the owner
+       wanted to watch. The interval is cleared by destroy() through the same
+       unsubscribe list every other subscription on this page uses. */
+    const liveTimer = setInterval(loadLive, 4000)
+    unsubs.push(() => clearInterval(liveTimer))
   }
 
   return {

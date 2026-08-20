@@ -86,7 +86,12 @@ export const UNAVAILABLE_TEXT = Object.freeze({
      press with a bare identifier. Like the sign-out below this is not a fault
      in the install, so the sentence spends its length on the command rather
      than on an apology. */
-  AGENT_CODEX_CLI_NOT_INSTALLED: 'Codex is not installed on this computer, and Codex is the program that actually runs an agent. Open Windows Terminal and run "winget install OpenAI.Codex". If you already have Node, "npm install -g @openai/codex" does the same job. Then run "codex login"',
+  /* "Then run codex login" used to end here with no window named, and the
+     window a person naturally uses is the one the install just ran in -- which
+     cannot see the new program, and answers that codex is not recognized. That
+     is the exact dead end the first external user hit from the guide's copy of
+     this instruction; src/first-run-needs.js carries the full account. */
+  AGENT_CODEX_CLI_NOT_INSTALLED: 'Codex is not installed on this computer, and Codex is the program that actually runs an agent. Open Windows Terminal and run "winget install OpenAI.Codex". If you already have Node, "npm install -g @openai/codex" does the same job. Then open a new terminal window and run "codex login"',
   /* THE MODULE NAME CAME OUT OF THE SENTENCE. It read "(agent-session-confinement)"
      -- an internal file name, in brackets, in the middle of a sentence to a
      customer. It is a support detail, and the person holding the repository has
@@ -100,7 +105,16 @@ export const UNAVAILABLE_TEXT = Object.freeze({
      probe returns it, and a start that gets past the probe raises the same code
      through plan.code -- which is why the press used to show the bare
      identifier here too. */
-  AGENT_CONFINEMENT_SIGNED_OUT: 'Codex is installed on this computer, but nobody is signed in to it. The permission level recorded here builds each session from that sign-in. Open Windows Terminal, run "codex login", then come back to this screen',
+  /* IT NO LONGER SAYS "CODEX IS INSTALLED", because nothing that raises this
+     code has checked. DRIVEN on a sealed foreign build 2026-08-19 (cross-machine
+     lane): a Claude-only machine with no Codex anywhere pressed Start, the
+     no-tier plan raised this code, and the screen asserted an installation that
+     did not exist -- then told the person to run a command their shell calls
+     not recognized, which is the first external user's exact dead end. What IS
+     measured at raise time is the missing sign-in file, so that is the one fact
+     the sentence states; both ways out are said conditionally because either
+     may be the reader's machine. */
+  AGENT_CONFINEMENT_SIGNED_OUT: 'This session needs a Codex sign-in, and this computer does not hold one. The permission level recorded here builds each session from that sign-in. If Codex is installed, open a new terminal window and run "codex login". If it is not, run "winget install OpenAI.Codex" first. Then come back to this screen',
   /* Same repair as the entry above: "(subscription-launch-env)" was a module
      name printed to a customer. The fact that matters to them is the money. */
   AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE: 'this copy of ToolsEnabled was built without the part that keeps a session off your billed account. It will not start one and risk charging you. Reinstall ToolsEnabled from a complete build',
@@ -115,16 +129,118 @@ export const UNAVAILABLE_TEXT = Object.freeze({
      was the old fallback here, and retrying is the one thing that can never
      work -- the truthful move is a fresh agent. */
   MC_AGENT_UNKNOWN_SESSION: 'the session this was meant for is not open in this copy. Sessions end when ToolsEnabled closes, so nothing was delivered. Start a new agent and ask there',
+
+  /* THE OTHER TEN WAYS A START IS REFUSED BEFORE IT EVER REACHES THE ENGINE,
+   * and until now not one of them had a sentence anywhere.
+   *
+   * WHAT WAS MEASURED. Ten codes are raised by shell/main.cjs on the
+   * mc-agent:start channel itself -- the trusted-sender check, the payload
+   * parse, the session-profile resolve, the session limit, and the spawn
+   * recorder -- and every one of them arrived at src/fleet-tree-copy.js
+   * startRefusalSentence() with no entry in this table and no entry in its own,
+   * so all ten fell through to START_REFUSAL.noReasonGiven: "Nothing was
+   * started, and this copy was not told why. Try once more." The copy WAS told
+   * why. It was told by name, over a channel built for exactly that
+   * (rendererSafeAgentError makes the message the code so it survives the IPC
+   * boundary), and then threw the answer away at the last step because nobody
+   * had written the sentence.
+   *
+   * "TRY ONCE MORE" IS THE PART THAT MAKES IT WORSE THAN SILENCE. Not one of
+   * these clears by pressing Start again: the session limit is still reached,
+   * the folder is still gone, the record still cannot be written. That sentence
+   * sends a person round a loop with no exit, which is the dead end the whole
+   * start-refusal vocabulary exists to remove.
+   *
+   * Each sentence below names the ACTION. They are lower-case first and carry
+   * no full stop of their own because startRefusalSentence() composes them
+   * behind "Nothing was started." and unavailableReason() renders them after
+   * "unavailable · " -- the same shape every other entry in this table has. */
+
+  /* The person is not doing anything wrong and there is nothing to repair: this
+     is a queue, and it is worded as one. */
+  MC_AGENT_SESSION_LIMIT: 'this copy is already running as many agents at once as it allows, so it did not start another. Wait for one to finish, or stop one in the tree, and then start this again',
+  MC_AGENT_SESSION_EXISTS: 'an agent is already open under that name in this copy, so nothing new was started. Open the one that is already running, or start a fresh agent from another spot in the tree',
+  /* A start that cannot be written down does not happen -- the same rule the
+     SPAWN_RECORD_ codes above state, reached through the channel rather than
+     through the probe. */
+  MC_AGENT_RECORD_UNAVAILABLE: 'ToolsEnabled writes down every agent it starts before starting it, and this one could not be written down, so nothing was started. Close ToolsEnabled and open it again; if it still refuses, reinstall from a complete build',
+  /* The three session-profile refusals a start can hit. A profile is a folder
+     the person picked in the OS dialog, so every remedy is "pick it again" --
+     said in the words of what went wrong, because a person whose folder was
+     renamed and a person whose folder is now a file need different things
+     checked before they re-pick. */
+  MC_AGENT_PROFILE_UNKNOWN: 'the session profile this tree works in is not on this computer any more, so nothing was started. Open the fleet overview and choose a folder for this tree again',
+  MC_AGENT_PROFILE_FOLDER_MISSING: 'the folder this tree works in is not there any more, so nothing was started. Open the fleet overview and pick the folder again',
+  MC_AGENT_PROFILE_FOLDER_INVALID: 'the folder this tree works in cannot be used as a working folder, so nothing was started. Open the fleet overview and pick a different folder',
+  MC_AGENT_PROFILE_FOLDER_NOT_DIRECTORY: 'the session profile for this tree points at a file rather than a folder, so nothing was started. Open the fleet overview and pick a folder instead',
+  /* The working folder was named by the renderer and is not one this session
+     may use. A person reaches it through a profile, so the remedy is the
+     profile's. */
+  MC_AGENT_CWD_NOT_YOURS: 'the folder this agent would have worked in is not one you picked for this tree, so nothing was started. Open the fleet overview and choose the folder for this tree again',
+  /* Reachable only if the depth menu and the engine disagree about the list --
+     renderer and shell drift, not something the person chose wrongly. The
+     remedy is still theirs and still works: pick another depth. */
+  MC_AGENT_EFFORT_UNKNOWN: 'the thinking depth this copy asked for is not one the engine accepts, so nothing was started. Choose a different depth on this panel and start again',
+  /* The request did not come from the application's own window. Nothing the
+     person did, and nothing they can repair from inside the page. */
+  MC_AGENT_SENDER_REFUSED: 'this request did not come from the ToolsEnabled window itself, so it was refused and nothing was started. Close ToolsEnabled, open it again, and start from the panel in its own window',
+  /* THE ONE ON THIS LIST THAT IS NOT A START. It is raised when a message names
+     an attachment that was not picked in that session, and it reaches a person
+     through the SEND composer rather than the start one -- so it is worded for
+     a message that did not go, and the walk in
+     tools/test/agent-session-surface.test.mjs names it as send-only rather than
+     letting it be composed behind "Nothing was started." It is here because
+     without an entry refusalCode() cannot even recover it from the boundary,
+     and the send surface showed a bare identifier instead of a sentence. */
+  MC_AGENT_ATTACHMENT_UNKNOWN: 'one of the files attached to this message was not picked in this session, so the message was not sent. Attach the file again with the picker in this conversation, then send it',
   /* The two refusals the tool checkboxes can raise at a start. Both refuse
      rather than widen: a session that cannot read the limits the person
      recorded must not run without them. */
   AGENT_TOOL_LIMITS_UNREADABLE: 'the tool limits saved for this account could not be read, so no session was started at a wider surface than you chose. Open the research page settings and set the tool checkboxes again',
   AGENT_TOOLS_ALL_DISABLED: 'every tool is switched off for this account, and an agent with no tools cannot do anything. Switch at least one tool on in the research page settings, then start again',
-  /* The three Claude rows in the tier menu are offered so a person can see
-     they exist, and refused honestly when picked -- silently starting Codex
-     instead of a chosen Claude model is the defect this code closed. The
-     sentence names what to pick instead, never a module or a path. */
-  AGENT_TIER_NO_LAUNCHER: 'this version can only start Codex agents from the tree, so that agent type was not started. Pick Luna, Terra or Sol and it will start now',
+  /* WHICH ENGINE IS ABSENT IS DECIDED PER BUILD, SO THIS SENTENCE NAMES NONE.
+   *
+   * WHAT SHIPPED, AND WAS FALSE ON THE BUILD IT SHIPPED IN. This entry read
+   * "this copy of ToolsEnabled does not carry the part that runs Claude or local
+   * agents from a tree. Your Claude sign-in is fine ... Pick Luna, Terra or Sol
+   * to start one here." Every clause of that was true when it was written and
+   * the first clause was false by the time it was installed. The Claude engine
+   * now ships in the payload as capability/src/lib/agent-engine/
+   * claude-cli-process.js and claude-cli-adapter.js -- confirmed present in the
+   * installed 1.0.20 under resources/capability -- and resolveStartTier() in
+   * shell/agent-host.cjs opens the three Claude tiers on a real require() of
+   * exactly that module. So on the build a person is holding, this code is
+   * raised by the `local` tier and by nothing else, while the sentence beside it
+   * went on naming Claude as the thing that could not start. The owner's hardest
+   * rule is that the product never tells him something untrue, and this was the
+   * product telling him something untrue about its own contents.
+   *
+   * THE GATE IS THE ONLY PARTY THAT KNOWS WHICH ENGINE IS MISSING, and it
+   * decides that per tier, per build, at the moment of the press. A frozen
+   * string cannot hold that answer: the same code covers a provider this build
+   * carries no launcher for today and a different one after the next payload
+   * moves. So this sentence states only what is true of EVERY build that raises
+   * it -- the type that was picked has no launcher here -- and leaves naming the
+   * provider to the surface that has the tier in hand. src/fleet-tree-copy.js
+   * tierNoLauncherSentence() is that surface: it names the picked tier's
+   * provider, only that one, and only when that tier is the one that was
+   * refused. tools/test/refusal-engine-honesty.test.mjs fails if any refusal
+   * sentence claims this build lacks an engine the payload actually carries.
+   *
+   * THE TWO REMOVED CLAUSES, AND WHY NEITHER IS REPLACED. "Your Claude sign-in
+   * is fine" existed so this refusal would not contradict the sign-in readout on
+   * the setup screen; with no provider named there is nothing left to
+   * contradict, and volunteering that a sign-in is fine for a provider the
+   * sentence is not about is noise a person has to read past. "Pick Luna, Terra
+   * or Sol" named the three Codex tiers as the whole startable set, which is
+   * exactly the claim the Claude engine falsified -- so it points at the menu,
+   * whose rows tierChoicesFor() labels from what mc-agent:startable-tiers really
+   * answered, instead of at a list frozen in this file.
+   *
+   * IT STILL MUST NOT HINT AT A REPAIR. Nothing a person can press, restart or
+   * switch on adds a launcher to a build that does not carry one, and
+   * tools/test/first-run-needs.test.mjs holds this string to that. */
+  AGENT_TIER_NO_LAUNCHER: 'this copy of ToolsEnabled carries no launcher for the agent type that was picked, so nothing was started. Nothing on this computer is broken. The model menu marks every type this copy cannot start; pick one it does not mark',
 
   /* THE OTHER HALF OF THE ANSWER. mc-agent:availability composes the recorder's
      verdict with the engine's, and a start that cannot be RECORDED does not
@@ -263,6 +379,52 @@ export const UNAVAILABLE_TEXT = Object.freeze({
 export function unavailableReason(code) {
   if (Object.prototype.hasOwnProperty.call(UNAVAILABLE_TEXT, code)) return UNAVAILABLE_TEXT[code]
   return `this copy could not work out why, which is itself a fault worth reporting. ${refusalRemedy(code)}`
+}
+
+/**
+ * What a `mcProviders.presence()` reply proves about anybody being SIGNED IN.
+ *
+ * WHY THIS IS A SECOND READING AND NOT A REUSE OF codexReadiness().
+ * src/setup-review-readiness.js answers a Codex-shaped question, correctly and
+ * on purpose -- its tone goes to warn whenever Codex is not confirmed, which is
+ * the right advice on the recommended path. It is the WRONG verdict for a
+ * surface asking "can an agent start here at all", because a computer with
+ * Claude installed and signed in and no Codex can genuinely start one. Driven,
+ * packaged, three arms: codex signed out with Claude installed answered
+ * `ok:true` from engineAvailability(), and it is right to.
+ *
+ * THE QUESTION THIS ANSWERS IS THE POSITIVE ONE, which is why it could not be
+ * borrowed from the negative reading either: is ANY provider both installed and
+ * PROVABLY signed in.
+ *
+ * NOTHING IS ROUNDED IN EITHER DIRECTION, and both directions have a cost worth
+ * naming. Rounding an 'unknown' UP prints a green tick over a computer that
+ * cannot start anything -- the defect this was written for. Rounding it DOWN
+ * tells the Claude user their working machine is broken, which is the same
+ * failure wearing the other sign and is exactly what engineAvailability()'s
+ * `claudeCouldStart` branch exists to prevent. So an unknown stays unknown and
+ * the caller is given enough to say so.
+ *
+ * @returns `{known, anySignedIn, codexSignedOut}` -- `known:false` when the
+ *          reply taught nothing, in which case a caller must say only what it
+ *          already said before it asked.
+ */
+export function providerSignInReading(reply) {
+  const unknown = Object.freeze({ known: false, anySignedIn: false, codexSignedOut: false })
+  if (!reply || typeof reply !== 'object' || reply.ok !== true || !Array.isArray(reply.providers)) return unknown
+  const rows = reply.providers.filter(row => row && typeof row.id === 'string')
+  if (rows.length === 0) return unknown
+  const codex = rows.find(row => row.id === 'codex')
+  return Object.freeze({
+    known: true,
+    /* Installed AND signed in. A sign-in without the program is not a machine
+       that can run anything, and this is the reading a green tick rests on. */
+    anySignedIn: rows.some(row => row.installed === 'yes' && row.signedIn === 'yes'),
+    /* The one proven negative this product has. shell/provider-cli-presence.cjs:
+       only Codex treats a missing sign-in file as proof, "because this shell
+       already refuses a start on exactly that basis". */
+    codexSignedOut: Boolean(codex && codex.installed === 'yes' && codex.signedIn === 'no'),
+  })
 }
 
 /* Recover the code from a rejected IPC call, because the property does not

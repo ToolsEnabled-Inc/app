@@ -49,6 +49,17 @@ import { CODEX_SETUP_COMMANDS } from './agent-availability-copy.js'
    neither is a reason to leave a person holding a statement with nowhere to take
    it. */
 import { GUIDE_ACTION, GUIDE_HREF } from './first-run-needs.js'
+/* THE MODEL ROW'S OWN NAME. `launchTier` is the table the start controls
+   already use, so the runs list says "Sonnet" where the record kept the id it
+   was started with, and no fourth copy of that mapping can drift from it. The
+   module is pure data with no imports of its own. */
+import { launchTier } from './orchestration-controls.js'
+/* DID THAT TURN SUCCEED, asked once, in the module that measured the answer.
+   The two engines do not use the same word for a turn that went well (codex
+   says "completed", the Claude CLI says "success"), and a second allowlist here
+   is exactly how this screen would come to report a good Claude turn as a
+   failure. */
+import { sessionTurnSucceeded } from './agent-session-events.js'
 
 /* EVERY REMAINING SENTENCE THE SCREEN CAN PRINT.
  *
@@ -103,6 +114,82 @@ export const COPY = Object.freeze({
      number and time, so the person sees the run and simply is not told
      something the computer does not know. */
   runResult: (result) => (result === 'refused' ? 'did not start' : (result === 'started' ? 'started' : '')),
+  /* WHY IT DID NOT START, from the code the record already held.
+     The recorder writes a bare code on every refusal and readLocalSessions used
+     to drop it, so a person whose every start was refused read "did not start"
+     nine times over a record that knew the answer. The sentences are
+     ENGINE_REASON's -- the same table this screen already uses for whether an
+     agent could be started at all -- so the two halves of the screen cannot
+     give one machine two different explanations, and the honesty guard that
+     walks that table (tools/test/refusal-engine-honesty.test.mjs) covers this
+     surface for free.
+     THE EMPTY STRING IS THE POINT for a code nobody wrote a sentence for, and
+     for a run recorded before reasons were kept. A row then says what it always
+     said -- the number, the outcome, the time -- rather than being handed a
+     guess. Falling back to unavailableReason() was considered and refused: its
+     own fallback INVENTS "this copy could not work out why", which is a claim
+     about a run, not an absence of one. */
+  runReason: (code) => (typeof code === 'string' && Object.prototype.hasOwnProperty.call(ENGINE_REASON, code)
+    ? ENGINE_REASON[code]
+    : ''),
+  /* WHAT IT WAS ASKED, labelled. The words after the label are the person's
+     own brief, never this module's, and they are clipped rather than wrapped
+     because the runs list is a column beside a conversation. */
+  runAsked: (brief) => `Asked: ${brief}`,
+  /* WHAT IT SAID BACK, labelled the way the brief is so the pair reads as a
+     pair. The words after the label are the agent's own, never this module's,
+     and they are clipped for the same reason the brief is.
+
+     THE FIELD WAS THERE THE WHOLE TIME. `reply` is kept on the tree node
+     precisely so a screen can show what an agent answered, and the two readers
+     of that record both took `role` and `message` and dropped it. The owner's
+     report on this list was that it shows no outputs, and this is the line that
+     was missing rather than a new thing to record. */
+  runSaid: (said) => `Said back: ${said}`,
+  /* WHAT IT DID, COMPACTLY, and every figure in it was already on disk.
+   *
+   * The per-turn record (shell/usage-record.cjs) writes one signed line each
+   * time a turn ends, carrying the turn, the model row, how the engine said
+   * that turn ended, and the token figures. So a run can say how much work it
+   * was without this screen timing anything or guessing anything.
+   *
+   * WHAT IT DELIBERATELY DOES NOT SAY. No duration, and no "it finished". The
+   * run record holds the intent and the start and has no line for an ending, so
+   * a length here could only be this window subtracting one clock from another
+   * and calling it a measurement. Turns are counted, an ending nobody recorded
+   * is not.
+   *
+   * Each part appears only if the record carries it, so a turn with no token
+   * figure shortens the sentence instead of printing a zero. */
+  runDid: ({ turns = 0, model = null, tokens = null, unfinished = 0 } = {}) => {
+    if (!Number.isSafeInteger(turns) || turns < 1) return ''
+    const counted = countOf(turns, 'turn', 'turns')
+    const opening = model ? `${counted} on ${model}` : counted
+    const spent = Number.isSafeInteger(tokens) && tokens > 0 ? `${opening} and ${groupDigits(tokens)} tokens` : opening
+    if (Number.isSafeInteger(unfinished) && unfinished > 0) {
+      return `${spent}, and ${countOf(unfinished, 'turn', 'turns')} did not finish.`
+    }
+    return `${spent}.`
+  },
+  /* THE ABSENCES, IN WORDS. The owner asked for a flow of what the agents did
+     and said, and the honest answer for some runs is that nobody wrote it down.
+     A blank row reads as a screen that is broken; these say which of the three
+     absences it really is, and none of them invents an ask that was not
+     recorded. */
+  runNothingSaved: 'No brief and no answer were saved here for this one, so the record is all there is.',
+  runNoAnswerYet: 'It has not answered yet.',
+  runNoAnswerSaved: 'Nothing it said was saved here.',
+  runNoTurns: 'No turns were recorded for it.',
+  /* Observed on the live stream by this window, right now, and it is the one
+     state on the row that is not read back off a record. It says what is
+     happening and never how long it has been happening. */
+  runWorkingNow: 'Working now',
+  /* SAID ONCE, UNDER THE LIST, because it is true of every row and belongs to
+     the record rather than to any run. ToolsEnabled writes two lines per run:
+     what it was about to start, and whether the start took. There is no third
+     line for the ending, so a duration or a finished state on these rows could
+     only be this window guessing. */
+  runEndingsNotKept: 'Each start is written down and no ending is, so this list never says how long a run took.',
   /* The aggregate, in the panel footer, under the record's own integrity line.
      Returns null when the ledger says nothing either way, which is exactly the
      state every record written before outcomes existed is in -- an older
@@ -233,7 +320,18 @@ export function readLocalSessions(raw) {
     if (outcome.result !== 'started' && outcome.result !== 'refused') continue
     if (!Number.isSafeInteger(outcome.resolves)) continue
     if (resultBySequence.has(outcome.resolves)) continue
-    resultBySequence.set(outcome.resolves, outcome.result)
+    /* THE REASON RIDES WITH THE RESULT, and it used to be dropped here.
+       The recorder writes it (shell/main.cjs recordSpawnOutcome, bounded to a
+       bare upper-case code by the writer AND re-validated on the way out), and
+       this function threw it away -- so a person whose every start was refused
+       read "did not start" nine times and was never told why, on a screen
+       holding the answer. `reason` is null on a start that worked and on every
+       refusal recorded before the field existed; null is "this record does not
+       say" and must never be rendered as a reason. */
+    resultBySequence.set(outcome.resolves, {
+      result: outcome.result,
+      reason: typeof outcome.reason === 'string' && outcome.reason ? outcome.reason : null,
+    })
   }
 
   /* A run is a START. Outcome records are ledger lines too, and counting them
@@ -244,14 +342,26 @@ export function readLocalSessions(raw) {
      this function report zero runs on a ledger full of them. */
   const runs = usable
     .filter(entry => entry.action === undefined || entry.action === 'agent_session_start')
-    .map(entry => Object.freeze({
-      sequence: entry.sequence,
-      atMs: Date.parse(entry.at),
-      /* null is "this record does not say", NEVER "it worked". Every screen
-         below has to keep that distinction: an unrecorded outcome is exactly
-         the state that used to be displayed as success. */
-      result: resultBySequence.get(entry.sequence) || null,
-    }))
+    .map(entry => {
+      const outcome = resultBySequence.get(entry.sequence) || null
+      return Object.freeze({
+        sequence: entry.sequence,
+        atMs: Date.parse(entry.at),
+        /* null is "this record does not say", NEVER "it worked". Every screen
+           below has to keep that distinction: an unrecorded outcome is exactly
+           the state that used to be displayed as success. */
+        result: outcome ? outcome.result : null,
+        /* The bare code the shell recorded, or null. Turned into a sentence by
+           runReason() below; never rendered raw. */
+        reason: outcome ? outcome.reason : null,
+        /* THE JOIN KEY, and the whole of the owner's second report. Without it
+           a row can only ever say "Agent run 37"; with it a screen can find the
+           conversation this app already saved for that session and say WHICH
+           agent and WHAT it was asked. null when the record does not say, and
+           an unmatched run simply renders as it always did. */
+        sessionId: typeof entry.sessionId === 'string' && entry.sessionId ? entry.sessionId : null,
+      })
+    })
 
   const tally = isRecord(raw.outcomes) ? raw.outcomes : null
   const counted = tally && Number.isSafeInteger(tally.starts) ? tally.starts : null
@@ -310,7 +420,10 @@ export const ENGINE_REASON = Object.freeze({
      remedy and withholds it is choosing to be tidy over being useful. The
      commands themselves live in agent-availability-copy.js so the three screens
      that give them cannot drift apart. */
-  AGENT_CODEX_CLI_NOT_INSTALLED: `Codex is not installed on this computer, and it is the program that runs an agent. Run "${CODEX_SETUP_COMMANDS.install}" in Windows Terminal, then "${CODEX_SETUP_COMMANDS.signIn}"`,
+  /* The sign-in goes in a NEW window: the one the install ran in cannot see
+     the new program and calls it not recognized -- the first external user's
+     exact dead end; src/first-run-needs.js carries the full account. */
+  AGENT_CODEX_CLI_NOT_INSTALLED: `Codex is not installed on this computer, and it is the program that runs an agent. Run "${CODEX_SETUP_COMMANDS.install}" in Windows Terminal, then "${CODEX_SETUP_COMMANDS.signIn}" in a new terminal window`,
   AGENT_CONFINEMENT_SIGNED_OUT: `Codex is installed but nobody is signed in to it. Run "${CODEX_SETUP_COMMANDS.signIn}" in Windows Terminal, then come back to this screen`,
   CODEX_CLI_NOT_FOUND: `Codex could not be found when a session tried to start it. Run "${CODEX_SETUP_COMMANDS.install}" in Windows Terminal, then "${CODEX_SETUP_COMMANDS.signIn}"`,
   CODEX_VERSION_DETECTION_FAILED: 'Codex is installed here but did not answer when asked its version, so ToolsEnabled will not build a session on it',
@@ -319,7 +432,19 @@ export const ENGINE_REASON = Object.freeze({
   AGENT_HOST_INVALID_CWD: 'ToolsEnabled cannot use its own workspace folder, so an agent has nowhere to run',
   AGENT_HOST_INVALID_ARGUMENT: 'ToolsEnabled could not check whether an agent can run here',
   AGENT_HOST_CLOSED: 'ToolsEnabled is shutting down',
-  AGENT_TIER_NO_LAUNCHER: 'A Claude agent type was chosen, and this version will not start Claude agents -- the Codex agent types are the ones that run today',
+  /* THE SAME FALSE CLAIM LIVED HERE TOO, AND ITS SECOND CORRECTION WAS ALSO
+     OVERTAKEN. It has now named Claude as unstartable through three rewrites,
+     and the reason it was wrong changed underneath each one. The last version
+     read "A Claude or local agent type was chosen, and this copy will not start
+     one from the tree." The Claude engine ships in the payload now
+     (capability/src/lib/agent-engine/claude-cli-process.js, present in the
+     installed 1.0.20), and resolveStartTier() opens the Claude tiers on a
+     require() of it -- so the provider this code is actually raised for is
+     decided by what a given build carries, and this table cannot know it.
+     A home screen has no tier in hand and therefore names no provider at all.
+     tools/test/refusal-engine-honesty.test.mjs is what stops a fourth version
+     of this sentence from naming an engine the payload is carrying. */
+  AGENT_TIER_NO_LAUNCHER: 'An agent type was chosen that this copy carries no launcher for, so it will not start one. The model menu on the tree marks which types this copy can start',
   SPAWN_RECORD_NO_KEYSTORE: 'This copy cannot reach the Windows keystore that protects the record of what runs here, so it will not start an agent',
   SPAWN_RECORD_NO_DIRECTORY: 'ToolsEnabled has nowhere to keep its record of what runs here, so it will not start an agent',
   SPAWN_RECORD_KEYSTORE_UNAVAILABLE: 'Windows will not let ToolsEnabled protect its record of what runs here, so it will not start an agent',
@@ -337,6 +462,175 @@ export const ENGINE_REASON = Object.freeze({
  * Plain English, and never a symbol standing in for a number. Returns null for
  * an unreadable input so callers omit the phrase instead of printing a dash.
  */
+/* ONE RUN, WITH EVERYTHING THIS COMPUTER ACTUALLY WROTE DOWN ABOUT IT.
+ *
+ * THE REPORT THIS EXISTS FOR. The owner, on the installed build: the activity
+ * list shows "Agent run 37 - started" and a relative time, and nothing else. He
+ * named the repository whose agent feeds get this right, and what they carry is
+ * always the same three things -- which agent, what it was asked, what happened
+ * -- never a bare identifier and a verb.
+ *
+ * WHERE EACH PART HONESTLY COMES FROM, because this is the line where a screen
+ * starts inventing.
+ *
+ *   what happened   the signed record: the outcome, and the bare refusal CODE
+ *                   the shell wrote beside it. Turned into a sentence by
+ *                   COPY.runReason, which is silent for a code nobody wrote one
+ *                   for.
+ *   which agent     the person's own saved conversation for that session --
+ *                   the ROLE they picked. The ledger does not carry it and must
+ *                   not: it is the app's own record of what STARTED, not a copy
+ *                   of what was said.
+ *   what it asked   the same place: the brief they typed. Deliberately not in
+ *                   the ledger either (see shell/agent-launch-audit's rule: a
+ *                   launch record is evidence a session started, not a copy of
+ *                   its prompt), so this is a JOIN and never a new field on
+ *                   disk.
+ *
+ * AN UNMATCHED RUN LOSES NOTHING. A run started from another surface, from
+ * another computer's record, or before session ids crossed, simply has no
+ * conversation to find, and its row renders exactly as it always did. That is
+ * the whole reason this is a join rather than a requirement.
+ *
+ * `conversations` is a Map (or any object with .get) from session id to
+ * { role, asked }. The view builds it from what the person has saved; this
+ * function neither reads storage nor knows where it came from.
+ */
+export const RUN_BRIEF_CHARS = 96
+
+export const RUN_SAID_CHARS = 200
+
+/* HOW MUCH WORK ONE RUN WAS, out of the per-turn record and nothing else.
+ *
+ * `turns` is the rows src/local-metrics.js readLocalUsage() already parsed,
+ * narrowed to one session by the caller. Pure, so the whole table of shapes can
+ * be walked without a browser.
+ *
+ * THE TWO RULES THAT KEEP THE FIGURE HONEST.
+ *
+ *   A `session-total` row is the engine's RUNNING total for the session, so the
+ *   largest one is the session's spend and adding them would multiply it by the
+ *   number of times the engine happened to report. Turn rows are added. A
+ *   session with both is counted from its turn rows, exactly as the metrics
+ *   page does it, because those are the finer reading.
+ *
+ *   A turn only counts as unfinished when the engine actually said how it
+ *   ended and the word was not one of the success words. A turn with NO status
+ *   is a turn nobody wrote an ending for, and calling that a failure is the
+ *   same invention this whole screen is being repaired for.
+ */
+export function summariseRunWork(turns) {
+  const rows = Array.isArray(turns) ? turns.filter(row => row && typeof row === 'object') : []
+  if (rows.length === 0) return null
+  const counted = rows.filter(row => row.basis !== 'session-total')
+  const model = launchTier(rows.find(row => typeof row.tier === 'string' && row.tier)?.tier || '')?.label || null
+
+  let tokens = null
+  if (counted.length > 0) {
+    for (const row of counted) {
+      if (Number.isSafeInteger(row.totalTokens)) tokens = (tokens ?? 0) + row.totalTokens
+    }
+  } else {
+    for (const row of rows) {
+      if (Number.isSafeInteger(row.totalTokens) && (tokens === null || row.totalTokens > tokens)) tokens = row.totalTokens
+    }
+  }
+
+  const unfinished = rows.filter(row => typeof row.status === 'string' && row.status
+    && !sessionTurnSucceeded(row.status)).length
+
+  return Object.freeze({
+    turns: counted.length > 0 ? counted.length : rows.length,
+    model,
+    tokens,
+    unfinished,
+  })
+}
+
+export function describeRun(run, conversations = null, nowMs = Date.now(), { work = null, live = null } = {}) {
+  const said = run && run.sessionId && conversations && typeof conversations.get === 'function'
+    ? conversations.get(run.sessionId)
+    : null
+  const clip = (value, limit = RUN_BRIEF_CHARS) => {
+    const text = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : ''
+    if (text.length === 0) return ''
+    return text.length <= limit ? text : `${text.slice(0, limit - 1).trimEnd()}…`
+  }
+
+  /* WHAT IT SAID BACK, from the three places it can honestly come from, newest
+     first. The live stream is this window watching the turn happen; `reply` is
+     the answer the tree kept on the node; `said` is the last agent line in the
+     saved conversation, which outlives a node whose reply was cleared. Nothing
+     is assembled and nothing is summarised. These are the agent's own words or
+     there are none. */
+  const working = Boolean(live && live.working)
+  const streaming = clip(live && typeof live.text === 'string' ? live.text : '', RUN_SAID_CHARS)
+  const kept = clip(said && typeof said.reply === 'string' ? said.reply : '', RUN_SAID_CHARS)
+  const spoken = clip(said && typeof said.said === 'string' ? said.said : '', RUN_SAID_CHARS)
+  const answer = streaming || kept || spoken
+
+  /* WHICH ABSENCE THIS ROW IS IN, and there are four of them. They are ordered
+     so the row names the outermost missing thing: a run with no saved
+     conversation at all cannot also be missing an answer, and a run that was
+     refused is not waiting for one. Exactly one sentence, or none. */
+  let gap = ''
+  /* AN ANSWER OUTRANKS EVERY ABSENCE, and this order is the repair for a
+     contradiction measured on the packaged build. A run started from the tree
+     is written to the signed record the instant it starts, and its NODE reaches
+     saved storage a beat later, so for that beat the list holds a run with a
+     live answer streaming into it and no saved conversation to join to. The
+     absences were asked first, so the row printed the agent's actual words above
+     a sentence saying no answer had been saved for it. Both were true of
+     different sources and together they were nonsense, which is precisely the
+     failure this screen was rewritten to make unreachable. */
+  if (answer) gap = ''
+  else if (!said) gap = COPY.runNothingSaved
+  else if (working || said.status === 'starting' || said.status === 'running') gap = COPY.runNoAnswerYet
+  else if (run.result !== 'refused') gap = COPY.runNoAnswerSaved
+
+  /* AND THE SECOND ABSENCE, WHICH IS ABOUT THE WORK RATHER THAN THE WORDS. Only
+     said of a run that really started: a run that was refused has no turns by
+     definition, and printing that under a refusal reason would be the screen
+     explaining itself twice.
+
+     GATED ON THE SENTENCE AND NOT ON THE READING, deliberately. runDid() is
+     silent for a reading it cannot describe, and testing `work` here instead
+     would let a row that produced no sentence render a blank line -- which is
+     the exact thing this row is being repaired for. Whatever makes the sentence
+     empty, the row says the turns were not recorded. */
+  const did = work ? COPY.runDid(work) : ''
+  /* AND NOT WHILE THE TURN IS STILL HAPPENING. Read off the packaged build with
+     a real agent: a row said "Working now" in green and, one line below, "No
+     turns were recorded for it." Both were true -- the turn record is written
+     when a turn ENDS, and that one had not -- and together they read as the
+     screen arguing with itself about an agent the person can watch typing. A
+     turn in progress is not a turn nobody recorded. */
+  const noWork = !did && !working && run.result === 'started' ? COPY.runNoTurns : ''
+
+  return Object.freeze({
+    sequence: run.sequence,
+    result: run.result,
+    /* Separately-absent facts, and each absence is rendered by leaving the line
+       out rather than by printing a stand-in. */
+    resultWord: COPY.runResult(run.result),
+    why: run.result === 'refused' ? COPY.runReason(run.reason) : '',
+    agent: clip(said && typeof said.role === 'string' ? said.role : ''),
+    asked: clip(said && typeof said.asked === 'string' ? said.asked : ''),
+    said: answer,
+    /* True only while this window is watching the stream carry that session.
+       It is an observation, not a reading of a record, and it is the only
+       liveness claim this row makes. */
+    working,
+    did,
+    noWork,
+    gap,
+    when: whenWords(nowMs - run.atMs) || COPY.runWhenUnknown,
+    /* The exact instant, for the row's own tooltip. A list that only ever says
+       "3 days ago" cannot be lined up against anything else that happened. */
+    at: Number.isFinite(run.atMs) ? new Date(run.atMs).toLocaleString() : '',
+  })
+}
+
 export function whenWords(ms) {
   if (ms == null || !Number.isFinite(ms) || ms < 0) return null
   const seconds = Math.floor(ms / 1000)
@@ -356,6 +650,20 @@ export function whenWords(ms) {
 
 const countOf = (n, one, many) => `${n} ${n === 1 ? one : many}`
 
+/* Thousands separated, and written here rather than taken from
+   Number.toLocaleString(): that function answers differently depending on the
+   machine's language settings, so the same record would read one way on this
+   computer and another way on the next, and no test could pin either. */
+function groupDigits(value) {
+  const digits = String(Math.trunc(value))
+  let out = ''
+  for (let index = 0; index < digits.length; index += 1) {
+    if (index > 0 && (digits.length - index) % 3 === 0) out += ','
+    out += digits[index]
+  }
+  return out
+}
+
 /* ---------------------------------------------------------------
    The decision.
    --------------------------------------------------------------- */
@@ -368,6 +676,8 @@ const countOf = (n, one, many) => `${n} ${n === 1 ? one : many}`
  * @param {object|null} input.peer         {reachable, name, atMs}
  * @param {object} input.sessions          from readLocalSessions
  * @param {object} input.engine            from readAgentEngine
+ * @param {object|null} input.providers    from providerSignInReading, or null
+ *                                         when this caller has not asked
  * @param {object|null} input.approvals    {readable, count, undelivered}
  * @param {object} input.chatbox           {runsMode, selection, agentsInSource}
  * @param {number} input.nowMs
@@ -385,6 +695,10 @@ export function describeHome(input) {
     peer = null,
     sessions = readLocalSessions(null),
     engine = readAgentEngine(null),
+    /* NULL MEANS THIS CALLER HAS NOT ASKED, and that must render exactly what it
+       rendered before this input existed. A default that assumed either answer
+       would put a verdict on screen that nobody measured. */
+    providers = null,
     approvals = null,
     chatbox = null,
     nowMs = Date.now(),
@@ -441,10 +755,59 @@ export function describeHome(input) {
   } else {
     /* Whether agents can run here. Stated once, positively when it is true --
        a person needs to know this either way, and it is the single most
-       load-bearing fact about the product on a machine with nothing connected. */
-    facts.push(engine.ready
-      ? { id: 'engine', tone: 'good', text: 'Agents can run on this computer' }
-      : { id: 'engine', tone: 'warn', text: engine.why })
+       load-bearing fact about the product on a machine with nothing connected.
+     *
+     * IT HAD TWO STATES AND THE MACHINE HAS THREE, which is the whole of this
+     * repair. `engine.ready` is mcAgent.availability(), and that answers "can
+     * this INSTALLATION start anything" -- shell/agent-host.cjs opens it when a
+     * Claude start is genuinely possible, proved as the payload carrying the
+     * engine plus the `claude` program resolving, and NEVER on any sign-in,
+     * because Claude's sign-in file is presence-only and can never be a proof.
+     * That decision is right: it stops the product calling itself broken on a
+     * machine correctly set up for Claude.
+     *
+     * Home then rendered that installation-shaped answer as a fact about the
+     * COMPUTER. Driven on the packaged build, cold install, three arms:
+     *
+     *   codex signed out, claude installed        availability ok -> "Agents can run on this computer"
+     *   codex signed out, claude SIGNED IN        availability ok -> identical, and correct: one can
+     *   codex signed out, claude NOT INSTALLED    availability refuses -> "Not ready yet", correct
+     *
+     * The middle arm is why this is not simply inverted: a green there is TRUE.
+     * The first arm is the defect -- nothing signed in to either provider, and a
+     * green tick, while the setup review one screen earlier says an agent cannot
+     * yet run and the press then refuses for exactly that reason.
+     *
+     * This codebase already states the rule it broke: 'unknown' IS A REAL ANSWER
+     * AND IS NEVER ROUNDED UP (src/setup-review-readiness.js).
+     * engineAvailability() honours it in the REFUSAL direction; home took the
+     * resulting non-refusal and rounded it up into a claim. Same rule, opposite
+     * direction, and the positive direction is the one a person acts on.
+     *
+     * So the green now rests on a proven sign-in, and the middle ground says
+     * what is true and what was not checked instead of picking an end. */
+    if (!engine.ready) {
+      facts.push({ id: 'engine', tone: 'warn', text: engine.why })
+    } else if (!providers || providers.known !== true || providers.anySignedIn === true) {
+      /* A caller that never asked keeps exactly the sentence it had; a reply
+         that taught nothing is not evidence against the machine. */
+      facts.push({ id: 'engine', tone: 'good', text: 'Agents can run on this computer' })
+    } else if (providers.codexSignedOut === true) {
+      facts.push({
+        id: 'engine',
+        tone: 'warn',
+        text: `This copy can start an agent, but nobody is signed in to Codex yet. Run "${CODEX_SETUP_COMMANDS.signIn}" in Windows Terminal, then come back to this screen`,
+      })
+    } else {
+      /* Ready, nothing proven signed in, and nothing proven signed out either.
+         Saying "agents can run" would round an unknown up and saying they cannot
+         would round it down; both have cost somebody a wrong screen already. */
+      facts.push({
+        id: 'engine',
+        tone: 'neutral',
+        text: 'This copy can start an agent. It could not check whether anybody is signed in to the program that runs one',
+      })
+    }
 
     /* The other computers. Exactly one sentence, and only one of these three
        branches can ever be taken, which is the whole point of the mode. */
@@ -658,7 +1021,16 @@ function describePanel(mode, sessions, engine, chatbox) {
            that says what the whole product needs, which is the question a person
            in that state is actually asking. */
         action: engine.ready
-          ? (engine.sessionsEnabled ? null : { label: 'Turn on agent sessions in Settings', href: '#/settings' })
+          /* THE ADDRESS NAMES THE SWITCH, because the page it opens has 219
+             controls on it. `engine.sessionsEnabled` is isWriteEnabled('agent-session'),
+             so the row this sentence is about is `write_agent-session` -- "Run
+             an agent session", in the Write section. Measured on the packaged
+             build before this carried the id: following this link put a person
+             at the top of Settings with that row 10170px below them AND inside
+             a collapsed tier carrying `inert`, so scrolling could not reach it
+             either. src/views/settings.js reads the id, opens the section to the
+             depth the row lives at, and scrolls to it. */
+          ? (engine.sessionsEnabled ? null : { label: 'Turn on agent sessions in Settings', href: '#/settings?setting=write_agent-session' })
           : { ...GUIDE_ACTION },
       }
     } else {
@@ -715,7 +1087,17 @@ function recordFooter(sessions) {
   const outcomes = Number.isSafeInteger(sessions.started) && Number.isSafeInteger(sessions.refused)
     ? COPY.runOutcomes(sessions.started, sessions.refused, sessions.total)
     : null
-  return outcomes ? `${integrity} ${outcomes}` : integrity
+  /* AND THE THIRD SENTENCE, WHICH IS ABOUT WHAT THIS RECORD DOES NOT HOLD.
+   *
+   * The owner asked for a flow, and the first thing a person wants from a flow
+   * is how long each thing took. It cannot be answered. The recorder writes
+   * exactly two lines per run -- the intent before the process exists, and
+   * started or refused the instant the start resolved -- and there is no line
+   * for an ending anywhere in the chain. A duration here could therefore only
+   * be this window subtracting one clock from another and presenting it as a
+   * measurement, which is the class of thing this whole screen was rewritten to
+   * stop doing. So the list says what it has and says, once, what it has not. */
+  return [integrity, outcomes, COPY.runEndingsNotKept].filter(Boolean).join(' ')
 }
 
 function panelStatements(panel) {

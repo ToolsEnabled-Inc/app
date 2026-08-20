@@ -1,6 +1,9 @@
 // Shared UI pieces: uptime ring, chat window, sparkline, tooltip.
 
 import { sim, uptimeParts } from './sim.js'
+import { crescentSpec } from './crescent-field.js'
+import { mountCrescent } from './crescent-mount.js'
+import { onNextFrame } from './page-frames.js'
 import { CHAT, CHAT_CONTEXT_REPLIES, CHAT_REPLIES, ROLES, pick } from './vocab.js'
 
 export const el = (html) => {
@@ -35,56 +38,27 @@ export function uptimeRing({ size = 460, epoch, colors = ['#35eab7', '#45d6ff'],
   const r = (size - stroke * 2 - 14) / 2
   const cx = size / 2
   const gid = `uring-grad-${++gradSeq}`
-  const fid = `uring-blur-${gradSeq}`
   const circ = 2 * Math.PI * r
 
   // The sketch's hero: a plain circle with a crescent of light hugging its
-  // OUTSIDE-LEFT edge — an offset shadow made of light rather than a
-  // progress sweep. Its colour is the fleet's load: green idle, orange
-  // climbing, red full throttle. Two stacked arcs (a wide blurred halo and
-  // a tighter core) give the falloff; both are nudged left so the light
-  // reads as coming from beside the circle, not from the stroke itself.
-  const pt = (deg) => {
-    const a = (deg * Math.PI) / 180
-    return [cx + r * Math.cos(a), cx + r * Math.sin(a)]
-  }
-  // A wider sweep than the first pass (118deg->242deg rather than 133->227)
-  // so the light genuinely wraps the left flank, and THREE stacked arcs
-  // instead of two: a broad outer haze, a mid halo, and a tight bright core.
-  // Real light falls off over distance, so each layer is wider, softer and
-  // fainter than the one inside it — that gradient is what reads as "glow"
-  // rather than "a thick coloured stroke".
-  const arcOf = (a0, a1) => {
-    const [x0, y0] = pt(a0), [x1, y1] = pt(a1)
-    return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 0 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`
-  }
-  const crescentPath = arcOf(118, 242)     // outer haze: the full flank
-  const crescentMid = arcOf(126, 234)
-  const crescentCore = arcOf(139, 221)     // core: tightest, brightest
-  const off = Math.max(4, size * 0.022)
-
+  // OUTSIDE-LEFT edge — an offset shadow made of light rather than a progress
+  // sweep. Its colour is the fleet's load: green idle, orange climbing, red
+  // full throttle. Three layers — a broad outer haze, a mid halo and a tight
+  // bright core — give the falloff, each wider, softer and fainter than the one
+  // inside it, and all nudged left so the light reads as coming from beside the
+  // circle rather than from the stroke itself.
+  //
+  // The DESIGN is unchanged. What changed is that it is no longer approximated.
+  // These three layers used to be stroked arcs handed to feGaussianBlur, which
+  // cost the render four defects that were measured, not guessed: the barely
+  // blurred core ended in two blunt linecap tips; the blur radii stepped 5.5x
+  // then 2.27x and left a shoulder in the falloff; the haze's filter region
+  // cleared its own blur by 0.85px at every size; and stacked 8-bit translucent
+  // layers band. src/crescent-field.js evaluates the same light in closed form
+  // instead — see its header. The arcs' apertures, widths, blur radii, offset
+  // and opacities are all still the numbers below, read from crescentSpec().
   const svgBody = crescent
-    ? `
-        <defs>
-          <filter id="${fid}" x="-75%" y="-75%" width="250%" height="250%" color-interpolation-filters="sRGB">
-            <feGaussianBlur stdDeviation="${(size * 0.05).toFixed(2)}"/>
-          </filter>
-          <filter id="${fid}-m" x="-70%" y="-70%" width="240%" height="240%" color-interpolation-filters="sRGB">
-            <feGaussianBlur stdDeviation="${(size * 0.022).toFixed(2)}"/>
-          </filter>
-          <filter id="${fid}-c" x="-60%" y="-60%" width="220%" height="220%" color-interpolation-filters="sRGB">
-            <feGaussianBlur stdDeviation="${(size * 0.004).toFixed(2)}"/>
-          </filter>
-        </defs>
-        <g transform="translate(${-off} 0)">
-          <path class="cres-haze" d="${crescentPath}" fill="none" stroke-linecap="round"
-            stroke-width="${(stroke * 3.4).toFixed(1)}" filter="url(#${fid})"/>
-          <path class="cres-halo" d="${crescentMid}" fill="none" stroke-linecap="round"
-            stroke-width="${(stroke * 1.9).toFixed(1)}" filter="url(#${fid}-m)"/>
-          <path class="cres-core" d="${crescentCore}" fill="none" stroke-linecap="round"
-            stroke-width="${(stroke * 0.75).toFixed(1)}" filter="url(#${fid}-c)"/>
-        </g>
-        <circle class="uring-rim" cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke-width="2"/>`
+    ? `<circle class="uring-rim" cx="${cx}" cy="${cx}" r="${crescentSpec(size).r}" fill="none" stroke-width="2"/>`
     : `
         <defs>
           <linearGradient id="${gid}" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -115,6 +89,16 @@ export function uptimeRing({ size = 460, epoch, colors = ['#35eab7', '#45d6ff'],
       </div>
     </div>
   `)
+
+  /* The crescent mounts itself: a GPU corona when WebGL2 is there, the CPU
+     masked layers when it is not. Either way it inserts ahead of the SVG so the
+     rim stays the topmost drawn line. */
+  const crescentMount = crescent ? mountCrescent(root, size) : null
+  if (crescentMount) {
+    root.crescentMode = crescentMount.mode
+    root.redrawCrescent = crescentMount.redraw
+    root.destroyCrescent = crescentMount.destroy
+  }
 
   const digitsEl = root.querySelector('.uring-digits')
   const arcs = root.querySelectorAll('.arc, .arc-glow')
@@ -357,11 +341,22 @@ const escapeMarkup = value => String(value ?? '').replace(/[&<>"']/g, character 
                quick-picks (effort, model, rewind) inside one popup.
      onStop  — () → Promise<sentence|void>: pressed as the STOP face of the
                send button (busy + empty input). The sentence lands as an
-               agent bubble. */
-export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed = 3, onClose = null, tall = false, context = null, onSend = null, history = null, onAttach = null, onMention = null, status = null, queue = null, actions = null, actionsNote = null, onStop = null }) {
+               agent bubble.
+     composerReason
+             — a sentence, when this conversation CANNOT be spoken to. The
+               log stays real and readable; the message box and the send
+               button are disabled and the sentence sits above them saying
+               why. It is how a chat opens over an agent that never started
+               without becoming a text box that swallows what a person types
+               (the defect src/node-chatbox.js's header names). It also makes
+               the seeded simulator below structurally unreachable for such a
+               caller: `send` is refused before it can reach the fake path,
+               so an honest read-only chat can never answer itself. */
+export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed = 3, onClose = null, tall = false, context = null, onSend = null, history = null, onAttach = null, onMention = null, status = null, queue = null, actions = null, actionsNote = null, onStop = null, composerReason = null, onReady = null }) {
+  const cannotSend = typeof composerReason === 'string' && composerReason.trim().length > 0
   const role = ROLES[roleKey] || ROLES.coordinator
   const root = el(`
-    <div class="chat" ${tall ? 'style="min-height:0"' : ''}>
+    <div class="chat${cannotSend ? ' chat-cannot-send' : ''}" ${tall ? 'style="min-height:0"' : ''}>
       <div class="chat-head">
         <span class="role-dot" style="background:${role.hex}"></span>
         <div>
@@ -376,6 +371,7 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
       <div class="chat-log"></div>
       <div class="chat-attach-strip" hidden></div>
       ${queue ? '<div class="chat-queue-strip" hidden></div>' : ''}
+      ${cannotSend ? `<div class="chat-nosend">${escapeMarkup(composerReason)}</div>` : ''}
       <div class="chat-input">
         ${onAttach ? `<button class="chat-tool" data-chat-attach aria-label="Attach an image" title="Attach an image — it rides with your next message">
           <svg viewBox="0 0 24 24"><path d="M8 12.5 15.2 5.3a3.4 3.4 0 0 1 4.8 4.8l-8.5 8.5a5.4 5.4 0 0 1-7.6-7.6L11 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
@@ -386,8 +382,20 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
         ${actions ? `<button class="chat-tool" data-chat-actions aria-haspopup="true" aria-expanded="false" aria-label="Actions" title="Actions for this agent — stop, thinking depth, model, rewind and more">
           <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="9.2" cy="7" r="2.1" fill="var(--sheet, #fff)" stroke="currentColor" stroke-width="1.8"/><circle cx="15" cy="12" r="2.1" fill="var(--sheet, #fff)" stroke="currentColor" stroke-width="1.8"/><circle cx="8" cy="17" r="2.1" fill="var(--sheet, #fff)" stroke="currentColor" stroke-width="1.8"/></svg>
         </button>` : ''}
-        <input type="text" placeholder="Message ${escapeMarkup(title)}…" />
-        <button class="chat-send" aria-label="Send">
+        <input type="text" ${cannotSend
+          /* "NOT NOW" WAS NOT A LEAKED LABEL (owner: "why is it saying not
+             now?"). It was typed here, and it is the whole of what a disabled
+             box says for itself: two words that read like a button, sitting
+             under a sentence that has already explained the situation
+             properly. The identical words in src/fleet-tree-copy.js are the
+             compose panel's cancel button and are a coincidence; nothing joins
+             the two.
+             The input carries no label of any kind, so this placeholder is
+             also its entire accessible name -- which is why the switched-off
+             state gets the REASON as an aria-label rather than nothing. */
+          ? `placeholder="You cannot send a message here" aria-label="${escapeMarkup(composerReason)}" disabled`
+          : `placeholder="Message ${escapeMarkup(title)}…" aria-label="Message ${escapeMarkup(title)}"`} />
+        <button class="chat-send" aria-label="Send"${cannotSend ? ' disabled' : ''}>
           <svg class="chat-send-go" viewBox="0 0 24 24"><path d="M5 12h13M13 6.5 18.8 12 13 17.5" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <svg class="chat-send-halt" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="1.6" fill="currentColor"/></svg>
         </button>
@@ -477,9 +485,9 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     sendButton.disabled = true
     try {
       const said = await onStop()
-      if (!disposed && said) addMsg(roleKey, String(said))
+      if (!disposed && said) addMsg('note', String(said))
     } catch {
-      if (!disposed) addMsg(roleKey, 'Nothing was stopped; the turn may already be over.')
+      if (!disposed) addMsg('note', 'Nothing was stopped; the turn may already be over.')
     }
     sendButton.disabled = false
     stopping = false
@@ -512,25 +520,316 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     return { m, body }
   }
 
+  /* AN EMPTY LOG SAYS SO, IN WORDS. A live agent page over a declared seat
+     that has never run seeds nothing and has no history, so the log rendered
+     as a bare box -- roughly 600x125px of nothing, over a composer whose
+     reason line explains only the COMPOSER. tools/window-size-sweep-qa.mjs
+     flags exactly that shape ("no empty region where content should be --
+     div.chat-log") at every width, and it is right: a hole reads as broken,
+     a sentence reads as a fact. The note is styled inline (muted ink, own
+     margins) rather than in styles.css, and it leaves the moment the first
+     real message lands. */
+  const emptyNote = document.createElement('div')
+  emptyNote.className = 'chat-log-empty'
+  emptyNote.textContent = 'Nothing has been said here yet.'
+  emptyNote.style.cssText = 'margin:auto;padding:var(--s3) 0;color:var(--ink-25);font-size:12.5px;text-align:center;'
+
+  /* WHO IS SPEAKING, AND WHEN THE LOG SAYS SO.
+   *
+   * THE DEFECT (owner, items 2 and 4: the messages "pile"). Live messages
+   * passed no label at all while restored history passed one for every entry,
+   * so the same conversation carried names on its past and none on its
+   * present, and a person reading it could not tell whose words were whose.
+   * MEASURED on a staged packaged build: hasWho false on the live row, true on
+   * the restored row directly above it.
+   *
+   * So the rule lives HERE rather than at each call site: a label whenever the
+   * speaker changes, whichever path appended the row. A caller may still force
+   * one (pass a name) or forbid one (pass null); `undefined` means "you
+   * decide", which is what every real path now says. */
+  let lastLabelled = null
+  const labelFor = (from) => {
+    if (from === 'me') return 'you'
+    /* The product's own notes are not a speaker, so they are not named. */
+    if (from === 'note') return null
+    return title
+  }
+  /* The two paths that build their own bubble rather than going through
+     addMsg -- the live stream and the simulated reply -- still take the shared
+     rule, so a turn being written and a turn already written are the same
+     bubble with the same label. */
+  const streamLabel = (at) => {
+    const divided = lastTurnAt !== null && at - lastTurnAt > CHAT_CLUSTER_GAP
+    const label = (lastLabelled === 'them' && !divided) ? null : labelFor('them')
+    lastLabelled = 'them'
+    return label
+  }
   const addMsg = (from, text, who, at = Date.now()) => {
-    if (lastTurnAt !== null && at - lastTurnAt > CHAT_CLUSTER_GAP) addTimeDivider(at)
+    if (emptyNote.parentNode) emptyNote.remove()
+    const divided = lastTurnAt !== null && at - lastTurnAt > CHAT_CLUSTER_GAP
+    if (divided) addTimeDivider(at)
     lastTurnAt = at
-    const { m } = makeMsg(from, text, who, at)
+    /* A time divider is a fresh start, so the speaker is named again beneath
+       one even when it is the same speaker. */
+    const decided = who === undefined
+      ? ((lastLabelled === from && !divided) ? null : labelFor(from))
+      : who
+    const { m } = makeMsg(from, text, decided, at)
+    lastLabelled = from
     log.appendChild(m)
     log.scrollTop = log.scrollHeight
     return m
   }
+  /* THE TREE'S OWN WORDS, FOLDED AWAY BUT NEVER CUT.
+   *
+   * THE DEFECT. The address block rides with every tree start as its own
+   * transcript entry, and giving it a quiet dress was only half the fix:
+   * MEASURED on a staged packaged build, it still drew 298px in a 371px log,
+   * so the first thing a first-timer saw of their first conversation was a
+   * screen and a half of internal plumbing. Quiet plumbing is still plumbing.
+   *
+   * A DISCLOSURE, NOT A TRUNCATION, and the distinction is the whole design.
+   * Nothing is removed, shortened or summarised away: the entry stays whole
+   * inside, one press away, and the press is the one a person has already
+   * learned from the action rows two inches down the same panel.
+   *
+   * THE CLOSED LINE HAS TO EARN THE PRESS. A fold labelled with plumbing is
+   * how you get somebody who never opens it, so the caller supplies a sentence
+   * in the person's own words AND the size -- this component stays copy-free,
+   * so both ride on the entry.
+   *
+   * REMEMBERED PER CONVERSATION. Somebody who opens this wants it open for the
+   * thread they are reading, not for every thread they ever open, so the key
+   * is the caller's (`openKey`, the session). No key means no memory rather
+   * than a shared one -- a global default is the thing being avoided. */
+  const CONTEXT_OPEN_PREFIX = 'mc.chat.context-open:'
+  const contextWasOpen = (key) => {
+    if (!key) return false
+    try { return localStorage.getItem(CONTEXT_OPEN_PREFIX + key) === 'open' } catch { return false }
+  }
+  const rememberContext = (key, open) => {
+    if (!key) return
+    try { localStorage.setItem(CONTEXT_OPEN_PREFIX + key, open ? 'open' : 'closed') } catch { /* session-only is still a real change */ }
+  }
+
+  const addContext = (entry) => {
+    if (emptyNote.parentNode) emptyNote.remove()
+    const at = Number.isFinite(entry.at) ? entry.at : Date.now()
+    const key = typeof entry.openKey === 'string' ? entry.openKey : ''
+    const wrap = document.createElement('details')
+    wrap.className = 'msg context chat-context'
+    wrap.title = chatTime(at)
+    wrap.open = contextWasOpen(key)
+    const head = document.createElement('summary')
+    head.className = 'chat-context-head'
+    const mark = document.createElement('span')
+    mark.className = 'chat-action-mark'
+    mark.setAttribute('aria-hidden', 'true')
+    mark.innerHTML = '<svg viewBox="0 0 8 8"><path d="M2.6 1.4 5.4 4 2.6 6.6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    const words = document.createElement('span')
+    words.className = 'chat-context-line'
+    /* The heading names WHO, the sentence says WHAT and HOW MUCH. Both are the
+       caller's words. */
+    const who = document.createElement('span')
+    who.className = 'who'
+    who.textContent = typeof entry.label === 'string' ? entry.label : ''
+    const say = document.createElement('span')
+    say.className = 'chat-context-say'
+    say.textContent = typeof entry.summary === 'string' ? entry.summary : ''
+    words.append(who, say)
+    head.append(mark, words)
+    const body = document.createElement('div')
+    body.className = 'chat-context-body'
+    body.innerHTML = formatInlineText(entry.text, { agents: [{ name: title, role: roleKey }], roleKey })
+    wrap.append(head, body)
+    /* The gesture is owned here for the reason makeAction documents at length:
+       elementFromPoint over a collapsed row answers the DETAILS, so a press
+       beside the disclosure triangle is not a press on it and nothing opens. */
+    wrap.addEventListener('click', (event) => {
+      event.preventDefault()
+      wrap.open = !wrap.open
+      rememberContext(key, wrap.open)
+    })
+    lastTurnAt = at
+    log.appendChild(wrap)
+    log.scrollTop = log.scrollHeight
+    return wrap
+  }
+
+  /* ---- THE SECOND DOOR: WHAT THE AGENT DID, BESIDE WHAT IT SAID. ----
+   *
+   * THE DEFECT THIS CLOSES (owner, item 1, and his biggest ask). The engine
+   * narrates every turn -- tool_call, tool_result, approval_request, each
+   * carrying the command or the path and the name that pairs a result with its
+   * call -- and every one of those packets already reached this window. They
+   * went to a ONE-LINE status string that the next event overwrote, and were
+   * deleted when the turn ended. So a turn that spent five minutes running
+   * commands put ZERO rows in the chat, by construction, and the product looked
+   * hung while it worked.
+   *
+   * openStream is the door for what the agent SAYS; this is the door for what
+   * it DOES, and they append into the SAME log so the two interleave in arrival
+   * order the way an editor interleaves its tool calls with its prose.
+   *
+   * A ROW IS COLLAPSED AND PRESSABLE. `details`/`summary` rather than a button
+   * and a class toggle: the open/closed state, the keyboard, and the screen
+   * reader all come from the element, and nothing here has to reimplement them.
+   *
+   * A RESULT UPDATES ITS CALL'S ROW. The id is the caller's join key (both
+   * engines put one on the event), so a command that finishes repaints the row
+   * it started rather than adding a second one beneath it.
+   *
+   * APPENDS ARE BATCHED PER FRAME, and that is not a micro-optimisation. This
+   * log is pinned to its bottom by a ResizeObserver AND a MutationObserver, both
+   * of which fire on every appended child; a busy turn would re-pin thousands of
+   * times on the main thread. onNextFrame rather than requestAnimationFrame for
+   * the reason src/page-frames.js exists: on a window the machine has covered
+   * there is no next frame, so the callback -- and this whole chat with it --
+   * would be retained for ever.
+   *
+   * THE WORDS ARE THE CALLER'S. This component is used by three pages and must
+   * stay copy-free; the tool names and outcome words live in
+   * src/fleet-tree-copy.js, where the plain-language gate can hold them. */
+  const actionRows = new Map()
+  let pendingActions = []
+  let actionFrame = 0
+
+  const makeAction = (row) => {
+    const wrap = document.createElement('details')
+    wrap.className = 'chat-action'
+    const head = document.createElement('summary')
+    head.className = 'chat-action-head'
+    const tool = document.createElement('span')
+    tool.className = 'chat-action-tool'
+    const detail = document.createElement('span')
+    detail.className = 'chat-action-detail'
+    const state = document.createElement('span')
+    state.className = 'chat-action-state'
+    /* THE ROW SAYS WHETHER IT OPENS. Expandable rows and bare rows (a
+       conversation restored from the excerpt keeps the command, not its
+       output) drew identically, so a person pressing a bare row got nothing
+       and learned the rows were broken. The disclosure mark is the
+       difference: drawn on a row with something to open, blank on one
+       without — the mark's SPACE is kept either way so the columns align.
+       Decorative only (the details element already announces its state), so
+       it is hidden from the accessibility tree. */
+    const mark = document.createElement('span')
+    mark.className = 'chat-action-mark'
+    mark.setAttribute('aria-hidden', 'true')
+    mark.innerHTML = '<svg viewBox="0 0 8 8"><path d="M2.6 1.4 5.4 4 2.6 6.6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    head.append(mark, tool, detail, state)
+    /* A command and its output are machine text: textContent, never markup. */
+    const body = document.createElement('pre')
+    body.className = 'chat-action-body'
+    wrap.append(head, body)
+    /* THE ROW OPENS ON A PRESS ANYWHERE ON IT, AND THAT IS NOT WHAT `details`
+     * GAVE US FOR FREE.
+     *
+     * MEASURED on a staged packaged build with real mouse events at coordinates
+     * taken from the element's own box: document.elementFromPoint over any part
+     * of a collapsed row -- the heading, the tool name, the command text --
+     * answers the DETAILS element rather than the SUMMARY inside it, and a press
+     * that lands on the details' own area is not a press on the disclosure, so
+     * nothing opened. The row looked pressable and was not.
+     *
+     * So the gesture is owned here instead of inherited: the native toggle is
+     * cancelled and the row is opened by hand, which makes a press anywhere on
+     * the heading work exactly as it looks like it should. `details` is kept for
+     * what it is genuinely good at -- the open/closed state, the keyboard, and
+     * what a screen reader announces.
+     *
+     * A ROW WITH NOTHING TO OPEN DOES NOT OPEN. A conversation restored from an
+     * excerpt the window no longer holds carries the command and not the output
+     * it printed, and expanding onto an empty panel reads as the product having
+     * lost something. */
+    wrap.addEventListener('click', (event) => {
+      /* ON THE ROW, NOT ON ITS HEADING, and the difference is the whole reason
+         the first version of this did nothing. The press lands on the DETAILS
+         element -- that is what elementFromPoint answers over every part of a
+         collapsed row -- so the click's target IS the details and a handler
+         bound to the summary inside it never sees the event. Events travel up,
+         never down. */
+      if (wrap.classList.contains('is-bare')) { event.preventDefault(); return }
+      /* The native toggle is cancelled and redone by hand so that a press on
+         the summary and a press beside it behave identically rather than
+         toggling twice. */
+      event.preventDefault()
+      wrap.open = !wrap.open
+    })
+    wrap.addEventListener('toggle', () => {
+      if (wrap.open && wrap.classList.contains('is-bare')) wrap.open = false
+    })
+    return { wrap, tool, detail, state, body }
+  }
+
+  const paintAction = (row) => {
+    let held = actionRows.get(row.id)
+    if (!held) {
+      if (emptyNote.parentNode) emptyNote.remove()
+      held = makeAction(row)
+      actionRows.set(row.id, held)
+      log.appendChild(held.wrap)
+    }
+    held.wrap.dataset.actionState = String(row.stateKey || '')
+    held.tool.textContent = String(row.tool || '')
+    held.detail.textContent = String(row.detail || '')
+    held.detail.title = String(row.body || row.detail || '')
+    held.state.textContent = String(row.state || '')
+    const body = String(row.body || '')
+    held.body.textContent = body
+    /* Nothing to open is said by the row itself rather than by an empty panel. */
+    held.wrap.classList.toggle('is-bare', body.length === 0)
+  }
+
+  const flushActions = () => {
+    actionFrame = 0
+    if (disposed || pendingActions.length === 0) return
+    const batch = pendingActions
+    pendingActions = []
+    for (const row of batch) paintAction(row)
+    pinToBottom()
+  }
+
+  Object.defineProperty(root, 'addAction', {
+    value: (row) => {
+      if (disposed || !row || typeof row !== 'object' || !row.id) return
+      pendingActions.push(row)
+      if (!actionFrame) actionFrame = onNextFrame(flushActions)
+    },
+  })
+
   /* REAL HISTORY, WHEN THE CALLER HAS ONE. The tree card passes the actual
      conversation (this window's transcript, or the node's stored ask+reply),
      rendered verbatim — the simulated excerpt below never runs for a caller
      that provided real entries, whatever its seed. */
   if (Array.isArray(history) && history.length) {
     for (const entry of history) {
+      /* AN ACTION IS PART OF THE HISTORY TOO, and it is painted by the SAME
+         function the live stream uses -- so a conversation reopened tomorrow
+         shows the commands where they happened, in the same rows, rather than
+         showing only the words and pretending the work was instantaneous. */
+      if (entry && entry.who === 'action') { paintAction(entry); continue }
       if (!entry || typeof entry.text !== 'string' || !entry.text) continue
+      /* The product's own aside inside a restored conversation -- how it came
+         to be shorter than the conversation really was. Same kind, same rule,
+         same look as one spoken live. */
+      if (entry.who === 'note') { addMsg('note', entry.text, undefined, Number.isFinite(entry.at) ? entry.at : Date.now()); continue }
+      /* WORDS THE PRODUCT SENT FROM THE PERSON'S SIDE -- the tree's context
+         block. The caller marks it (this component stays copy-free, so the
+         label rides on the entry) and it renders on the sent side in the
+         aside family's quiet dress, so the person's own words stay the only
+         thing wearing their colour. */
+      if (entry.who === 'context') {
+        addContext(entry)
+        continue
+      }
+      /* The label is left to addMsg -- the SAME rule the live path takes, so a
+         restored conversation and the turn that continues it cannot disagree
+         about whose words are whose. */
       addMsg(
         entry.who === 'you' ? 'me' : 'them',
         entry.text,
-        entry.who === 'you' ? 'you' : title,
+        undefined,
         Number.isFinite(entry.at) ? entry.at : Date.now(),
       )
     }
@@ -562,6 +861,9 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     i === 0 ? (m.from === 'them' ? title : 'you') : null,
     historyTimes[i],
   ))
+  /* Only a log that ends this constructor with nothing in it gets the note;
+     the first addMsg from any path removes it again. */
+  if (log.childElementCount === 0) log.appendChild(emptyNote)
   /* The seeded history above is written while the panel is still DETACHED
      (the agent view assembles its chat before mount), where scrollHeight is 0
      and the per-message snap inside addMsg is a no-op — the pane then sat
@@ -596,8 +898,16 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
   let firstPinFrame = 0
   let settledPinFrame = 0
   const pinAfterMount = () => {
-    firstPinFrame = requestAnimationFrame(() => {
-      settledPinFrame = requestAnimationFrame(pinToBottom)
+    /* Two frames because the webfont swap grows the text a frame after it
+       lands. On a page that gets NO frames both callbacks were pending for
+       ever and held this chat's whole tree -- the largest single contributor
+       at +3 per lap of the ring, measured. onNextFrame applies the pin at
+       once on such a page (off a flushed layout, so the height is the real
+       one) and behaves exactly as requestAnimationFrame when the page can
+       draw. The handles are still stored, so the existing teardown that
+       cancels them keeps working unchanged. */
+    firstPinFrame = onNextFrame(() => {
+      settledPinFrame = onNextFrame(pinToBottom)
     })
   }
   const onFontsLoaded = () => pinAfterMount()
@@ -708,7 +1018,7 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
   const startReply = (item) => {
     const fullText = replyTextFor(item.prompt)
     const replyAt = Date.now()
-    const { m, body } = makeMsg('them', '', null, replyAt)
+    const { m, body } = makeMsg('them', '', streamLabel(replyAt), replyAt)
     m.setAttribute('aria-busy', 'true')
     lastTurnAt = replyAt
 
@@ -760,6 +1070,12 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
 
   const send = () => {
     if (disposed) return
+    /* THE FIRST LINE, so that no later branch can be reached by a caller that
+       said it cannot send. Without it a disabled input is only a suggestion:
+       Enter on a disabled field does nothing today, but the seeded simulator
+       is one refactor away from being reachable again, and the whole point of
+       composerReason is that this chat can never answer itself. */
+    if (cannotSend) return
     const v = input.value.trim()
     /* Empty input while the agent writes: this press IS the stop button —
        the same physical button, wearing its stop face. */
@@ -779,7 +1095,7 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
         input.value = ''
         syncComposer()
       } else {
-        addMsg(roleKey, (queued && queued.sentence) || 'That was not queued. Try it again in a moment.')
+        addMsg('note', (queued && queued.sentence) || 'That was not queued. Try it again in a moment.')
       }
       return
     }
@@ -815,8 +1131,17 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
       bumpChatDebug('sentTurns', 1)
       Promise.resolve()
         .then(() => onSend(v, {
-          reply: text => { if (!disposed) addMsg(roleKey, String(text)) },
-          fail: text => { if (!disposed) addMsg(roleKey, String(text)) }
+          /* THE AGENT'S ANSWER PAINTS AS THE AGENT, and until now it painted
+             as its ROLE KEY -- `class="msg helper"`, for which no rule exists
+             in any stylesheet. Measured on a staged packaged build: background
+             rgba(0,0,0,0), border 0px, no shadow, align-self auto (the full
+             width of the log, on neither side) and no sender label, directly
+             beneath a restored `msg them` bubble carrying all of it. One
+             conversation, the same agent, painted two ways.
+             A refusal is NOT the agent speaking, so it keeps a kind of its own
+             rather than being dressed as words the agent said. */
+          reply: text => { if (!disposed) addMsg('them', String(text)) },
+          fail: text => { if (!disposed) addMsg('note', String(text)) }
         }))
         .catch(() => {
           if (disposed) return
@@ -828,7 +1153,7 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
              is the one thing src/refusal-copy.js exists to prevent, by the one
              route its scan cannot see. A sender that means to explain a refusal
              says so through `fail`, where the sentence is written. */
-          addMsg(roleKey, 'That did not send, and this screen was not told why. Try once more; if it keeps happening, reload the page.')
+          addMsg('note', 'That did not send, and this screen was not told why. Try once more; if it keeps happening, reload the page.')
         })
       return
     }
@@ -884,6 +1209,10 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     contentObserver.disconnect()
     cancelAnimationFrame(firstPinFrame)
     cancelAnimationFrame(settledPinFrame)
+    /* A batch waiting on a frame outlives the log it would draw into. */
+    if (actionFrame) { cancelAnimationFrame(actionFrame); actionFrame = 0 }
+    pendingActions = []
+    actionRows.clear()
     document.fonts?.removeEventListener?.('loadingdone', onFontsLoaded)
     sendButton.removeEventListener('click', send)
     input.removeEventListener('keydown', onInputKeydown)
@@ -901,6 +1230,17 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
   unregisterLifecycle = registerChatLifecycle({ root, dispose, seenConnected: false, morphHost: null })
   Object.defineProperty(root, 'dispose', { value: dispose })
 
+  /* WHO TO TELL WHEN SOMETHING HAPPENS IN THIS CONVERSATION. A caller that
+     streams a live turn into a chat has to be able to find that chat again --
+     and the two surfaces this product mounts (the rail's Chat tab and the
+     compact card on the canvas) are built from ONE shared config, spread by
+     both, so a hand-off written on either mount would have to be written twice
+     and would drift. It goes on the config instead, and both get it for free.
+     A caller that throws here is a caller defect and must not cost the chat. */
+  if (typeof onReady === 'function') {
+    try { onReady(root) } catch { /* a broken handler never costs the chat */ }
+  }
+
   /* A LIVE TURN, STREAMED INTO THE LOG BY THE CALLER. The simulated
      word-stream above answers PROMPTS this component invented; openStream is
      the real thing's door: the caller opens one bubble when the engine starts
@@ -911,7 +1251,7 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
      caller's contract, same as cardReplies being single-slot per session. */
   Object.defineProperty(root, 'openStream', {
     value: ({ at = Date.now() } = {}) => {
-      const { m, body } = makeMsg('them', '', null, at)
+      const { m, body } = makeMsg('them', '', streamLabel(at), at)
       m.setAttribute('aria-busy', 'true')
       lastTurnAt = at
       log.appendChild(m)
@@ -935,31 +1275,159 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
   })
 
   /* ---- THE ACTIONS POPUP: a quick-pick anchored over the composer. ----
-     Rows come from the caller's actions() — built FRESH at every open, so
+     Rows come from the caller's actions() -- built FRESH at every open, so
      enabled states are never stale. A row's run(ctx) may repaint the popup
-     in place with ctx.show(rows, {title}) — that is how thinking depth,
-     model and rewind are two-stage picks inside ONE panel — and may speak
+     in place with ctx.show(rows, {title}) -- that is how thinking depth,
+     model and rewind are two-stage picks inside ONE panel -- and may speak
      an outcome through ctx.say, which lands on the status line at the
-     bottom. Escape and any press outside close it; so does dispose. */
+     bottom. Escape and any press outside close it; so does dispose.
+
+     KEYBOARD-FIRST, WHICH IS THE SUBSTANCE OF "MORE LIKE VSCODE". The
+     owner's report on this menu was that it should be more like VS Code and
+     more intuitive. What VS Code's quick pick has that this did not is not
+     a look: it is that the whole thing is driven from the filter box. Type
+     to narrow, Up and Down to move, Enter to run, Escape to leave, and the
+     row under the cursor announced to assistive tech as you move. This
+     popup's entire keyboard handler was one line for Escape; the rows were
+     plain buttons reachable only by Tab or mouse; the filter carried no
+     aria-controls, no aria-activedescendant, no arrow keys.
+
+     So the filter is now a combobox over a listbox: focus stays in the
+     input, aria-activedescendant names the active row, and every row is an
+     option with a stable id for this opening. A sub-stage keeps the same
+     model with the list itself as the focus target, since its filter is
+     hidden.
+
+     ROWS ARE GROUPED, and the group that ends or forgets something is last.
+     A row's `group` is a heading; consecutive rows sharing one sit under it.
+     Arrow keys walk the row array, never the DOM, so headings are skipped by
+     construction.
+
+     A DISABLED ROW SAYS WHY. A row carrying `disabledHint` shows that
+     sentence in place of its hint when it is switched off, and Enter on it
+     speaks the same sentence, so a keyboard user gets a reason where they
+     used to get silence. */
   let popEl = null
   let popStack = []
   let popTopRows = []
+  /* The rows on the glass right now, in walk order, and which is active.
+     Rebuilt by renderPopStage; the index survives a repaint so the cursor
+     does not jump while a person types. */
+  let popRendered = []
+  let popActive = -1
+  /* One id family per OPENING, so the ids are stable for as long as the
+     popup is up and cannot collide with a second chat's popup. */
+  let popSerial = 0
   const onDocPointer = (event) => {
     if (!popEl) return
     if (popEl.contains(event.target)) return
     if (actionsButton && (event.target === actionsButton || actionsButton.contains(event.target))) return
     closeActionsPop()
   }
+  /* Kept at the document, in capture, so Escape closes the popup from
+     wherever focus has wandered -- the row model below is a superset of
+     this, not a replacement for it. */
   const onPopKeydown = (event) => { if (event.key === 'Escape') closeActionsPop() }
+  /* Focus left the popup for somewhere that is not the popup and not the
+     button that opens it. VS Code's quick pick closes on exactly this, and
+     it is what lets a row that hands focus to the composer (Mention a file)
+     get out of the way. Deferred a tick because hiding the filter on a
+     sub-stage blurs it with no relatedTarget BEFORE the list is focused. */
+  const onPopFocusOut = () => {
+    setTimeout(() => {
+      if (!popEl) return
+      const active = document.activeElement
+      if (popEl.contains(active)) return
+      if (actionsButton && (active === actionsButton || actionsButton.contains(active))) return
+      closeActionsPop()
+    }, 0)
+  }
   function closeActionsPop() {
     if (!popEl) return
     popEl.remove()
     popEl = null
     popStack = []
     popTopRows = []
+    popRendered = []
+    popActive = -1
     actionsButton?.setAttribute('aria-expanded', 'false')
     document.removeEventListener('pointerdown', onDocPointer, true)
     document.removeEventListener('keydown', onPopKeydown, true)
+  }
+  const popCtx = () => {
+    const out = popEl?.querySelector('.chat-actions-out')
+    return {
+      say: sentence => { if (out && popEl) out.textContent = String(sentence ?? '') },
+      close: closeActionsPop,
+      show: (nextRows, { title: stageTitle = null } = {}) => {
+        popStack.push({ rows: Array.isArray(nextRows) ? nextRows : [], title: stageTitle })
+        popActive = -1
+        renderPopStage()
+      },
+    }
+  }
+  const runPopRow = (entry) => {
+    if (!entry || !popEl) return
+    const out = popEl.querySelector('.chat-actions-out')
+    if (entry.enabled === false) {
+      /* Enter on a row that cannot be pressed: the reason, on the status
+         line, rather than nothing. */
+      if (out && entry.disabledHint) out.textContent = entry.disabledHint
+      return
+    }
+    if (typeof entry.run !== 'function') return
+    Promise.resolve()
+      .then(() => entry.run(popCtx()))
+      .then(said => { if (said && out && popEl) out.textContent = String(said) })
+      .catch(() => { if (out && popEl) out.textContent = 'That did not happen. Try it again.' })
+  }
+  /* Move the cursor and say so: the class for the eye, aria-selected and
+     aria-activedescendant for the ear, and the row scrolled into the list's
+     box so the cursor never leaves the visible rows. */
+  const paintPopActive = () => {
+    if (!popEl) return
+    const filter = popEl.querySelector('.chat-actions-filter')
+    const list = popEl.querySelector('.chat-actions-list')
+    if (popActive >= popRendered.length) popActive = popRendered.length - 1
+    let activeId = ''
+    popRendered.forEach((entry, index) => {
+      const on = index === popActive
+      entry.button.classList.toggle('is-active', on)
+      entry.button.setAttribute('aria-selected', on ? 'true' : 'false')
+      if (on) {
+        activeId = entry.button.id
+        entry.button.scrollIntoView?.({ block: 'nearest' })
+      }
+    })
+    for (const owner of [filter, list]) {
+      if (!owner) continue
+      if (activeId) owner.setAttribute('aria-activedescendant', activeId)
+      else owner.removeAttribute('aria-activedescendant')
+    }
+  }
+  const movePopActive = (delta) => {
+    if (!popRendered.length) return
+    if (popActive < 0) popActive = delta > 0 ? 0 : popRendered.length - 1
+    else popActive = (popActive + delta + popRendered.length) % popRendered.length
+    paintPopActive()
+  }
+  const firstEnabledPopRow = () => {
+    const index = popRendered.findIndex(entry => entry.enabled !== false)
+    return index === -1 ? (popRendered.length ? 0 : -1) : index
+  }
+  /* The keyboard model, bound to the popup so it hears the filter and, on a
+     sub-stage, the list. Escape is left to the document handler above. */
+  const onPopKeys = (event) => {
+    if (!popEl) return
+    if (event.key === 'ArrowDown') { event.preventDefault(); movePopActive(1); return }
+    if (event.key === 'ArrowUp') { event.preventDefault(); movePopActive(-1); return }
+    if (event.key === 'Home') { event.preventDefault(); popActive = popRendered.length ? 0 : -1; paintPopActive(); return }
+    if (event.key === 'End') { event.preventDefault(); popActive = popRendered.length - 1; paintPopActive(); return }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      const entry = popActive >= 0 ? popRendered[popActive] : popRendered[firstEnabledPopRow()]
+      runPopRow(entry)
+    }
   }
   const renderPopStage = () => {
     if (!popEl) return
@@ -973,16 +1441,34 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     titleLine.hidden = !stage?.title
     if (stage?.title) titleLine.textContent = stage.title
     list.textContent = ''
+    popRendered = []
     const wanted = stage ? '' : filter.value.trim().toLowerCase()
     const rows = stage ? stage.rows : popTopRows.filter(row =>
       !wanted || row.label.toLowerCase().includes(wanted) || String(row.hint || '').toLowerCase().includes(wanted))
+    const optionId = index => `chat-actions-opt-${popSerial}-${index}`
+    const addOption = (entry) => {
+      const index = popRendered.length
+      entry.button.id = optionId(index)
+      entry.button.setAttribute('role', 'option')
+      entry.button.setAttribute('aria-selected', 'false')
+      /* Hovering moves the cursor, as it does in VS Code, so mouse and
+         keyboard never disagree about which row Enter would run. */
+      entry.button.addEventListener('mousemove', () => {
+        if (popActive === index) return
+        popActive = index
+        paintPopActive()
+      })
+      popRendered.push(entry)
+      list.appendChild(entry.button)
+    }
     if (stage) {
       const back = document.createElement('button')
       back.type = 'button'
       back.className = 'chat-actions-row chat-actions-back'
       back.textContent = '‹ Back'
-      back.addEventListener('click', () => { popStack.pop(); renderPopStage() })
-      list.appendChild(back)
+      const leave = () => { popStack.pop(); popActive = -1; renderPopStage() }
+      back.addEventListener('click', leave)
+      addOption({ button: back, enabled: true, run: leave })
     }
     if (!rows.length && !stage) {
       const none = document.createElement('p')
@@ -990,48 +1476,71 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
       none.textContent = 'No action matches that. Clear the filter to see them all.'
       list.appendChild(none)
     }
-    const out = popEl.querySelector('.chat-actions-out')
-    const ctx = {
-      say: sentence => { if (out) out.textContent = String(sentence ?? '') },
-      close: closeActionsPop,
-      show: (nextRows, { title: stageTitle = null } = {}) => {
-        popStack.push({ rows: Array.isArray(nextRows) ? nextRows : [], title: stageTitle })
-        renderPopStage()
-      },
-    }
+    let lastGroup = null
     for (const row of rows) {
+      /* A heading when the group changes. role="presentation" so the listbox
+         still counts only options; the eye gets the heading, the ear gets the
+         option that follows it. */
+      const group = typeof row.group === 'string' && row.group ? row.group : null
+      if (group && group !== lastGroup) {
+        const heading = document.createElement('div')
+        heading.className = 'chat-actions-group'
+        heading.setAttribute('role', 'presentation')
+        heading.textContent = group
+        list.appendChild(heading)
+      }
+      lastGroup = group
       const button = document.createElement('button')
       button.type = 'button'
       button.className = 'chat-actions-row'
-      button.disabled = row.enabled === false
+      const disabled = row.enabled === false
+      button.disabled = disabled
+      if (disabled) button.setAttribute('aria-disabled', 'true')
       const label = document.createElement('div')
       label.textContent = row.label
       button.appendChild(label)
-      if (row.hint) {
+      /* The hint, or the reason it cannot be pressed. Never both, and the
+         reason gets its own class so the eye can tell them apart too. */
+      const why = disabled && typeof row.disabledHint === 'string' ? row.disabledHint : ''
+      if (why || row.hint) {
         const hint = document.createElement('div')
-        hint.className = 'chat-actions-hint'
-        hint.textContent = row.hint
+        hint.className = why ? 'chat-actions-hint chat-actions-why' : 'chat-actions-hint'
+        hint.textContent = why || row.hint
         button.appendChild(hint)
       }
       if (row.current) button.classList.add('is-current')
-      button.addEventListener('click', () => {
-        if (typeof row.run !== 'function') return
-        Promise.resolve()
-          .then(() => row.run(ctx))
-          .then(said => { if (said && out && popEl) out.textContent = String(said) })
-          .catch(() => { if (out && popEl) out.textContent = 'That did not happen. Try it again.' })
-      })
-      list.appendChild(button)
+      const entry = { button, enabled: !disabled, disabledHint: why, run: row.run }
+      button.addEventListener('click', () => runPopRow(entry))
+      addOption(entry)
+    }
+    if (popActive < 0 || popActive >= popRendered.length) {
+      /* First press of Enter runs the obvious thing: the first row that can
+         be pressed, or Back's neighbour on a sub-stage. */
+      popActive = stage ? Math.min(1, popRendered.length - 1) : firstEnabledPopRow()
+    }
+    paintPopActive()
+    /* Where the keys go. The top stage types into the filter; a sub-stage
+       has no filter, so its list takes focus. Only moved when focus is
+       inside the popup and on the wrong half of it, so a person mid-word in
+       the filter is never interrupted. */
+    const focused = document.activeElement
+    if (stage) {
+      if (focused !== list) list.focus({ preventScroll: true })
+    } else if (focused === list || (focused && popEl.contains(focused) && focused !== filter && focused.tagName !== 'BUTTON')) {
+      filter.focus({ preventScroll: true })
     }
   }
   const openActions = (sectionId = null) => {
     if (typeof actions !== 'function' || disposed) return
     closeActionsPop()
+    popSerial += 1
+    const listId = `chat-actions-list-${popSerial}`
     popEl = el(`
       <div class="chat-actions-pop" aria-label="Actions">
         <div class="chat-actions-title" hidden></div>
-        <input type="text" class="chat-actions-filter" placeholder="Filter actions…" aria-label="Filter actions">
-        <div class="chat-actions-list"></div>
+        <input type="text" class="chat-actions-filter" placeholder="Filter actions…" aria-label="Filter actions"
+          role="combobox" aria-expanded="true" aria-autocomplete="list" aria-haspopup="listbox" aria-controls="${listId}" autocomplete="off">
+        <div class="chat-actions-list" id="${listId}" role="listbox" aria-label="Actions" tabindex="-1"></div>
         ${actionsNote ? `<p class="chat-actions-hint chat-actions-note">${escapeMarkup(actionsNote)}</p>` : ''}
         <output class="chat-actions-out" role="status"></output>
       </div>`)
@@ -1039,23 +1548,18 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     actionsButton?.setAttribute('aria-expanded', 'true')
     try { popTopRows = actions() || [] } catch { popTopRows = [] }
     popStack = []
+    popActive = -1
     renderPopStage()
     const filter = popEl.querySelector('.chat-actions-filter')
-    filter.addEventListener('input', () => renderPopStage())
+    filter.addEventListener('input', () => { popActive = -1; renderPopStage() })
+    popEl.addEventListener('keydown', onPopKeys)
+    popEl.addEventListener('focusout', onPopFocusOut)
     document.addEventListener('pointerdown', onDocPointer, true)
     document.addEventListener('keydown', onPopKeydown, true)
     if (sectionId) {
       const target = popTopRows.find(row => row.id === sectionId && row.enabled !== false && typeof row.run === 'function')
       if (target) {
-        const out = popEl.querySelector('.chat-actions-out')
-        void Promise.resolve().then(() => target.run({
-          say: sentence => { if (out && popEl) out.textContent = String(sentence ?? '') },
-          close: closeActionsPop,
-          show: (nextRows, { title: stageTitle = null } = {}) => {
-            popStack.push({ rows: Array.isArray(nextRows) ? nextRows : [], title: stageTitle })
-            renderPopStage()
-          },
-        })).catch(() => {})
+        void Promise.resolve().then(() => target.run(popCtx())).catch(() => {})
         return
       }
     }

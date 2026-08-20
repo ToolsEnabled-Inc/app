@@ -125,9 +125,40 @@ body[data-route="settings"] .fleet-profile-notice { display: none; }
   top: var(--s2);
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
   gap: var(--s3);
 }
+
+/* The rail mirrors the page's two levels: six group lines, and the seventeen
+   category buttons indented under whichever groups are open. */
+.settings-rail-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s2);
+}
+
+/* Outranks `.settings-rail button`'s nowrap so a two-word group name wraps
+   instead of ending in an ellipsis -- read off the second screenshot pass. */
+.settings-rail .settings-rail-head {
+  color: var(--ink-2);
+  white-space: normal;
+}
+
+.settings-rail-sections {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s2);
+  padding-left: var(--s3);
+  border-left: 1px solid var(--line-2);
+}
+
+/* An author `display` beats the hidden attribute's own rule, so a closed
+   group's rail list stayed on screen -- read off the first screenshot pass.
+   Said explicitly for both hidden surfaces. */
+.settings-rail-sections[hidden],
+.settings-group-body[hidden] { display: none; }
 
 .settings-rail button {
   max-width: 100%;
@@ -159,6 +190,67 @@ body[data-route="settings"] .fleet-profile-notice { display: none; }
 
 .settings-main { min-width: 0; }
 
+/* ---------- the six top-level groups ----------
+   Collapsed by default, a first visit is six scannable lines; what a person
+   opens is remembered. The head is one full-width button: name and glyph,
+   then a one-line description, then — only while closed — the section names,
+   so anything can still be FOUND without opening a thing. */
+.settings-group {
+  margin-bottom: var(--s4);
+  border-top: 1px solid var(--line);
+  scroll-margin-top: var(--s3);
+}
+
+.settings-group-head {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: var(--s3) 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-group-name {
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 660;
+  letter-spacing: var(--track-caps);
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+.settings-group-head:hover .settings-group-name { color: var(--ink); }
+
+.settings-group-detail {
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.settings-group-list {
+  color: var(--ink-25);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 640;
+  letter-spacing: var(--track-caps);
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+
+.settings-group.is-open .settings-group-list { display: none; }
+
+.settings-group-head:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: var(--s1);
+  border-radius: var(--r-md);
+}
+
+.settings-group-body { padding-top: var(--s2); }
+
 .settings-section,
 .settings-results {
   margin-bottom: calc(var(--s5) * 2);
@@ -183,16 +275,74 @@ body[data-route="settings"] .fleet-profile-notice { display: none; }
   flex-direction: column;
 }
 
+/* ONE ROW ANATOMY: name — state sentence — description — control — disclosure.
+   `align-items: start`, not center, and the disclosure on a full-width grid row
+   of its own, because the centred two-column row moved the control 14-81px
+   under the pointer whenever its guidance text opened mid-press (measured on
+   the driven build). With the control pinned to the row's top and everything
+   that grows placed BELOW it, nothing a pointer is over ever moves. */
 .settings-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(calc(var(--s5) * 9), auto);
-  align-items: center;
-  gap: var(--s5);
+  align-items: start;
+  gap: var(--s2) var(--s5);
   min-height: calc(var(--s5) * 3);
   padding-block: var(--s2);
 }
 
+.settings-row > .settings-disclosure {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.settings-row > .settings-disclosure:empty { display: none; }
+
+/* The truth the switch shows, in words, directly under the name. It leads with
+   "On." or "Off." so it can never be read against the control beside it. */
+.settings-state {
+  margin-top: 2px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+/* One press to the thing this switch gates, instead of working out which page
+   it means and walking the ring to it. */
+.settings-jump {
+  display: inline-block;
+  margin-top: var(--s1);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.4;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.settings-jump:hover { color: var(--ink); }
+.settings-jump:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: var(--s1);
+  border-radius: var(--r-md);
+}
+
 .settings-row + .settings-row { margin-top: var(--s1); }
+
+/* THE ROW A LINK SENT SOMEBODY TO. A page with 219 controls scrolled to the
+   right one still looks like a page with 219 controls, so the row that was
+   asked for says so. It is a rule and an inset, not a colour on its own: the
+   accent is the second signal, and the row is already centred in the viewport
+   by the scroll, which is the first.
+   It persists rather than fading. A flash that has finished by the time the eye
+   arrives has told nobody anything, and this row is the answer to a question
+   the person asked one screen ago -- it stays until they render the page some
+   other way. */
+.settings-row.is-landed {
+  border-left: 2px solid var(--focus-ring, var(--ink-2));
+  padding-left: var(--s3);
+  margin-left: calc(-1 * var(--s3) - 2px);
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+  border-radius: var(--r-sm, 4px);
+}
 .settings-copy { min-width: 0; }
 .settings-name {
   color: var(--ink-2);
@@ -402,6 +552,21 @@ body.reduce-motion .settings-tier {
   }
 
   .settings-rail button { flex: none; }
+
+  /* On a narrow screen the rail is one scrolling line: a group's sections
+     follow their group inline rather than stacking under it. */
+  .settings-rail-group {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--s4);
+  }
+
+  .settings-rail-sections {
+    flex-direction: row;
+    gap: var(--s4);
+    padding-left: 0;
+    border-left: none;
+  }
 }
 
 @media (max-width: 620px) {

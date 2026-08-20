@@ -35,15 +35,37 @@ test('the tree reads the stream only through the shared readers', () => {
      without anybody noticing -- the agent page's CORRECTED note is the measured
      case. The tree must use the same two readers, not its own field reads. */
   const source = read('src/views/computers.js')
-  assert.match(source, /import \{ sessionActivityEvent, sessionEventText, sessionTurnStatus, sessionUsageEvent \} from '\.\.\/agent-session-events\.js'/)
+  /* NAMED RATHER THAN SPELLED OUT IN ORDER: the list grows (the turn-filing
+     rule joined it), and pinning the exact line meant an added reader read as
+     a defect. What matters is that every one of them comes from the shared
+     module and that nothing parses the packet here. */
+  const line = source.slice(source.indexOf("} from '../agent-session-events.js'") - 400, source.indexOf("} from '../agent-session-events.js'"))
+  const imported = line.slice(line.lastIndexOf('import {') + 8).split(',').map(name => name.trim())
+  for (const reader of ['sessionActivityEvent', 'sessionEventText', 'sessionEventTurnId', 'sessionTurnStatus', 'sessionTurnSucceeded', 'sessionUsageEvent']) {
+    assert.ok(imported.includes(reader), `${reader} is no longer read through the shared module`)
+  }
   assert.ok(!/packet\.event\.text|packet\.text|packet\.delta/.test(source),
     'computers.js reads raw packet fields instead of the shared readers')
 })
 
-test('a session is mapped to its node at the one place a session is born', () => {
+test('a session is mapped to its node BEFORE its message is sent', () => {
+  /* MEASURED 2026-08-17: the Claude CLI streams a turn, so its first words --
+     and, for a short answer, its completion too -- reach this page before the
+     send is answered. This map is what the listener filters on, so a map
+     written after the send dropped that whole turn and left the node at
+     `running` with nothing in it. Writing it from onSessionOpen is what makes
+     the binding earlier than any event can be, for every engine rather than
+     for the fast one. */
   const source = read('src/views/computers.js')
-  assert.match(source, /sessionNodeIds\.set\(result\.sessionId, node\.id\)/,
-    'the session-to-node map is no longer written on start, so no reply can find its node')
+  const bindsOnOpen = source.indexOf("onSessionOpen: ({ sessionId, threadId }) =>")
+  assert.ok(bindsOnOpen !== -1, 'the compose start no longer hands the session over as it opens')
+  assert.ok(source.slice(bindsOnOpen, bindsOnOpen + 400).includes("sessionNodeIds.set(sessionId, node.id)"),
+    'the session-to-node map is not written from onSessionOpen, so a streaming engine answers into a void again')
+  const helper = source.slice(source.indexOf('export async function startAgentForNode'))
+  const opened = helper.indexOf('onSessionOpen({ sessionId, threadId })')
+  const sent = helper.indexOf('await bridge.send(')
+  assert.ok(opened !== -1 && sent !== -1 && opened < sent,
+    'startAgentForNode hands the session over AFTER it sends -- the binding is racing the engine again')
 })
 
 test('the reply is delivered once per turn, never once per token', () => {
@@ -51,8 +73,16 @@ test('the reply is delivered once per turn, never once per token', () => {
   /* Two writes are legal and each has one meaning: the handler's, after the
      turn completes, and the mount rehydration copying the STORE's persisted
      reply back into the cache. Anything else is a new delivery path. */
+  /* THREE, and the third is the turn BOUNDARY. A turn that ends without a
+     turn_completed packet still said something, and until 2026-08-18 those
+     words were silently carried into the next turn instead of being filed --
+     the owner's "combine into each other". settleTurnBoundary files them once,
+     when the engine names a different turn. It is a delivery path per TURN,
+     which is the property this test exists to hold; a fourth write would not
+     be. */
   const writes = source.match(/nodeReplies\.set\(/g) || []
-  assert.equal(writes.length, 2, 'nodeReplies is written at exactly two places: turn completion, and store rehydration')
+  assert.equal(writes.length, 3, 'nodeReplies is written at exactly three places: turn completion, turn boundary, and store rehydration')
+  assert.match(source, /function settleTurnBoundary/, 'the third write is not the turn-boundary settler; a per-delta write may have crept in')
   assert.match(source, /nodeReplies\.set\(node\.id, node\.reply\)/,
     'the rehydration write must copy the store\'s persisted reply, not compute one')
   const handler = source.slice(source.indexOf('unsubs.push(window.mcAgent.onEvent'))
@@ -64,8 +94,10 @@ test('the reply is delivered once per turn, never once per token', () => {
      before the reply takes over -- a truncated stream beside a complete reply
      would read as two different answers. */
   assert.match(handler, /flushNow\(\)/, 'the rail stream is not flushed on turn completion')
-  /* Persistence: the turn's reply must reach the store, not only the cache. */
-  assert.match(handler, /setNodeReply\(nodeId, spoken \|\| SAID_PANEL\.emptyTurn\)/,
+  /* Persistence: the turn's reply must reach the store, not only the cache.
+     `said` is turnCompletionWords' answer -- streamed words, a failed turn's
+     engine sentence, or the honest empty-turn line. */
+  assert.match(handler, /setNodeReply\(nodeId, said\)/,
     'the completed reply is no longer persisted on the node')
 })
 

@@ -22,16 +22,85 @@
 export const TRANSCRIPT_STORAGE_KEY_BASE = 'mc.fleet.transcripts.v1'
 export const transcriptStorageKey = computerId => `${TRANSCRIPT_STORAGE_KEY_BASE}:${computerId}`
 
+/* THE CAPS, AND WHY THE LAST ONE IS COMPUTED RATHER THAN TYPED.
+ *
+ * THE DEFECT THAT MADE IT SO, measured 2026-08-18 against a hand-typed
+ * `maxSerializedChars: 120_000`. One record at THIS FILE'S OWN per-record
+ * bounds -- 40 lines of 600 characters -- serialises to 25,453 characters. So
+ * the size cap bound at FOUR records and the 24-record cap below it never
+ * bound at all. Saving a fifth node's transcript deleted the first node's
+ * ENTIRE conversation, and `save()` returned true. On a research machine that
+ * is destroyed work, not a trimmed excerpt.
+ *
+ * THE NUMBER IT AGREES WITH IS THE ONE THE STORAGE REALLY ENFORCES, and that
+ * was measured on a staged packaged build rather than reasoned about. Driving a
+ * save of eight full records answered:
+ *
+ *   Could not save setting "mc.fleet.transcripts.v1:<computer>":
+ *   a settings value may not exceed 65536 characters
+ *
+ * That is shell/renderer-prefs.cjs's MAX_VALUE_LENGTH -- the shipped app backs
+ * this page's storage with a bounded preferences file, so the envelope's real
+ * ceiling is 64KB and always was. A store that believed in 120,000 was not
+ * merely evicting too eagerly; above 64KB its writes were REFUSED outright and
+ * the conversation simply stopped being saved.
+ *
+ * So the size cap is the storage's own limit, with headroom for the key and the
+ * file's framing around the value, and the caps above it are what a SINGLE
+ * conversation may grow to when there is room. Those two are not in conflict
+ * once degrading means trimming: the record cap says how many conversations are
+ * kept (24, all of them), the per-record caps say how large one may get, and
+ * the envelope is the budget they share. When the budget binds, the fattest
+ * records give up their OLDEST lines and every conversation survives -- see
+ * save(). Nothing is ever deleted to make room while a line remains to give. */
+const MAX_NODES = 24
+const MAX_LINES = 40
+const MAX_ACTION_LINES = 12
+const MAX_LINE_CHARS = 600
+const MAX_ACTION_CHARS = 240
+const MAX_THREAD_ID_CHARS = 512
+const MAX_NODE_ID_CHARS = 128
+const MAX_ACTION_TOOL_CHARS = 24
+const LINE_WRAPPER_CHARS = JSON.stringify({ who: 'action', text: '', at: 1_700_000_000_000, state: 'working', tool: '' }).length + MAX_ACTION_TOOL_CHARS + 1
+const RECORD_WRAPPER_CHARS = JSON.stringify({ savedAt: 1_700_000_000_000, threadId: '', effort: 'medium', trimmed: 0, lines: [] }).length + 1
+const RECORD_CHARS = RECORD_WRAPPER_CHARS
+  + MAX_THREAD_ID_CHARS
+  + MAX_NODE_ID_CHARS + 3
+  + MAX_LINES * (MAX_LINE_CHARS + LINE_WRAPPER_CHARS)
+  + MAX_ACTION_LINES * (MAX_ACTION_CHARS + LINE_WRAPPER_CHARS)
+/* shell/renderer-prefs.cjs's MAX_VALUE_LENGTH. Mirrored rather than imported:
+   this module is renderer-side and dependency-free by design, and the seam it
+   writes through is a plain read/write pair that knows nothing about limits.
+   The headroom covers the storage key travelling beside the value. */
+const STORAGE_VALUE_CHARS = 64 * 1024
+const STORAGE_HEADROOM_CHARS = 2_048
+
 export const TRANSCRIPT_LIMITS = Object.freeze({
-  maxNodes: 24,
-  maxLines: 40,
-  maxLineChars: 600,
-  maxThreadIdChars: 512,
-  maxSerializedChars: 120_000,
+  maxNodes: MAX_NODES,
+  maxLines: MAX_LINES,
+  /* What the agent DID, bounded separately from what it SAID. A busy turn can
+     emit thousands of tool events and a shared bound would let them push the
+     conversation out of its own record. */
+  maxActionLines: MAX_ACTION_LINES,
+  maxLineChars: MAX_LINE_CHARS,
+  maxActionChars: MAX_ACTION_CHARS,
+  maxThreadIdChars: MAX_THREAD_ID_CHARS,
+  /* What ONE conversation may grow to when there is room -- the ceiling, not
+     an allocation. RECORD_CHARS is exported so a caller can see the two
+     numbers side by side rather than rediscovering the arithmetic. */
+  maxRecordChars: RECORD_CHARS,
+  maxSerializedChars: STORAGE_VALUE_CHARS - STORAGE_HEADROOM_CHARS,
   seedMaxChars: 6_000,
 })
 
-const WHO = Object.freeze(['you', 'agent'])
+/* Three kinds of line, and only the first two are speech. An 'action' line is
+   one thing the agent did -- a command it ran, a file it read -- kept so a
+   conversation reopened tomorrow still shows the work, not only the words. */
+const WHO = Object.freeze(['you', 'agent', 'action'])
+const SPOKEN = Object.freeze(['you', 'agent'])
+/* What became of one action, as a key rather than as words: the sentences
+   belong to src/fleet-tree-copy.js, where the plain-language gate holds them. */
+const ACTION_STATES = Object.freeze(['working', 'done', 'undone', 'waiting'])
 /* The engine's closed set, mirrored from shell/agent-host.cjs's EFFORT_KEYS —
    an unknown depth on a record reads as "none recorded", never as a value a
    resume would send onward for the boundary to refuse. */
@@ -41,10 +110,39 @@ function cleanLine(line) {
   if (!line || typeof line !== 'object') return null
   if (!WHO.includes(line.who)) return null
   if (typeof line.text !== 'string' || line.text.length === 0) return null
-  return {
+  const action = line.who === 'action'
+  const cleaned = {
     who: line.who,
-    text: line.text.slice(0, TRANSCRIPT_LIMITS.maxLineChars),
+    text: line.text.slice(0, action ? TRANSCRIPT_LIMITS.maxActionChars : TRANSCRIPT_LIMITS.maxLineChars),
     at: typeof line.at === 'number' && Number.isFinite(line.at) ? line.at : null,
+  }
+  if (action) {
+    /* An action that lost what became of it reads as still running for ever,
+       so the state rides with it -- from the closed set, never from the wire.
+       The tool's NAME is already a display word chosen by the copy module
+       (src/fleet-tree-copy.js), never an engine identifier, and it is bounded
+       and stripped of anything but letters and spaces so a record copied in
+       from anywhere cannot put markup or a path into that slot. */
+    cleaned.state = ACTION_STATES.includes(line.state) ? line.state : 'done'
+    cleaned.tool = typeof line.tool === 'string'
+      ? line.tool.replace(/[^A-Za-z ]/g, '').slice(0, MAX_ACTION_TOOL_CHARS)
+      : ''
+  }
+  return cleaned
+}
+
+/* THE TWO BOUNDS, APPLIED WITHOUT REORDERING ANYTHING. Speech is capped at
+   maxLines and actions at maxActionLines, each keeping its own newest; the
+   survivors are then read back out in the order they were spoken, because the
+   order is the conversation. */
+function boundLines(lines) {
+  const spoken = lines.filter(line => SPOKEN.includes(line.who))
+  const acted = lines.filter(line => line.who === 'action')
+  const keptSpoken = new Set(spoken.slice(-TRANSCRIPT_LIMITS.maxLines))
+  const keptActions = new Set(acted.slice(-TRANSCRIPT_LIMITS.maxActionLines))
+  return {
+    lines: lines.filter(line => keptSpoken.has(line) || keptActions.has(line)),
+    dropped: (spoken.length - keptSpoken.size) + (acted.length - keptActions.size),
   }
 }
 
@@ -55,9 +153,22 @@ function cleanRecord(record) {
     ? record.threadId.slice(0, TRANSCRIPT_LIMITS.maxThreadIdChars)
     : null
   const effort = EFFORTS.includes(record.effort) ? record.effort : null
-  const lines = Array.isArray(record.lines) ? record.lines.map(cleanLine).filter(Boolean) : []
-  if (lines.length === 0) return null
-  return { savedAt: record.savedAt, threadId, effort, lines: lines.slice(-TRANSCRIPT_LIMITS.maxLines) }
+  const admitted = Array.isArray(record.lines) ? record.lines.map(cleanLine).filter(Boolean) : []
+  const bound = boundLines(admitted)
+  if (bound.lines.length === 0) return null
+  /* HOW MUCH THIS RECORD HAS ALREADY LOST, carried on the record itself so the
+     chat that opens it can admit the gap in words rather than showing a
+     shortened conversation as if it were the whole one. */
+  const before = typeof record.trimmed === 'number' && Number.isFinite(record.trimmed) && record.trimmed > 0
+    ? Math.floor(record.trimmed)
+    : 0
+  return {
+    savedAt: record.savedAt,
+    threadId,
+    effort,
+    trimmed: before + bound.dropped,
+    lines: bound.lines,
+  }
 }
 
 /** Read an envelope the seam handed back. A damaged envelope reads as empty
@@ -80,15 +191,40 @@ export function parseTranscriptRow(raw) {
 
 /* Oldest records leave first when a cap is hit. savedAt is the eviction key:
  * the record touched longest ago is the conversation most likely already
- * resumed or abandoned. */
-function evictOldest(nodes) {
+ * resumed or abandoned. `keep` is the record being saved, which is never the
+ * one thrown out to make room for itself. */
+function evictOldest(nodes, keep = null) {
   let oldestId = null
   let oldestAt = Infinity
   for (const [nodeId, record] of Object.entries(nodes)) {
+    if (nodeId === keep) continue
     if (record.savedAt < oldestAt) { oldestAt = record.savedAt; oldestId = nodeId }
   }
   if (oldestId !== null) delete nodes[oldestId]
   return oldestId !== null
+}
+
+const envelopeChars = nodes => JSON.stringify({ v: 1, nodes }).length
+
+/* GIVE UP LINES BEFORE GIVING UP A CONVERSATION.
+ *
+ * One pass drops the OLDEST line from every record that is above the average
+ * size and still has more than one line -- the fattest conversations pay
+ * first, and no record is ever emptied by this. Answers how many lines went,
+ * so a pass that can do nothing more says 0 and the caller moves on to its
+ * last resort. */
+function trimFattestRecords(nodes) {
+  const entries = Object.entries(nodes).filter(([, record]) => record.lines.length > 1)
+  if (entries.length === 0) return 0
+  const sizes = entries.map(([, record]) => JSON.stringify(record).length)
+  const mean = sizes.reduce((total, size) => total + size, 0) / sizes.length
+  let above = entries.filter((_, index) => sizes[index] >= mean)
+  if (above.length === 0) above = entries
+  for (const [, record] of above) {
+    record.lines = record.lines.slice(1)
+    record.trimmed += 1
+  }
+  return above.length
 }
 
 /**
@@ -98,7 +234,7 @@ function evictOldest(nodes) {
  * once per turn, and a stale in-memory copy is how two views overwrite each
  * other's saves.
  */
-export function createTranscriptStore({ computerId, storage }) {
+export function createTranscriptStore({ computerId, storage, onLoss = null }) {
   if (typeof computerId !== 'string' || computerId.length === 0) {
     throw new TypeError('createTranscriptStore needs the computer id its records belong to')
   }
@@ -107,31 +243,49 @@ export function createTranscriptStore({ computerId, storage }) {
   }
   const key = transcriptStorageKey(computerId)
   const readNodes = () => parseTranscriptRow(storage.read(key)).nodes
+  /* A save that loses anything says so. A listener that throws is the
+     listener's defect and must not cost the write that was about to land. */
+  const report = loss => {
+    if (typeof onLoss !== 'function') return
+    try { onLoss(loss) } catch { /* a broken listener never costs a save */ }
+  }
 
   return Object.freeze({
-    /** Save one node's excerpt. Clamps every bound, evicts oldest records to
-     *  fit, and answers whether the write really happened. */
+    /** Save one node's excerpt. Clamps every bound, gives up the oldest LINES
+     *  to fit, and answers whether the write really happened. */
     save(nodeId, { lines, threadId = null, effort = null } = {}) {
-      if (typeof nodeId !== 'string' || nodeId.length === 0 || nodeId.length > 128) return false
+      if (typeof nodeId !== 'string' || nodeId.length === 0 || nodeId.length > MAX_NODE_ID_CHARS) return false
       const record = cleanRecord({ savedAt: Date.now(), threadId, effort, lines })
       if (!record) return false
       const nodes = readNodes()
       nodes[nodeId] = record
+      const removed = []
       while (Object.keys(nodes).length > TRANSCRIPT_LIMITS.maxNodes) {
-        if (!evictOldest(nodes)) break
+        const held = new Set(Object.keys(nodes))
+        if (!evictOldest(nodes, nodeId)) break
+        for (const id of held) if (!(id in nodes)) removed.push(id)
       }
-      let envelope = { v: 1, nodes }
-      while (JSON.stringify(envelope).length > TRANSCRIPT_LIMITS.maxSerializedChars) {
-        /* The record just saved is never the one evicted to make room for
-           itself — evict the oldest OTHER record, and if this record alone
-           is somehow over the envelope bound, refuse the save. */
-        const others = Object.fromEntries(Object.entries(nodes).filter(([id]) => id !== nodeId))
-        if (!evictOldest(others)) return false
-        const survivor = { ...others, [nodeId]: record }
-        for (const id of Object.keys(nodes)) if (!(id in survivor)) delete nodes[id]
-        envelope = { v: 1, nodes }
+      /* DEGRADE BY TRIMMING, NEVER BY DELETING -- and this loop is the whole
+         difference between an excerpt getting shorter and a person's work
+         being destroyed. Lines go first, from the fattest records, until
+         either it fits or every record is down to a single line; only then is
+         a whole conversation given up, oldest first, and only then is a save
+         that still cannot fit refused. The bound above makes this rare rather
+         than routine: it is reached by JSON escaping, not by ordinary size. */
+      let trimmedLines = 0
+      while (envelopeChars(nodes) > TRANSCRIPT_LIMITS.maxSerializedChars) {
+        const gave = trimFattestRecords(nodes)
+        if (gave > 0) { trimmedLines += gave; continue }
+        const held = new Set(Object.keys(nodes))
+        if (!evictOldest(nodes, nodeId)) return false
+        for (const id of held) if (!(id in nodes)) removed.push(id)
       }
-      return storage.write(key, envelope) === true
+      if (trimmedLines > 0 || removed.length > 0) {
+        report({ nodeId, trimmedLines, removedNodeIds: removed, refused: false })
+      }
+      const wrote = storage.write(key, { v: 1, nodes }) === true
+      if (!wrote) report({ nodeId, trimmedLines, removedNodeIds: removed, refused: true })
+      return wrote
     },
     get(nodeId) {
       if (typeof nodeId !== 'string') return null
@@ -158,7 +312,12 @@ export function createTranscriptStore({ computerId, storage }) {
  * because the newest words are where the work stands.
  */
 export function transcriptSeedText(lines) {
-  const kept = Array.isArray(lines) ? lines.map(cleanLine).filter(Boolean) : []
+  /* SPEECH ONLY. An action line is a command the agent ran, and framing one as
+     "the agent before you said" would put words in a mouth -- the taking-over
+     agent would read a shell command as a sentence somebody meant. */
+  const kept = Array.isArray(lines)
+    ? lines.map(cleanLine).filter(line => line && SPOKEN.includes(line.who))
+    : []
   if (kept.length === 0) return ''
   const spoken = []
   let used = 0

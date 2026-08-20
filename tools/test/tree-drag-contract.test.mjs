@@ -73,7 +73,22 @@ test('the corridor constrains nudges and NEVER the layout\'s own position', () =
   const graph = graphNow()
   assert.match(graph, /_rankCorridor\(record, result, slot\.y\)/, 'the offset apply no longer clamps into a slot-containing rank corridor')
   assert.match(graph, /_rankCorridor\(focusRecord, this\._layoutResult, targetSlot\.y\)/, 'the focus-animation path lost the slot-containing corridor; the settle jumps or shifts at rest')
-  assert.match(graph, /_rankCorridor\(record, this\._layoutResult\)/, 'the LIVE drag no longer obeys the corridor; the node jumps on release')
+  /* THE LIVE DRAG STARTS FROM THE CORRIDOR AND IS WIDENED BY REACH.
+   *
+   * This used to pin the bare corridor on the pointermove, and that pin was
+   * the regression: the corridor is half the pitch to the next row, every
+   * empty slot is in a DIFFERENT row from the node you would drag onto it, and
+   * contact needs about 77px. So no cross-row drop could register at any
+   * realistic window size -- the owner's "you cant drag and drop the nodes
+   * onto the new bubbles anymore", all three of his cases at once.
+   *
+   * The corridor still bounds a NUDGE, which is what stops the snap on
+   * release; dragBand() widens it by the reach of the targets on screen, so a
+   * release outside the corridor is always either a move or a refusal with a
+   * sentence. Both halves are pinned, because either one alone rots. */
+  assert.match(graph, /record\.y = clamp\(point\.y \+ offset\.y, \.\.\.this\._dragBand\(record\)\)/, 'the live drag no longer uses the reach-widened band; cross-row drops cannot register')
+  assert.match(graph, /corridor: this\._rankCorridor\(record, this\._layoutResult\)/, 'the drag band stopped starting from the rank corridor; nudges will jump on release again')
+  assert.match(graph, /slop: DROP_SLOP/, 'the band widens by a number the hit test does not use; the two can now disagree about reach')
   assert.match(graph, /Math\.min\(Math\.max\(canvasLow, rowY - up\), slotY\)/, 'the corridor stopped containing the slot — un-nudged nodes will shift at rest again')
   /* The band is the midline between ranks, full half-pitch each way: the
      label-stack subtraction plus zero floor made tight rows refuse every

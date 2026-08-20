@@ -134,28 +134,53 @@ export function assignableRoles(source = ROLE_CHOICES) {
 }
 
 /**
+ * The role a draft actually carries, out of what the menu is offering.
+ *
+ * THE ROLE IS OPTIONAL AND THIS IS WHAT MAKES THAT SAFE. Owner, 2026-08-19:
+ * "users shouldnt be forced to choose a role". The panel no longer refuses a
+ * draft with no role -- so the question stopped being "may this press through"
+ * and became "what does this draft say the role is", which is a different
+ * function and belongs in its own.
+ *
+ * ANYTHING NOT ON THE MENU RESOLVES TO NO ROLE. That case was already handled
+ * by refusing the press, and refusing is gone; letting it through instead would
+ * put a key nobody offered into the store, where roleLabel() has no word for it
+ * and every surface would print the product's fallback over it. Resolving it to
+ * the same honest absence a person gets by leaving the first row alone means
+ * there is one no-role state in this flow rather than two that look alike.
+ *
+ * It is only reachable when a caller assigns a value from outside the menu: a
+ * real <select> handed a value with no matching option reports '' by itself.
+ */
+export function composeDraftRole(role = '', roles = ROLE_CHOICES) {
+  const picked = asTrimmed(role)
+  return assignableRoles(roles).some(choice => choice.id === picked) ? picked : ''
+}
+
+/**
  * What is wrong with the draft, as one sentence per problem.
  *
  * A pure function, separate from the DOM on purpose: refusals are the part of a
  * form that a screenshot never proves and a unit test proves exactly. Returns an
  * empty list when the draft may be handed over.
  *
- * Both sentences are START_PANEL's, so this file cannot drift from the rest of
- * the flow's voice. A role that is not on the list gets the same sentence as no
- * role at all: it is only reachable when a caller sets a value from outside the
- * menu, the person's next move is identical, and a second sentence for a state
- * nobody can reach by pressing things is a sentence nobody has proofread.
+ * THE ROLE IS NOT ONE OF THEM ANY MORE (owner, 2026-08-19: "users shouldnt be
+ * forced to choose a role"). It is not softened, not deferred and not hidden
+ * behind a hover -- the refusal is gone, and START_PANEL.needRole went with it.
+ * A start with no role is a real start: fleet-trees.js stores an empty role by
+ * design, startingLine() and runningLine() drop the role clause rather than
+ * printing a vague one, treeNodeName() answers with the product's own word for
+ * an agent it cannot name, and the role is never sent to the engine at all.
+ * composeDraftRole() above is what keeps that absence honest.
  *
- * @returns [{ field: 'role'|'message', sentence: string }]
+ * THE BRIEF IS STILL REQUIRED. The sentence is START_PANEL's, so this file
+ * cannot drift from the rest of the flow's voice.
+ *
+ * @returns [{ field: 'message', sentence: string }]
  */
-export function composeDraftProblems({ role = '', message = '', roles = ROLE_CHOICES } = {}) {
-  const choices = assignableRoles(roles)
-  const picked = asTrimmed(role)
+export function composeDraftProblems({ message = '' } = {}) {
   const problems = []
 
-  if (!picked || !choices.some(choice => choice.id === picked)) {
-    problems.push({ field: 'role', sentence: START_PANEL.needRole })
-  }
   if (!asTrimmed(message)) {
     problems.push({ field: 'message', sentence: START_PANEL.needMessage })
   }
@@ -163,17 +188,104 @@ export function composeDraftProblems({ role = '', message = '', roles = ROLE_CHO
   return Object.freeze(problems.map(problem => Object.freeze(problem)))
 }
 
+/* THE FIVE PARAGRAPHS THAT TAUGHT, AND WHERE THEY WENT.
+ *
+ * Owner, 2026-08-19, on this panel for the second time: "pg 2 right pnel STILL
+ * reads ugly and messy. Make some of the tips only show on hover (give it a
+ * nice clean box in theme and give it a slightly longer delay like 1s) so it
+ * isnt so messy".
+ *
+ * THE LINE THIS DRAWS, AND IT IS THE ONLY ONE THAT MATTERS HERE. A tip EXPLAINS
+ * a control: it is true on every computer, it says the same thing whatever this
+ * machine happens to be, and a person who already knows the product never needs
+ * to read it again. A FACT states something about THIS computer or THIS press --
+ * a refusal, a warning, a permission level, an honest empty state -- and hiding
+ * one behind a gesture would be undoing the work that put it on the glass. So
+ * exactly five strings move and they are all field help:
+ *
+ *   HIDDEN (tips)   roleHelp, tierHelp, effortHelp, messageHelp, and folderHelp
+ *                   -- but only when the folder hint is really folderHelp
+ *   VISIBLE (facts) folderNone / folderNoneChosen (this computer has no named
+ *                   folders, and where a start would actually land), the
+ *                   under-line naming the pressed node, the panel notice
+ *                   (every refusal and stated absence), the confinement line,
+ *                   the progress line, the brief's refusal, and every tier row
+ *                   that says nobody is signed in or the program is not here
+ *   VISIBLE (kept)  the intro and the empty-tree suggestion: one short line
+ *                   each, they orient rather than teach, and the owner asked
+ *                   for SOME of the tips. The chosen role's summary stays too
+ *                   -- it appears only after a deliberate choice and is the
+ *                   answer to that choice.
+ *
+ * HOW IT IS HIDDEN, AND WHAT IS NOT HIDDEN WITH IT. The paragraph stays in the
+ * page and stays named by its field's aria-describedby: it is taken out of the
+ * FLOW (absolutely positioned) and faded, never `display: none` and never
+ * `visibility: hidden`, both of which would take it out of the accessibility
+ * tree as well. A screen reader reads exactly what it read yesterday. What
+ * changed is only what a sighted person sees at rest.
+ *
+ * AND IT COMES BACK FOR A KEYBOARD. The reveal is the LABEL being hovered or
+ * THE FIELD'S OWN CONTROL taking a visible focus -- so tabbing onto the menu
+ * shows its explanation, with no new tab stop invented to hold a tip. See
+ * src/agent-compose-panel.css for both selectors and the 1s delay. */
+
 /* Built element by element, never from a markup string, and every string in it
    comes from src/fleet-tree-copy.js. `underLine` is the one place a name the
    caller supplied reaches the page, already wrapped in the copy module's own
    sentence before it gets here. */
-function buildPanel(doc, { choices, newTree, underLine }) {
+
+/* A FIELD LABEL, AND WHETHER IT SAYS ITS FIELD HAS A TIP BEHIND IT.
+ *
+ * The mark is `aria-hidden` and lives INSIDE the label rather than beside it,
+ * so it adds no tab stop, no accessible name and no second control -- and it
+ * cannot be pressed into doing nothing, which is what a decorative button is.
+ * Its hover is what reveals the tip, and the label is the right target: a
+ * person reading the question is exactly the person who wants the sentence
+ * under it, and the tip opens BELOW the whole field so it never lands on top
+ * of the control they are travelling towards. */
+function fieldLabel(doc, { forId, words, tipped }) {
+  const label = doc.createElement('label')
+  label.className = 'cl'
+  label.setAttribute('for', forId)
+  label.textContent = words
+  if (tipped) {
+    const mark = doc.createElement('span')
+    mark.className = 'tip-mark'
+    mark.setAttribute('aria-hidden', 'true')
+    mark.textContent = START_PANEL.tipMark
+    label.appendChild(mark)
+  }
+  return label
+}
+
+/* THE HELP UNDER A FIELD. `tipped` decides whether it stands on the page or
+   waits behind the label -- and it is a parameter rather than a rule because
+   one of these elements carries a TIP in one state and a FACT about this
+   computer in another (see the folder field). */
+function fieldHint(doc, { id, words, tipped }) {
+  const hint = doc.createElement('p')
+  hint.className = tipped ? 'agent-compose-hint tip-box' : 'agent-compose-hint'
+  hint.setAttribute('id', id)
+  if (tipped) hint.setAttribute('data-compose-tip', 'hover')
+  hint.textContent = words
+  return hint
+}
+function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, folders = [], folderSelectedId = null, defaultFolder = '' }) {
   const id = `agent-compose-${panelSequence += 1}`
 
   const root = doc.createElement('section')
   root.className = 'agent-compose'
   root.setAttribute('data-agent-compose', 'open')
   root.setAttribute('aria-labelledby', `${id}-title`)
+  /* Programmatically focusable, never in the tab order. The Escape handler
+     below sits on this root and hears only keys that bubble up from INSIDE the
+     panel -- so whoever mounts this panel must put focus inside it, and for a
+     pointer open the right landing place is the root itself (no caret jumps
+     into a field out from under the mouse). Measured on the packaged build
+     2026-08-20: a mouse-opened panel left focus on the page behind it and
+     Escape -- the panel's own documented cancel -- did nothing until a field
+     was clicked. Without tabindex="-1" a browser bounces that focus call. */
+  root.setAttribute('tabindex', '-1')
 
   /* The nav row first, so Cancel sits in the SAME back slot every rail page
      puts its back button in (owner defect 6: no mouse travel between pages).
@@ -255,29 +367,56 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   notice.setAttribute('hidden', 'hidden')
   body.appendChild(notice)
 
+  /* THE WAY OUT OF A STATED ABSENCE, WHEN THERE IS ONE.
+   *
+   * A notice that names a switch and leaves the person to find it is only half
+   * an answer: the panel is open, they are looking at it, and the remedy is one
+   * setting away on another screen. This is that switch, in the place the
+   * question was asked -- the same shape src/agent-session.js already uses on
+   * the agent page, where the off state renders the reason AND the control
+   * rather than rendering nothing.
+   *
+   * IT IS ONLY EVER DRAWN WHEN THE CALLER HANDS ONE OVER, and the caller hands
+   * one over only for a reason it can actually undo. A missing application or
+   * an unreadable saved forest have no button, because there is nothing this
+   * press could do about them, and a control that cannot work is worse than the
+   * sentence alone.
+   *
+   * NOTHING IS WRITTEN UNTIL IT IS PRESSED. The owner's rule for this flag is
+   * that his recorded answer stands until he changes it himself, so no render,
+   * no mount and no open touches it -- only this click handler, and only
+   * through the caller's own `run`, which owns the write. */
+  const unavailableAction = doc.createElement('button')
+  unavailableAction.type = 'button'
+  /* THE PANEL'S OWN BUTTON VOCABULARY, not a new one. `ctl-btn` is what
+     agent-compose-submit already wears, so this control arrives styled and
+     this module keeps its promise to add no visual vocabulary of its own. */
+  unavailableAction.className = 'ctl-btn agent-compose-enable'
+  unavailableAction.setAttribute('data-compose-unavailable-action', 'panel')
+  unavailableAction.setAttribute('hidden', 'hidden')
+  body.appendChild(unavailableAction)
+
   const roleField = doc.createElement('div')
   roleField.className = 'agent-compose-field'
-  const roleLabelNode = doc.createElement('label')
-  roleLabelNode.className = 'cl'
-  roleLabelNode.setAttribute('for', `${id}-role`)
-  roleLabelNode.textContent = START_PANEL.roleLabel
-  const roleHint = doc.createElement('p')
-  roleHint.className = 'agent-compose-hint'
-  roleHint.setAttribute('id', `${id}-role-hint`)
-  roleHint.textContent = START_PANEL.roleHelp
+  const roleLabelNode = fieldLabel(doc, { forId: `${id}-role`, words: START_PANEL.roleLabel, tipped: true })
+  const roleHint = fieldHint(doc, { id: `${id}-role-hint`, words: START_PANEL.roleHelp, tipped: true })
   const roleSelect = doc.createElement('select')
   roleSelect.className = 'agent-compose-select'
   roleSelect.setAttribute('id', `${id}-role`)
   roleSelect.setAttribute('data-compose-field', 'role')
-  /* The problem line is named as a description from the start, empty or not. An
-     empty description is ignored by a screen reader, and swapping the attribute
-     in and out is one more piece of state to get wrong. */
-  roleSelect.setAttribute('aria-describedby', `${id}-role-hint ${id}-role-problem`)
-  /* THE FIRST ROW CARRIES NO ROLE. A menu must have something selected, and
-     pre-selecting a real role would answer the panel's own question for the
-     person and let a role nobody chose through on one press. So the first row
-     is the copy module's prompt, its value is empty, and composeDraftProblems()
-     below refuses it -- it is a place to stand, never an answer. */
+  /* THE HINT ALONE. The brief's description names a problem line as well, empty
+     or not, because the brief can be refused; this field cannot be, so there is
+     no problem element to name. Pointing a description at an element nothing
+     will ever write into would be describing a control by a sentence that does
+     not exist. */
+  roleSelect.setAttribute('aria-describedby', `${id}-role-hint`)
+  /* THE FIRST ROW CARRIES NO ROLE, AND IT IS A REAL ANSWER. A menu must have
+     something selected, and pre-selecting a real role would answer the panel's
+     own question for the person and let a role nobody chose through on one
+     press. So the first row is the copy module's own row for no role and its
+     value is empty. It used to be refused on Start; since 2026-08-19 (owner:
+     "users shouldnt be forced to choose a role") it starts, and the row says
+     what it leaves the agent as rather than telling a person to choose. */
   const placeholder = doc.createElement('option')
   placeholder.value = ''
   placeholder.textContent = START_PANEL.rolePrompt
@@ -300,16 +439,21 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   roleSummary.className = 'agent-compose-summary'
   roleSummary.setAttribute('data-compose-summary', 'role')
   roleSummary.setAttribute('hidden', 'hidden')
-  const roleProblem = doc.createElement('p')
-  roleProblem.className = 'agent-compose-problem'
-  roleProblem.setAttribute('id', `${id}-role-problem`)
-  roleProblem.setAttribute('data-compose-problem', 'role')
-  roleProblem.setAttribute('role', 'alert')
+  /* NO PROBLEM LINE UNDER THIS FIELD. There was one, and it carried exactly one
+     sentence -- "Pick a role first, then press Start." -- which the owner
+     retired on 2026-08-19. An alert element that nothing can ever fill is not
+     harmless: it is a slot the next lane finds and fills with something this
+     flow never proofread, and it keeps a marked-invalid state alive for a
+     control that can no longer be wrong. */
+  /* THE HINT NOW COMES AFTER THE CONTROL, and the order is load-bearing rather
+     than cosmetic: the reveal rules in the stylesheet are sibling combinators
+     (`.cl:hover ~ .agent-compose-hint`, `select:focus-visible ~ ...`), which can
+     only reach a LATER sibling. Nothing moves on screen -- a tipped hint is out
+     of the flow entirely and is positioned under the whole field. */
   roleField.appendChild(roleLabelNode)
-  roleField.appendChild(roleHint)
   roleField.appendChild(roleSelect)
+  roleField.appendChild(roleHint)
   roleField.appendChild(roleSummary)
-  roleField.appendChild(roleProblem)
   body.appendChild(roleField)
 
   /* THE MODEL MENU. Unlike the role menu it arrives ANSWERED -- the engine has
@@ -319,20 +463,19 @@ function buildPanel(doc, { choices, newTree, underLine }) {
      the honest version of a model this build cannot start. */
   const tierField = doc.createElement('div')
   tierField.className = 'agent-compose-field'
-  const tierLabelNode = doc.createElement('label')
-  tierLabelNode.className = 'cl'
-  tierLabelNode.setAttribute('for', `${id}-tier`)
-  tierLabelNode.textContent = START_PANEL.tierLabel
-  const tierHint = doc.createElement('p')
-  tierHint.className = 'agent-compose-hint'
-  tierHint.setAttribute('id', `${id}-tier-hint`)
-  tierHint.textContent = START_PANEL.tierHelp
+  const tierLabelNode = fieldLabel(doc, { forId: `${id}-tier`, words: START_PANEL.tierLabel, tipped: true })
+  /* THE HELP GOES BEHIND HOVER; THE ROWS DO NOT. tierHelp says which row is a
+     good default, which is true on every computer. What a given row CANNOT do
+     -- "nobody is signed in to Codex on this computer", "Codex is not installed
+     on this computer" -- is a fact about this machine and it is written on the
+     row itself, in the menu, where it stays visible and unhidden. */
+  const tierHint = fieldHint(doc, { id: `${id}-tier-hint`, words: START_PANEL.tierHelp, tipped: true })
   const tierSelect = doc.createElement('select')
   tierSelect.className = 'agent-compose-select'
   tierSelect.setAttribute('id', `${id}-tier`)
   tierSelect.setAttribute('data-compose-field', 'tier')
   tierSelect.setAttribute('aria-describedby', `${id}-tier-hint`)
-  for (const choice of TIER_CHOICES) {
+  for (const choice of tiers) {
     const option = doc.createElement('option')
     /* Same split as the role menu: the id rides on the value, the label is the
        only part with a reader. */
@@ -342,9 +485,8 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   }
   tierSelect.value = DEFAULT_TIER
   tierField.appendChild(tierLabelNode)
-  tierField.appendChild(tierHint)
   tierField.appendChild(tierSelect)
-  body.appendChild(tierField)
+  tierField.appendChild(tierHint)
 
   /* EFFORT RIDES BESIDE THE TIER (owner, iteration 5: "I need to be able to
      choose effort levels when starting an agent … just like vscode"). The
@@ -353,14 +495,8 @@ function buildPanel(doc, { choices, newTree, underLine }) {
      by choosing. */
   const effortField = doc.createElement('div')
   effortField.className = 'agent-compose-field'
-  const effortLabelNode = doc.createElement('label')
-  effortLabelNode.className = 'cl'
-  effortLabelNode.setAttribute('for', `${id}-effort`)
-  effortLabelNode.textContent = START_PANEL.effortLabel
-  const effortHint = doc.createElement('p')
-  effortHint.className = 'agent-compose-hint'
-  effortHint.setAttribute('id', `${id}-effort-hint`)
-  effortHint.textContent = START_PANEL.effortHelp
+  const effortLabelNode = fieldLabel(doc, { forId: `${id}-effort`, words: START_PANEL.effortLabel, tipped: true })
+  const effortHint = fieldHint(doc, { id: `${id}-effort-hint`, words: START_PANEL.effortHelp, tipped: true })
   const effortSelect = doc.createElement('select')
   effortSelect.className = 'agent-compose-select'
   effortSelect.setAttribute('id', `${id}-effort`)
@@ -378,25 +514,93 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   effortSelect.value = tierEffort(DEFAULT_TIER)
   tierSelect.addEventListener('change', () => { effortSelect.value = tierEffort(tierSelect.value) })
   effortField.appendChild(effortLabelNode)
-  effortField.appendChild(effortHint)
   effortField.appendChild(effortSelect)
-  body.appendChild(effortField)
+  effortField.appendChild(effortHint)
+
+  /* THE FOLDER THIS TREE'S AGENTS WORK IN, ASKED AT THE MOMENT THE TREE STARTS.
+   *
+   * See START_PANEL.folderLabel in src/fleet-tree-copy.js for the owner's words
+   * and why this is drawn for a NEW TREE ONLY. `newTree` is the same flag the
+   * "This agent will work under ..." line already keys off, so there is one
+   * answer in this panel to "is a tree being created", not two.
+   *
+   * NULL IS A REAL ANSWER AND IT IS THE FIRST ROW -- the same null
+   * `submitCompose` has always sent. WHERE THAT NULL LANDS IS NOT THIS PANEL'S
+   * TO GUESS: shell/main.cjs resolves it to the folder the person chose in
+   * setup, and only falls back to the product's own workspace on a machine
+   * where nobody was ever asked. So the caller hands in `defaultFolder` -- the
+   * path that null resolves to on THIS computer, or empty when it resolves to
+   * the product's workspace -- and the first row and the hint say which.
+   * See START_PANEL.folderWorkspaceChosen for the two measurements. */
+  let folderSelect = null
+  let folderField = null
+  if (newTree) {
+    folderField = doc.createElement('div')
+    folderField.className = 'agent-compose-field'
+    /* ONE ELEMENT, TWO KINDS OF SENTENCE, AND ONLY ONE OF THEM MAY HIDE.
+     *
+     * With named folders on this computer this line is folderHelp -- it
+     * explains what the menu does and is true everywhere, so it goes behind
+     * the label with the rest of the field help.
+     *
+     * With NO named folders it is folderNone or folderNoneChosen, and those
+     * are facts read off this machine: that none exist, where a start with no
+     * folder would actually land, and where to go and make one. That is an
+     * honest empty state, and an honest empty state a person has to hover to
+     * find is an empty state that is not being told. It stays on the page and
+     * the label carries no mark, because there is nothing behind it. */
+    const folderHelpIsTip = folders.length > 0
+    const folderLabelNode = fieldLabel(doc, {
+      forId: `${id}-folder`,
+      words: START_PANEL.folderLabel,
+      tipped: folderHelpIsTip,
+    })
+    const folderHint = fieldHint(doc, {
+      id: `${id}-folder-hint`,
+      words: folderHelpIsTip
+        ? START_PANEL.folderHelp
+        : (defaultFolder ? START_PANEL.folderNoneChosen(defaultFolder) : START_PANEL.folderNone),
+      tipped: folderHelpIsTip,
+    })
+    folderSelect = doc.createElement('select')
+    folderSelect.className = 'agent-compose-select'
+    folderSelect.setAttribute('id', `${id}-folder`)
+    folderSelect.setAttribute('data-compose-field', 'profile')
+    folderSelect.setAttribute('aria-describedby', `${id}-folder-hint`)
+    const workspaceOption = doc.createElement('option')
+    workspaceOption.value = ''
+    workspaceOption.textContent = defaultFolder ? START_PANEL.folderWorkspaceChosen : START_PANEL.folderWorkspace
+    folderSelect.appendChild(workspaceOption)
+    for (const folder of folders) {
+      const option = doc.createElement('option')
+      option.value = folder.id
+      /* The NAME a person gave the profile, never the path. The renderer does
+         not print a path it did not have the person pick; the fleet rail's own
+         profile list is where the folder itself is shown. */
+      option.textContent = folder.name
+      folderSelect.appendChild(option)
+    }
+    /* Remembered posture, so the menu opens on the folder this person used
+       last. It is pre-fill, not permission: they override it in the same
+       gesture, and an id that no longer exists simply does not match a row and
+       leaves the product's own workspace selected. */
+    if (folderSelectedId && folders.some(folder => folder.id === folderSelectedId)) {
+      folderSelect.value = folderSelectedId
+    }
+    folderField.appendChild(folderLabelNode)
+    folderField.appendChild(folderSelect)
+    folderField.appendChild(folderHint)
+  }
 
   const messageField = doc.createElement('div')
   messageField.className = 'agent-compose-field'
-  const messageLabel = doc.createElement('label')
-  messageLabel.className = 'cl'
-  messageLabel.setAttribute('for', `${id}-message`)
-  messageLabel.textContent = START_PANEL.messageLabel
-  const messageHint = doc.createElement('p')
-  messageHint.className = 'agent-compose-hint'
-  messageHint.setAttribute('id', `${id}-message-hint`)
-  messageHint.textContent = START_PANEL.messageHelp
+  const messageLabel = fieldLabel(doc, { forId: `${id}-message`, words: START_PANEL.messageLabel, tipped: true })
+  const messageHint = fieldHint(doc, { id: `${id}-message-hint`, words: START_PANEL.messageHelp, tipped: true })
   const messageInput = doc.createElement('textarea')
   messageInput.className = 'agent-compose-text'
   messageInput.setAttribute('id', `${id}-message`)
   messageInput.setAttribute('data-compose-field', 'message')
-  messageInput.setAttribute('rows', '6')
+  messageInput.setAttribute('rows', '4')
   /* An example of a real job, not a label in disguise: the question is in the
      bound label above, which stays on screen once typing starts. */
   messageInput.setAttribute('placeholder', START_PANEL.messagePlaceholder)
@@ -408,11 +612,39 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   messageProblem.setAttribute('data-compose-problem', 'message')
   messageProblem.setAttribute('role', 'alert')
   messageField.appendChild(messageLabel)
-  messageField.appendChild(messageHint)
   messageField.appendChild(messageInput)
+  messageField.appendChild(messageHint)
+  /* THE REFUSAL IS NOT A TIP AND STAYS LAST IN THE FLOW, under the box it is
+     about. It is the answer to a press this person just made. */
   messageField.appendChild(messageProblem)
+  /* THE TWO ANSWERS FIRST. This file's own header calls the panel "two fields
+     and two buttons": a role and a brief. The assistant and effort choices were
+     added later and both carry two lines of help, which pushed the brief -- the
+     one thing a person opens this panel to write -- off the bottom of the rail
+     at first paint. Measured on installed 1.0.22: role visible, brief not.
+     Nothing is removed by this order; the later choices keep their defaults and
+     their words, and now sit under the question they qualify. */
   body.appendChild(messageField)
+  /* THE FOLDER SITS UNDER THE BRIEF AND ABOVE THE ENGINE. The brief keeps the
+     first position it was given for a measured reason (see the note above);
+     among the qualifiers, WHERE the work happens outranks what it runs on. */
+  if (folderField) body.appendChild(folderField)
+  body.appendChild(tierField)
+  body.appendChild(effortField)
 
+  /* START DOES NOT SCROLL. IT IS THE POINT OF THE PANEL.
+     Owner, twice, months apart: "I cant scroll down to even press start" and
+     then "there is no way to start an agent". The first was answered by making
+     the form scroll -- which fixed reachability and NOT visibility, because the
+     button went into the scroller with everything else. Measured on the
+     installed 1.0.21: the form wants about 765px, the rail gives 560-700, so
+     the action row began roughly 100px BELOW the fold and the first thing a
+     person saw was a form with no way to finish it. A control that exists but
+     is off-screen at first paint is, to the person looking at it, absent.
+     So Start lives OUTSIDE the scroller, as a sibling of it, exactly as the
+     nav row above does: the form scrolls between them and both ends stay put.
+     Keep it here -- moving it back into `body` re-creates the owner's defect
+     without changing a single visible pixel in a unit test. */
   const actions = doc.createElement('div')
   actions.className = 'agent-compose-actions'
   const submit = doc.createElement('button')
@@ -424,20 +656,43 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   /* Cancel is built with the nav row at the top of this function; only Start
      remains down here, full-width in the action row. */
   actions.appendChild(submit)
-  body.appendChild(actions)
+  root.appendChild(actions)
+
+  /* WHAT THE SESSION THIS BUTTON STARTS WOULD BE ALLOWED TO DO.
+     UNDER Start and never above it. The comment on the action row above records
+     Start being pushed below the fold as an owner-reported defect twice, and a
+     block added ahead of the button moves the button down by exactly its own
+     height. Under it, the button does not move at all -- and this is still
+     outside the scroller, so it cannot be scrolled away from the control it
+     qualifies. It is also where src/agent-session.js puts the same reading,
+     under the OTHER Start button in this product, so the two agree by shape as
+     well as by wording.
+     THE WORDS ARE THE CALLER'S, from src/agent-confinement-copy.js. Empty until
+     a caller has actually read this computer: an unanswered question renders
+     nothing rather than something comfortable. */
+  const confinement = doc.createElement('p')
+  confinement.className = 'agent-compose-confinement'
+  confinement.setAttribute('data-compose-confinement', 'panel')
+  confinement.setAttribute('hidden', 'hidden')
+  root.appendChild(confinement)
 
   /* Progress, not problems, and polite on purpose. The wait is the part people
      distrust: a start crosses a background service and a program that is not
      this one, and a button that goes quiet is where somebody presses it a
      second time. */
+  /* The progress line rides WITH the button, outside the scroller, for the same
+     reason the button does: it answers the press, and an answer a person has to
+     scroll to find reads as no answer at all. */
   const status = doc.createElement('p')
   status.className = 'agent-compose-status'
   status.setAttribute('data-compose-status', 'panel')
   status.setAttribute('role', 'status')
   status.setAttribute('hidden', 'hidden')
-  body.appendChild(status)
+  root.appendChild(status)
 
-  return { root, roleSelect, tierSelect, effortSelect, messageInput, roleSummary, roleProblem, messageProblem, notice, status, submit, cancel }
+  /* folderSelect is null for a start under an existing agent -- every reader of
+     it is written for that, so a missing folder menu is a state, not a fault. */
+  return { root, roleSelect, tierSelect, effortSelect, folderSelect, messageInput, roleSummary, messageProblem, notice, unavailableAction, confinement, status, submit, cancel }
 }
 
 /**
@@ -485,10 +740,54 @@ export function mountAgentComposePanel({
   onSubmit = null,
   onCancel = null,
   unavailableReason = '',
+  /* `{ label, run }`, or null. Drawn only beside a stated absence, and only
+     when the caller can really undo that absence -- see the note on the button
+     itself. `run` owns the write and answers `true` when the reason is gone. */
+  unavailableAction = null,
+  /* THE ENGINE ROWS, WHICH THIS FILE NO LONGER DECIDES. They arrive already
+     labelled from src/fleet-tree-copy.js tierChoicesFor(), because only the
+     shell knows which engines this payload can actually start and only the
+     caller holds a bridge to ask it. A caller that does not pass them gets the
+     module's own pessimistic default, which is what every surface got before
+     this parameter existed. */
+  tiers = TIER_CHOICES,
+  /* THE NAMED FOLDERS THIS COMPUTER HAS, `[{ id, name }]`, read by the caller
+     from the same main-process store the fleet rail reads. This panel does not
+     ask for them and cannot make one: creating a named folder lives in exactly
+     one place, and a second door onto it is a second thing to keep in step. */
+  folders = [],
+  /* Which row the menu opens on -- the folder this person used last. Pre-fill,
+     not permission. */
+  folderSelectedId = null,
+  /* WHERE A START THAT NAMES NO FOLDER ACTUALLY RUNS ON THIS COMPUTER: the path
+     the person chose in setup, or empty when this copy would fall back to the
+     product's own workspace. Read by the caller from mcSetup.workspaceState(),
+     for the same reason the engine rows and the confinement line are: only the
+     shell knows, and this panel must not guess. Empty is the honest default --
+     it is exactly what every machine did before the setup folder was honoured. */
+  defaultFolder = '',
+  /* WHAT A SESSION STARTED HERE WOULD BE ALLOWED TO DO, as one line the caller
+     has already composed -- startControlLine() in src/agent-confinement-copy.js,
+     from the reading mcAgent.confinement() gives it.
+     ARRIVES THE SAME WAY THE REFUSAL SENTENCE DOES (header rule 4), and for the
+     same reason: this panel does not know what the recorded permission level is
+     and must not guess. Empty is the honest default for a caller that has not
+     asked yet -- the line stays empty rather than reassuring. */
+  confinementLine = '',
 } = {}) {
   if (!doc || typeof doc.createElement !== 'function' || !container) return null
 
-  let current = { parent, roles, unavailableReason: asTrimmed(unavailableReason) }
+  let current = {
+    parent,
+    roles,
+    tiers: Array.isArray(tiers) && tiers.length > 0 ? tiers : TIER_CHOICES,
+    folders: Array.isArray(folders) ? folders : [],
+    folderSelectedId: asTrimmed(folderSelectedId) || null,
+    defaultFolder: asTrimmed(defaultFolder),
+    unavailableReason: asTrimmed(unavailableReason),
+    unavailableAction: isRecord(unavailableAction) ? unavailableAction : null,
+    confinementLine: asTrimmed(confinementLine),
+  }
   let nodes = null
   let destroyed = false
   let busy = false
@@ -524,24 +823,24 @@ export function mountAgentComposePanel({
 
   const clearProblems = () => {
     if (!nodes) return
-    setLine(nodes.roleProblem, '')
     setLine(nodes.messageProblem, '')
-    markInvalid(nodes.roleSelect, false)
     markInvalid(nodes.messageInput, false)
   }
 
+  /* ONE FIELD CAN BE REFUSED, so this reads the map rather than assuming the
+     shape: composeDraftProblems() still answers `{ field, sentence }` and a
+     future refusal about another field would arrive the same way. What it does
+     NOT do any more is paint the role, because that refusal was retired with
+     the requirement (owner, 2026-08-19). */
   const paintProblems = (problems) => {
     if (!nodes) return
     const byField = new Map(problems.map(problem => [problem.field, problem.sentence]))
-    setLine(nodes.roleProblem, byField.get('role') || '')
     setLine(nodes.messageProblem, byField.get('message') || '')
-    markInvalid(nodes.roleSelect, byField.has('role'))
     markInvalid(nodes.messageInput, byField.has('message'))
-    /* Focus goes to the first field a person has to fix, in reading order. A
-       refusal a keyboard user has to go looking for is a refusal they will read
-       as the button being broken. */
-    if (byField.has('role')) nodes.roleSelect.focus?.()
-    else if (byField.has('message')) nodes.messageInput.focus?.()
+    /* Focus goes to the field a person has to fix. A refusal a keyboard user
+       has to go looking for is a refusal they will read as the button being
+       broken. */
+    if (byField.has('message')) nodes.messageInput.focus?.()
   }
 
   const paintRoleSummary = () => {
@@ -558,6 +857,10 @@ export function mountAgentComposePanel({
     nodes.submit.disabled = stopped
     nodes.roleSelect.disabled = stopped
     nodes.tierSelect.disabled = stopped
+    /* Null for a start under an existing agent -- there is no folder menu on
+       that panel, and switching off a control that is not there is not an
+       error worth throwing over. */
+    if (nodes.folderSelect) nodes.folderSelect.disabled = stopped
     nodes.messageInput.disabled = stopped
     /* Cancel goes dead ONLY while a handover is in flight. The caller is part
        way through starting something; a cancel here would discard the draft
@@ -570,7 +873,11 @@ export function mountAgentComposePanel({
   }
 
   const currentDraft = () => ({
-    role: asTrimmed(nodes?.roleSelect?.value),
+    /* RESOLVED AGAINST THE MENU, never taken raw. Empty is a real answer -- the
+       person left the first row alone -- and anything the menu does not offer
+       resolves to that same empty rather than travelling into the store. See
+       composeDraftRole(). */
+    role: composeDraftRole(nodes?.roleSelect?.value, current.roles),
     /* Always a real row: the menu preselects DEFAULT_TIER and has no empty
        first row. The fallback below is for a hand-broken DOM only, and it
        falls back to the same default the engine would apply, never to
@@ -581,11 +888,71 @@ export function mountAgentComposePanel({
     effort: asTrimmed(nodes?.effortSelect?.value) || null,
     message: asText(nodes?.messageInput?.value).trim(),
     parentId: isRecord(current.parent) ? asTrimmed(current.parent.id) || null : null,
+    /* THE FOLDER THE NEW TREE WORKS IN. Null when a tree is not being started
+       (there is no menu), and null when the person left the first row alone --
+       the same null that has always meant the product's own workspace, so a
+       caller that ignores this key behaves exactly as it did before. */
+    profileId: asTrimmed(nodes?.folderSelect?.value) || null,
   })
 
   const showNotice = (sentence, liveRole) => {
     if (!nodes) return
     setLine(nodes.notice, sentence, liveRole)
+  }
+
+  /* Draw the way out, or draw nothing. Re-read from `current` on every render
+     so a panel reopened after the switch was thrown does not keep a stale
+     button beside a reason that no longer applies. */
+  function paintUnavailableAction() {
+    if (!nodes) return
+    const action = current.unavailableAction
+    const label = isRecord(action) ? asTrimmed(action.label) : ''
+    if (!current.unavailableReason || !label || typeof action.run !== 'function') {
+      nodes.unavailableAction.setAttribute('hidden', 'hidden')
+      nodes.unavailableAction.textContent = ''
+      return
+    }
+    nodes.unavailableAction.textContent = label
+    nodes.unavailableAction.disabled = false
+    nodes.unavailableAction.removeAttribute('hidden')
+  }
+
+  /* THE PRESS, AND WHAT IT IS ALLOWED TO CONCLUDE.
+   *
+   * The caller's `run` owns the write and answers whether the reason is gone.
+   * Only a truthy answer reopens the panel working -- a run that refuses, or
+   * throws, leaves the panel exactly as it was with its sentence still on it,
+   * because a control that clears a refusal it did not actually clear is how a
+   * person comes to press Start into a wall.
+   *
+   * The panel is REOPENED rather than navigated away from: the person pressed a
+   * switch and the control they were told about appears where the switch was.
+   * That is the property the owner asked for -- no restart, no second journey. */
+  async function runUnavailableAction() {
+    if (!nodes || destroyed) return
+    const action = current.unavailableAction
+    if (!isRecord(action) || typeof action.run !== 'function') return
+    nodes.unavailableAction.disabled = true
+    let outcome = false
+    try { outcome = await action.run() } catch { outcome = false }
+    if (destroyed || !nodes) return
+    /* A STRING IS A DIFFERENT REASON, NOT A FAILURE. The caller may know that
+       the absence it just cleared was hiding a second one -- a switch turned on
+       inside a browser with no application behind it is the measured case -- so
+       it may answer with the reason that now applies. Showing the OLD sentence
+       there would tell a person the switch did not work; showing none would
+       hand them a live Start over a page that cannot start anything. */
+    if (typeof outcome === 'string' && outcome.trim().length > 0) {
+      current = { ...current, unavailableReason: outcome.trim(), unavailableAction: null }
+      render()
+      return
+    }
+    if (outcome !== true) {
+      nodes.unavailableAction.disabled = false
+      return
+    }
+    current = { ...current, unavailableReason: '', unavailableAction: null }
+    render()
   }
 
   const settle = (outcome, token) => {
@@ -609,7 +976,9 @@ export function mountAgentComposePanel({
       return
     }
     const draft = currentDraft()
-    const problems = composeDraftProblems({ ...draft, roles: current.roles })
+    /* The draft is already resolved against the menu by currentDraft(), so the
+       role list is no longer part of deciding whether this press may go. */
+    const problems = composeDraftProblems(draft)
     clearProblems()
     showNotice('')
     if (problems.length > 0) {
@@ -683,6 +1052,10 @@ export function mountAgentComposePanel({
       choices: assignableRoles(current.roles),
       newTree: !isRecord(current.parent),
       underLine,
+      tiers: current.tiers,
+      folders: current.folders,
+      folderSelectedId: current.folderSelectedId,
+      defaultFolder: current.defaultFolder,
     })
 
     nodes.submit.addEventListener('click', () => attemptSubmit())
@@ -696,25 +1069,33 @@ export function mountAgentComposePanel({
         cancel()
       }
     })
+    /* Choosing a role only changes the line under the menu now. It must NOT
+       clear the refusal about the brief: answering a different question is not
+       answering that one, and wiping the sentence would leave a person who
+       pressed Start with nothing on screen explaining why nothing happened. */
+    nodes.roleSelect.addEventListener('change', () => { paintRoleSummary() })
     /* A refusal about a field stops being true the moment the person edits that
        field. Leaving it on screen teaches people to ignore the red line. */
-    nodes.roleSelect.addEventListener('change', () => {
-      setLine(nodes.roleProblem, '')
-      markInvalid(nodes.roleSelect, false)
-      paintRoleSummary()
-    })
     nodes.messageInput.addEventListener('input', () => {
       setLine(nodes.messageProblem, '')
       markInvalid(nodes.messageInput, false)
     })
+    nodes.unavailableAction.addEventListener('click', () => { void runUnavailableAction() })
 
     container.appendChild(nodes.root)
+
+    /* Not marked as a live region. It is a standing fact about this computer,
+       rendered with the panel; an assertive role here would make a screen
+       reader interrupt whatever the person was reading every time the panel is
+       re-opened. */
+    setLine(nodes.confinement, current.confinementLine)
 
     if (current.unavailableReason) {
       showNotice(current.unavailableReason, 'status')
       nodes.submit.disabled = true
       nodes.roleSelect.disabled = true
       nodes.messageInput.disabled = true
+      paintUnavailableAction()
     }
     return nodes.root
   }
@@ -730,7 +1111,27 @@ export function mountAgentComposePanel({
       current = {
         parent: 'parent' in next ? next.parent : current.parent,
         roles: 'roles' in next ? next.roles : current.roles,
+        tiers: 'tiers' in next && Array.isArray(next.tiers) && next.tiers.length > 0 ? next.tiers : current.tiers,
+        /* CARRIED FORWARD WHEN NOT RESTATED. readStartableTiers() re-opens an
+           already-open panel with `{ tiers }` alone the moment the shell
+           answers; a merge that reset these would empty the folder menu out
+           from under someone reading it. */
+        folders: 'folders' in next && Array.isArray(next.folders) ? next.folders : current.folders,
+        folderSelectedId: 'folderSelectedId' in next ? asTrimmed(next.folderSelectedId) || null : current.folderSelectedId,
+        /* CARRIED FORWARD WHEN NOT RESTATED, for the same reason the folders and
+           the confinement line are: the ordinary re-open is `{ parent }` alone,
+           and losing this reading would put the panel back to describing a
+           folder the start will not use. */
+        defaultFolder: 'defaultFolder' in next ? asTrimmed(next.defaultFolder) : current.defaultFolder,
         unavailableReason: 'unavailableReason' in next ? asTrimmed(next.unavailableReason) : current.unavailableReason,
+        unavailableAction: 'unavailableAction' in next
+          ? (isRecord(next.unavailableAction) ? next.unavailableAction : null)
+          : current.unavailableAction,
+        /* CARRIED FORWARD WHEN NOT RESTATED, for the same reason the folders
+           are: a caller that re-opens this panel with `{ parent }` alone -- the
+           ordinary case, pressing a different empty node -- must not lose the
+           reading of this computer and start describing nothing. */
+        confinementLine: 'confinementLine' in next ? asTrimmed(next.confinementLine) : current.confinementLine,
       }
       return render()
     },
@@ -738,8 +1139,19 @@ export function mountAgentComposePanel({
     close,
     /** The draft as it stands, in the shape the callback receives. */
     draft: () => (nodes ? currentDraft() : null),
-    /** Move focus to the first field, for a caller that opens this from a key press. */
-    focus: () => { nodes?.roleSelect?.focus?.() },
+    /** Move focus to the first field, for a caller that opens this from a key
+     * press. When the form ships switched off the role select is disabled and
+     * a real browser refuses to focus it -- focus would stay OUTSIDE the panel
+     * and Escape would be dead exactly there, so the root takes it instead. */
+    focus: () => {
+      if (!nodes) return
+      const target = nodes.roleSelect && !nodes.roleSelect.disabled ? nodes.roleSelect : nodes.root
+      target?.focus?.()
+    },
+    /** Make the panel the keyboard context without putting the caret in a
+     * field -- for a pointer open. Escape must cancel however the panel was
+     * opened, and it can only be heard from inside. */
+    focusRoot: () => { nodes?.root?.focus?.() },
     /**
      * Show the caller's own refusal sentence on the panel.
      *

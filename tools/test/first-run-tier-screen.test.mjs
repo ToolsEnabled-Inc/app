@@ -327,7 +327,10 @@ test('the disclosure is on the screen, warn-toned, and next to the choice', () =
 /* ---------- the choice actually leaves the screen ---------- */
 
 test('continuing sends the level to the shell rather than only repainting', () => {
-  assert.match(VIEW, /mcSetup\.chooseTier\(chosen\)/, 'the screen never hands the chosen level to the shell')
+  /* With the consent attached (owner, X4): for the widest level it says the
+     risk was shown and confirmed, and the shell refuses that level without it.
+     tools/test/setup-unrestricted-gate.test.mjs owns the gate itself. */
+  assert.match(VIEW, /mcSetup\.chooseTier\(chosen,\s*consent\)/, 'the screen never hands the chosen level (with its consent) to the shell')
   assert.match(VIEW, /noteTierRecorded\(/, 'a saved level never updates the gate, so the app would bounce back to the question')
 })
 

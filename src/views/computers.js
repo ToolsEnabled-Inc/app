@@ -48,24 +48,46 @@ import { refusalCode } from '../agent-availability-copy.js'
    the lane that owns the words. Nothing in this file rewords a refusal: it hands
    the whole bridge result over and shows what comes back. */
 import {
+  CHAT_NOT_RUNNING,
+  TREE_ENGINE,
+  TREE_DEFAULT_STARTABLE_TIERS,
+  startableProviderWords,
+  tierProviderWord,
   MOVE_PANEL,
   PROFILE_PANEL,
+  START_WORK_GROUP,
   PALETTE_PANEL,
+  REMOVE_PANEL,
   QUEUE_PANEL,
   SAID_PANEL,
+  NODE_STATUS_WORDS,
+  TURN_FAILED,
+  turnCompletionWords,
   START_REFUSAL,
   APPROVAL_PANEL, approvalDecisionWord,
   MODEL_PANEL,
+  sessionModelChoices,
   REWIND_PANEL,
   RESUME_PANEL,
   RECOVERED_SESSION,
+  ENDED_SESSION,
+  SECOND_TREE,
   EFFORT_SWITCH,
   EFFORT_CHOICES,
+  TIER_CHOICES,
+  signedOutProviderIds,
+  notInstalledProviderIds,
+  startableTierIds,
+  tierChoicesFor,
+  actionRowWords,
   activityLine,
+  foldedActionsLine,
+  TRANSCRIPT_TRIMMED_NOTE,
+  TREE_CONTEXT_LABEL, treeContextSummary,
   refusalNeedsAssistantProgram, roleLabel, runningLine, startRefusalSentence, startingLine,
   usageSentence,
 } from '../fleet-tree-copy.js'
-import { createTranscriptStore, transcriptSeedText } from '../session-transcript-store.js'
+import { createTranscriptStore, TRANSCRIPT_LIMITS, transcriptSeedText } from '../session-transcript-store.js'
 /* The owner's queue: messages written while the agent is busy, drained one
    per completed turn by this view's own listener. The store holds words; this
    file holds the wire. */
@@ -75,6 +97,7 @@ import {
   clearSession as outboxClearSession,
   enqueue as outboxEnqueue,
   list as outboxList,
+  moveSession as outboxMoveSession,
   requeueFront as outboxRequeueFront,
   takeNext as outboxTakeNext,
 } from '../session-outbox.js'
@@ -82,8 +105,8 @@ import { WRITE_OUTCOME_KEYS, recordUndeliveredWrite } from '../write-outcomes.js
 /* The readers that decide what a session event is allowed to put on a screen.
    Same set the agent page uses; a second reading of the same stream is how one
    surface comes to be wrong without anybody noticing. */
-import { sessionActivityEvent, sessionEventText, sessionTurnStatus, sessionUsageEvent } from '../agent-session-events.js'
-import { parseSlashCommand } from '../slash-commands.js'
+import { createActionBuffer, completionSettlesOpenTurn, sessionActivityEvent, sessionEventText, sessionEventTurnId, sessionTurnFailureText, sessionTurnStatus, sessionTurnSucceeded, sessionUsageEvent } from '../agent-session-events.js'
+import { parseSlashCommand, requestUsageSentence, requestConfirmationSentence } from '../slash-commands.js'
 /* The frame-batched appender the Controls panel already streams through --
    measured there, reused here so the rail's "What it said" moves while the
    turn runs instead of sitting silent until the end. */
@@ -93,15 +116,60 @@ import { createTranscriptAppender } from '../agent-session-transcript.js'
    src/agent-compose-panel.js holds the form and its refusals. This view is the
    join between them and the agent bridge — a press goes in one end and a running
    session comes out the other. */
-import { createFleetTreeStore, FLEET_TREE_LIMITS, markTreeStoreLive, safeTreeStorage } from '../fleet-trees.js'
+import { createFleetTreeStore, FLEET_TREE_LIMITS, markTreeStoreLive, NODE_REMOVE_REFUSALS, safeTreeStorage } from '../fleet-trees.js'
+/* WHAT A NODE IS TOLD ABOUT ITS PLACE IN THE TREE. The tree holds the
+   relationship; before this the session was never told it, and a child asked
+   the person for "the manager's identifier" while its manager was drawn one
+   circle above it (owner, 2026-08-18). See that file's header for why this
+   rides in the message text rather than in an engine option. */
+import { composeNodeBrief, nodeManagerContext, readTreeAddress } from '../tree-node-brief.js'
+/* The scopes a circle's agents are under, derived in ONE place: this view puts
+   them on every start as requestKeys, and the rail reads the same list back —
+   see src/tree-standing-requests.js for why that derivation is shared. */
+import { REQUEST_PANEL, standingRequestScopesFor } from '../tree-standing-requests.js'
 import { mountAgentComposePanel } from '../agent-compose-panel.js'
-import { isWriteEnabled } from '../write-flags.js'
+/* The sentences about what a session started here would be allowed to do. The
+   copy module already owned them and src/agent-session.js already rendered them
+   under ITS Start button; this view is how they reach the OTHER one. */
+import { startControlLine } from '../agent-confinement-copy.js'
+import { WRITE_FLAGS_EVENT, isWriteEnabled, setWriteEnabled } from '../write-flags.js'
+import { START_CONTROL_FLAG, START_CONTROL_ON, startControlOffBecause } from '../setup-profile.js'
+/* The one rule for "is there still an agent behind this circle", shared by every
+   surface on this page that used to answer it for itself. */
+import { nodeIsBusy, sessionEndedWithApp, sessionIsLive, treeNodeClock } from '../tree-session-liveness.js'
+/* What a resumed session opens on — the kept excerpt when there is one, the
+   engine's turns only for a thread this computer has no record of. Shared for
+   the reason the rule above is: it was six lines here that nothing could drive,
+   and they deleted a person's conversation. */
+import { resumedTranscriptLines } from '../tree-resume-transcript.js'
 import { cloudControlsBox } from '../cloud-tasks.js'
 import { bridgeReachable, bridgeStatus, postBridgeAction } from '../mission-bridge.js'
+import { readResearchSnapshot } from '../research-projects.js'
+import { createAssignmentStore } from '../research-assignments.js'
+import { createAssignmentControl } from '../research-assignment-control.js'
 /* The other source of computers, and on a customer machine the only one that
    can ever answer. See the header of src/declared-fleet.js for the measurement:
    the fleet projection is a BUILD-TIME file and ships `ok:false` forever. */
-import { declaredFleetData } from '../declared-fleet.js'
+import { declaredAgentsData, declaredFleetData } from '../declared-fleet.js'
+/* THE OTHER HALF OF declaredFleetData(), AND THE ONE THIS PAGE NEVER HANDED IT.
+ *
+ * src/declared-fleet.js takes `started` as its second argument and says in its
+ * own header why: it is pure, the registry is a live singleton, and "the caller
+ * holds the live half and hands it over". This page is that caller, and from
+ * 6f0a34a until 2026-08-18 it called `declaredFleetData(org)` at BOTH sites with
+ * no second argument at all -- so `started` was null on every call, `running`
+ * was always empty, and the declared fallback drew a tree that could never have
+ * a node in it no matter what the person did.
+ *
+ * WHAT THAT COST, and it is not the tree. Press Start on an agent's own page
+ * (#/agent/<computer>/<agent>, which src/agent-session.js publishes the live
+ * record from) and come back here: "Nothing has run on this computer yet", over
+ * a session that is running. And because showProjectionControls() -- the only
+ * builder of Dispatch, Team, Loop and Codex Cloud -- is reached by SELECTING A
+ * NODE, a page that can never draw a node is a page on which those four
+ * controls do not exist. The declared fallback is what every customer install
+ * gets (public/data/fleet.json ships ok:false), so that was all of them. */
+import { onLiveSession, readLiveSession } from '../agent-session-registry.js'
 /* The editing surface for the DECLARED organisation. It is a separate module
    for the reason given at the top of that file: it is the only part of this
    page that writes, and it is the only part that has to keep a role's wording
@@ -110,6 +178,7 @@ import {
   ORG_ABSENT_REASON, REVISION_CONFLICT_ADVICE,
   buildRoleAssignBox, buildRoleLibraryBox, failureSentence, isRevisionConflict,
   orgBridge, orgNoticeMarkup, readOrg,
+  restoreRoleLibrary, snapshotRoleLibrary,
 } from '../org-controls.js'
 import '../board.css'
 import '../tree-graph.css'
@@ -580,7 +649,31 @@ function sendRefusalSentence(result) {
    started through THIS function — the same contract, the same refusal
    sentences, the same four outcome shapes — so a worker node on the tree is
    indistinguishable from one the compose panel started. */
-export async function startAgentForNode({ text, surface, tier, effort, profileId }) {
+/* `onSessionOpen` IS CALLED BETWEEN THE TWO CALLS, AND THAT POSITION IS THE
+ * WHOLE REASON IT EXISTS.
+ *
+ * A caller learns the session's name from the value this function returns --
+ * which is to say, after the message has been sent. Everything a surface needs
+ * in order to RECEIVE that turn is keyed by that name: the fleet tree's event
+ * listener drops any packet whose sessionId it has not been told about yet.
+ *
+ * That ordering held for as long as sending answered immediately. MEASURED
+ * 2026-08-17 against both engines, it does not: the Claude CLI reports a turn
+ * by streaming it, so its first words -- and, when the answer is short enough
+ * to arrive in one read, its completion too -- reach the page before the send
+ * is answered. Every one of those packets was dropped, and the node sat at
+ * `running` with nothing in it and no error to show for it.
+ *
+ * So the session is handed over the moment it exists and BEFORE anything is
+ * sent into it, when no event for it can possibly have been emitted yet. That
+ * is true of every engine rather than of the fast one, which is the property
+ * this had to have and did not.
+ *
+ * A callback that throws must not take the start with it: the session is real
+ * by then, and losing it here would leave an agent running with nothing on
+ * screen naming it -- the failure the four outcome shapes above exist to
+ * prevent. */
+export async function startAgentForNode({ text, surface, tier, effort, profileId, requestKeys = null, onSessionOpen }) {
   const bridge = typeof window === 'undefined' ? null : window.mcAgent
   if (!bridge || typeof bridge.start !== 'function' || typeof bridge.send !== 'function') {
     return {
@@ -609,6 +702,10 @@ export async function startAgentForNode({ text, surface, tier, effort, profileId
       ...(tier ? { tier } : {}),
       ...(effort ? { effort } : {}),
       ...(profileId ? { profileId } : {}),
+      /* The standing-request scope keys — tree node ids and the conversation's
+         own id, never paths — so the session's first turn can carry the
+         person's filed rules. See nodeRequestKeys() and shell/agent-host.cjs. */
+      ...(requestKeys ? { requestKeys } : {}),
     }
     started = await bridge.start(startRequest)
   } catch (error) {
@@ -624,7 +721,11 @@ export async function startAgentForNode({ text, surface, tier, effort, profileId
       needsApp: false,
       sessionId: null,
       code: refusal.code,
-      sentence: startRefusalSentence(refusal),
+      /* THE TIER RIDES WITH THE REFUSAL. AGENT_TIER_NO_LAUNCHER is raised for
+         whichever provider this build has no launcher for, and only the press
+         knows which one was asked for -- see tierNoLauncherSentence(). Every
+         other code ignores it. */
+      sentence: startRefusalSentence(refusal, { tier }),
       needsAssistantProgram: refusalNeedsAssistantProgram(refusal),
     }
   }
@@ -638,7 +739,7 @@ export async function startAgentForNode({ text, surface, tier, effort, profileId
       needsApp: false,
       sessionId: null,
       code: refusalCodeOf(started),
-      sentence: startRefusalSentence(started),
+      sentence: startRefusalSentence(started, { tier }),
       needsAssistantProgram: refusalNeedsAssistantProgram(started),
     }
   }
@@ -648,6 +749,9 @@ export async function startAgentForNode({ text, surface, tier, effort, profileId
      the durable transcript record can carry it — the name a TRUE engine-side
      resume would ask for, saved now so that future has no data gap. */
   const threadId = typeof started.threadId === 'string' && started.threadId.length > 0 ? started.threadId : null
+  if (typeof onSessionOpen === 'function') {
+    try { onSessionOpen({ sessionId, threadId }) } catch { /* see the note above: the session outlives a caller's bug */ }
+  }
   let sent = null
   try {
     sent = await bridge.send({ sessionId, text })
@@ -677,6 +781,86 @@ export async function startAgentForNode({ text, surface, tier, effort, profileId
   return { ok: true, needsApp: false, sessionId, threadId, code: null, sentence: null, needsAssistantProgram: false }
 }
 
+/* THE SESSIONS THIS APP RUN REALLY OWNS.
+ *
+ * MODULE SCOPE IS THE WHOLE POINT: this map lives exactly as long as the
+ * renderer does, which is exactly as long as a session can. A child process
+ * dies with the application, so a session id read back from storage at the next
+ * launch names something that is not there any more, and a map rebuilt from
+ * storage cannot tell the two apart.
+ *
+ * IT REPLACES A PER-VIEW MAP THAT WAS REFILLED FROM THE STORE, and that refill
+ * is the defect. It was added for a real reason -- leaving the fleet page and
+ * coming back orphaned every session this window still owned, so replies had
+ * nowhere to land (measured 2026-08-13) -- but it fixed that by declaring every
+ * SAVED session live, including the ones killed when the app last closed. What
+ * a person then met, measured on the packaged build 2026-08-16: close the app
+ * mid-turn, reopen the same profile, and the circle is blue with a ticking
+ * clock over a process that does not exist, the chip says "starting" forever,
+ * Stop stands over a corpse, Resume is refused BECAUSE it looks busy, and a
+ * typed message answers "Queued -- sends by itself when this turn finishes"
+ * into a queue no turn will ever drain.
+ *
+ * A map that outlives the VIEW but not the PROCESS answers both: a session this
+ * run started stays routable across every navigation, and a session from a
+ * previous run is absent, which is the truth. nodeBusy() is the reader that
+ * matters -- see its note -- and the recovery it hands a stale node to
+ * (MC_AGENT_UNKNOWN_SESSION -> recoverDeadSessionSend) was written for exactly
+ * this state and has been unreachable since the refill landed. */
+const RUN_SESSION_NODES = new Map()
+
+/* THE COMPOSE PANEL THAT MUST SURVIVE ITS OWN SWITCH.
+ *
+ * MODULE SCOPE FOR ONE MEASURED REASON. src/write-flags.js announces every
+ * change, and src/main.js re-renders the whole route when it hears one -- which
+ * is right, because a flag flipped anywhere must reach every surface at once.
+ * But the panel's own "Turn on running agents" IS such a change, so pressing it
+ * destroyed the view the person was looking at, panel and all. Measured
+ * 2026-08-18 on a staged build: the flag was written, the switch worked, and
+ * the panel simply vanished -- Start "came back" on a page they were no longer
+ * on. That is a restart in everything but name, and the owner asked for no
+ * restart.
+ *
+ * So the press records WHICH slot was being composed, the rebuilt view reads it
+ * once, and the panel reopens where it was. It holds a slot-press detail and
+ * nothing else, it is cleared the moment it is used, and nothing writes it
+ * except that one press -- a stale entry could otherwise open a panel over a
+ * node on a later visit that nobody asked for. */
+let composeToRestore = null
+
+/* THE ROLE LIBRARY RIDES THAT SAME REMOUNT.
+ *
+ * Same teardown, different casualty: wording a person had typed into a role's
+ * rule fields but not yet saved was rebuilt away with the view. Measured on
+ * the packaged build 2026-08-20 (order-variation drive): the typed marker
+ * survived opening and cancelling the start panel, and was destroyed the
+ * moment "Turn on running agents" was pressed -- and the drawer's own live
+ * toggle reaches the identical remount without the panel being involved at
+ * all. Captured when a flags event announces the teardown (the announcement
+ * is synchronous; the re-render is a microtask behind it), re-applied to
+ * every Role library build until the person touches the restored library --
+ * see mountOrgLibrary for why read-once was wrong here. It may outlive a
+ * remount legitimately: a flip to the example board builds no library, and
+ * the snapshot waits for the flip back instead of the wording dying with the
+ * first flip.
+ *
+ * THIS LINE HAS ALREADY BEEN LOST ONCE. ed7a10a committed the USES of this
+ * variable without the declaration, and the fleet board died at load with
+ * "roleLibraryToRestore is not defined" -- zero nodes, no way to start an
+ * agent; the coordinator restored it at 0bf3281. It is declared beside
+ * composeToRestore because the two survive the same teardown, and a lane
+ * staging one of them must take this line with them. */
+let roleLibraryToRestore = null
+
+/* WHERE A COMPUTER'S RECORD CAME FROM, in words rather than in the word the
+   program uses. `computer.note` is `sourceKind`, which the fleet schema pins to
+   exactly two values, so this is a lookup and not a guess -- and an unexpected
+   third value falls through to a sentence that claims nothing. */
+const RECORD_SOURCE = Object.freeze({
+  declared: 'Written down in this computer’s declared organisation.',
+  observed: 'Seen running on this computer.',
+})
+
 export function computersView({ initialComputer = null, navigate }) {
   let liveMode = isLiveView('computers')
   let liveComputers = []
@@ -692,9 +876,91 @@ export function computersView({ initialComputer = null, navigate }) {
      click. clearBoard() below destroys it with the rest of the rail. */
   let boardCloudBox = null
   let railDisposeTimer = 0
+  /* THE ENGINE ROWS THE COMPOSE PANEL WILL SHOW. Starts as the module's own
+     pessimistic default -- the three Codex tiers -- and is replaced once the
+     shell answers. A press that lands before the answer therefore shows what
+     every build could always start, never a row that promises more than this
+     payload carries. */
+  let startableTierChoices = TIER_CHOICES
+  /* THE IDS BEHIND THOSE ROWS, kept because two surfaces need two different
+     things out of one answer: the start menu needs the labelled rows, and the
+     node panel's Engine row needs to name the PROVIDERS this copy can start.
+     Deriving the second from the first is not possible -- tierChoicesFor()
+     returns every tier, marking the ones that cannot start -- so the answer is
+     held in the shape the shell gave it. */
+  let startableTierIdList = TREE_DEFAULT_STARTABLE_TIERS
+  /* AND WHICH PROVIDERS THIS COMPUTER IS PROVABLY NOT SIGNED IN TO -- the second
+     half of "can this row start", and the half startableTiers() structurally
+     cannot see. Declared HERE, beside the other two, rather than beside the
+     function that fills it: both writers of startableTierChoices are above it in
+     this file, and a `let` sitting between them and their use is a temporal dead
+     zone waiting for the next person who moves a call. See readProviderSignIn().
+     Empty means nothing was learned, which draws exactly today's rows. */
+  let signedOutProviders = []
+  /* AND WHICH PROVIDERS THIS COMPUTER HAS NO PROGRAM FOR AT ALL. Kept apart
+     from the list above because a machine with no Codex reports BOTH, and only
+     the first of the two is worth acting on: `codex login` is a subcommand of
+     the program that is missing. Same empty-means-nothing-learned rule. */
+  let noProgramProviders = []
+  /* ASK THE SHELL WHICH TIERS THIS COPY CAN REALLY START.
+   *
+   * THE DEFECT THIS CLOSES. This renderer used to decide startability from a
+   * frozen list of provider names, so the menu said "cannot start from a tree
+   * yet" on a build that could, and would have gone on saying it after the
+   * engine shipped. The shell has always had the real answer:
+   * mc-agent:startable-tiers runs the SAME resolveStartTier() the press runs, so
+   * the menu and the button cannot disagree by construction.
+   *
+   * EVERY FAILURE PATH IS THE SAME PATH, and it is the pessimistic one. No
+   * bridge (a plain browser during `npm run dev`), a rejected invoke, a reply
+   * that is not the shape promised, or an answer that arrives after this view is
+   * gone -- all leave the Codex-only default exactly as it is today. The one
+   * thing this must never do is guess upward: a row that says "startable" over a
+   * press that refuses is the half-start that is worse than an honest refusal.
+   * startableTierIds() in src/fleet-tree-copy.js owns that judgement, including
+   * the one case worth spelling out -- an EMPTY list is an answer and is
+   * honoured, while a malformed one is not.
+   *
+   * It is fetched once per view rather than per node click: the payload cannot
+   * change while the window is open, and a probe per click would be a request
+   * per press for an answer that cannot have moved. */
+  async function startableTiersNow() {
+    let reply = null
+    try {
+      reply = await window.mcAgent?.startableTiers?.()
+    } catch {
+      return
+    }
+    if (destroyed) return
+    startableTierIdList = startableTierIds(reply)
+    /* THROUGH THE SHARED RECOMPUTE, never `tierChoicesFor(ids)` directly. This
+       function and readStartableTiers() both write startableTierChoices, and
+       this one is fired last (at the end of the view factory); computing the
+       rows without the sign-in reading here would silently erase the warning
+       the other had already put on them. */
+    repaintTierRows()
+  }
   let destroyed = false
   let fetchVersion = 0
   const unsubs = []
+  /* CAPTURE BEFORE THE TEARDOWN, REGISTERED BEFORE ANYTHING THAT REBUILDS.
+     A flags event is dispatched synchronously and src/main.js queues the
+     route re-render a microtask behind it, so a listener here reads the Role
+     library's open items and typed wording while they are still on the page.
+     Registered FIRST in this view on purpose: onLiveFlag below rebuilds the
+     rail synchronously on the same event, and a capture that ran after it
+     would read the fresh empty library and preserve nothing. */
+  const captureRoleLibrary = () => {
+    if (destroyed) return
+    const snapshot = snapshotRoleLibrary(statsPage?.querySelector?.('.board-roles-box'))
+    if (snapshot) roleLibraryToRestore = snapshot
+  }
+  window.addEventListener(WRITE_FLAGS_EVENT, captureRoleLibrary)
+  window.addEventListener(LIVE_FLAGS_EVENT, captureRoleLibrary)
+  unsubs.push(() => {
+    window.removeEventListener(WRITE_FLAGS_EVENT, captureRoleLibrary)
+    window.removeEventListener(LIVE_FLAGS_EVENT, captureRoleLibrary)
+  })
   let sourceUnsubs = []
   /* The runs half of the chatbox. Read once per view from the same spawn
      record the home screen reads, never per node click, and left as an empty
@@ -708,6 +974,11 @@ export function computersView({ initialComputer = null, navigate }) {
      empty list. src/chatbox-feed.js's availability flags are about the source,
      so the source's existence is what has to be passed to them. */
   let railRunsSupported = false
+  /* Research projects, for filing sessions. Read ONCE per mount; the refusal
+     is kept so the filing control can render disabled WITH the sentence
+     instead of as an empty select pretending no projects exist. */
+  let researchService = null
+  const researchAssignments = createAssignmentStore({ storage: typeof window === 'undefined' ? null : window.localStorage })
   let railChatUnsub = null
 
   const root = el(`
@@ -724,28 +995,62 @@ export function computersView({ initialComputer = null, navigate }) {
              stops deciding the visual order, and the trees slot alone scrolls
              sideways (hidden scrollbar, edge fades). -->
         <div class="graph-wrap glass">
+          <!-- THE BAR, REBUILT (owner, 2026-08-18: "this bar is still super ugly
+               ... start over on just this top bar"). Same three slots, because
+               that part was never the complaint; what it lacked was RANK and
+               GROUPING, and what it carried was a paragraph.
+
+               RANK. Everything in it was one weight at one size, so the name of
+               the computer competed with a zoom percentage. The name is now the
+               only thing in the bar with title weight, in its own lead slot, and
+               every control is one shared 28px chip.
+
+               GROUPING. Three jobs, in the order they get used, separated by
+               hairlines (drawn by the slots themselves, so no divider elements
+               exist to fall out of place): WHAT you are looking at, HOW you are
+               looking at it (zoom), and WHAT YOU CAN DO with it (edit, and the
+               one control that leaves the page).
+
+               AND THE PARAGRAPH IS GONE. "No research projects exist yet. Create
+               one on the research page first." was mounted into the tool strip,
+               so a sentence about a different page sat in the row of buttons for
+               this one. Filing a scope under a project is a fleet-wide setting,
+               so it is now a named section of the fleet rail beside Session
+               profiles and Roles -- see mountResearchScopeControl. -->
           <div class="graph-bar">
-            <div class="graph-title"></div>
+            <div class="graph-bar-lead">
+              <div class="graph-title"></div>
+            </div>
             <div class="graph-bar-trees"></div>
             <div class="graph-tools">
-              <button class="graph-reset-btn" type="button" hidden>Reset positions</button>
-              <!-- THE NAMED DOOR TO THE DRILL-IN.
-                   src/tree-graph.js already made ONE CLICK on a node open the rail,
-                   which fixed the gesture. It did not fix the naming: nothing on
-                   this page said the drill-in exists, so reaching it still meant
-                   clicking a bubble on the chance that something useful appears,
-                   then finding "Open full view" inside the panel that appeared.
-                   This button is the same destination said out loud, in the strip
-                   that already holds this page's named controls, and it is a
-                   sibling of the rail button rather than a replacement for it. -->
-              <button class="graph-open-btn" type="button" hidden>Open agent detail</button>
-              <button class="graph-edit-btn" type="button" title="Edit the role hierarchy">Edit</button>
-              <!-- SPLIT VIEW (owner defect 5): a second, view-only pane beside
-                   this one for side-by-side tree viewing. OFF by default, and
-                   that default is a load-bearing contract: nine harnesses run
-                   this page single-pane, and page2-qa green with split off is
-                   the acceptance bar. -->
-              <button class="graph-split-btn" type="button" title="A second pane for viewing side by side">Split</button>
+              <!-- src/tree-graph.js inserts the zoom cluster as this slot's FIRST
+                   child, which is why the buttons below live in their own group:
+                   without it the zoom controls and the actions were one
+                   undifferentiated run of chips. -->
+              <div class="graph-tool-set">
+                <button class="graph-reset-btn" type="button" hidden>Reset positions</button>
+                <button class="graph-edit-btn" type="button" title="Edit the role hierarchy">Edit</button>
+                <!-- THE NAMED DOOR TO THE DRILL-IN.
+                     src/tree-graph.js already made ONE CLICK on a node open the rail,
+                     which fixed the gesture. It did not fix the naming: nothing on
+                     this page said the drill-in exists, so reaching it still meant
+                     clicking a bubble on the chance that something useful appears,
+                     then finding "Open full view" inside the panel that appeared.
+                     This button is the same destination said out loud, in the strip
+                     that already holds this page's named controls, and it is a
+                     sibling of the rail button rather than a replacement for it.
+                     It is LAST in the group and the only accented chip, because it
+                     is the only one of the three that leaves this page. -->
+                <button class="graph-open-btn" type="button" hidden>Open agent detail</button>
+              </div>
+              <!-- The Split button (owner defect 5's second, view-only pane) stood
+                   here until 2026-08-16. Owner: "lets throw it away for now" -- his
+                   read was that a page ends up with two views nobody keeps
+                   straight. So the button, its pane and its saved preference are
+                   gone; the page is single-pane, which is also the shape every
+                   harness measured it in. The bar around it is the packaging
+                   lane's, which is why this resolution keeps their structure and
+                   his removal at once. -->
             </div>
           </div>
           <div class="graph-canvas-slot">
@@ -892,7 +1197,17 @@ export function computersView({ initialComputer = null, navigate }) {
     /* The compose panel is a page here like the other two, so exactly one of the
        three is ever on screen and none of them has to know about the others. */
     composePage.classList.toggle('is-active', page === composePage)
-    if (page === statsPage) railDisposeTimer = setTimeout(clearBoard, 200)
+    if (page === statsPage) {
+      railDisposeTimer = setTimeout(clearBoard, 200)
+      /* RE-READ THE RECORD ON THE WAY BACK. The overview is painted once when
+         the board mounts, and coming back to it from the compose panel does not
+         re-render it -- so a person who started an agent and pressed Cancel was
+         looking at the count as it stood BEFORE they started anything. Measured
+         on the packaged build: two starts in the signed ledger, hero still
+         reading 0, which is the owner's report exactly. Returning to this page
+         is a gesture, not a poll, so this costs one read per visit. */
+      void paintAgentsOnRecord()
+    }
   }
 
   function syncResetButton() {
@@ -1035,6 +1350,42 @@ export function computersView({ initialComputer = null, navigate }) {
     syncOpenButton()
   }
 
+  /* THE DOOR MUST NOT DEPEND ON THE TREE, BECAUSE THE TREE IS EMPTY BY DESIGN.
+   *
+   * WHAT WAS MEASURED, on a staged packaged build with a fresh profile, at five
+   * window sizes and from the keyboard:
+   *   .graph-open-btn      1   (in the DOM)
+   *   pressable            no  (hidden)
+   *   .static-tree-node    0
+   * and, from tools/a11y-keyboard-qa: "an agent can be opened from the keyboard
+   * on the computers page -- no Open control was reachable by Tab".
+   *
+   * WHY. This button was aimed at `computer.agents[0]`, and since 5cc2f09 ("a
+   * fleet tree you build, instead of one the app invented") those are the agents
+   * this person has STARTED -- correctly empty until they start one. So the
+   * button hid itself on every fresh install.
+   *
+   * AND THAT CLOSED A CIRCLE. #/agent/<computer>/<agent> is where a session is
+   * started from a declared seat (src/agent-session.js publishes the live record
+   * from there). This button is its only door inside the product. So: no started
+   * agent, no door; no door, no way to reach the page that starts one. The page
+   * itself was never broken -- src/views/agent.js resolves from
+   * declaredAgentsData(), which answers for every declared seat whether or not
+   * anything has run -- so the destination was live the whole time with nothing
+   * pointing at it.
+   *
+   * THE TREE STAYS EMPTY. This changes no node, draws no circle and invents no
+   * agent: the owner's rule ("the node tree should be empty unless a user has
+   * started a session") is the reason the fallback reads DECLARED CAPACITY
+   * rather than putting a seat on the canvas. Capacity is what this computer
+   * COULD run, it is exactly what the drill-in page reads, and declared-fleet.js
+   * keeps the two halves apart on purpose. Nothing is drawn; a door is named. */
+  function firstDeclaredTarget() {
+    if (!liveMode || !orgReady()) return null
+    const seat = declaredAgentsData(orgAvailability.org)?.declared?.[0]
+    return seat ? { id: seat.id, name: seat.displayName || seat.id } : null
+  }
+
   openButton.addEventListener('click', () => {
     if (!openTarget || !computer) return
     /* Same zoom morph the rail's own button sets, read from the node when the
@@ -1045,17 +1396,6 @@ export function computersView({ initialComputer = null, navigate }) {
     const bounds = target.getBoundingClientRect()
     setViewMorph({ kind: 'zoom', x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 })
     navigate(`#/agent/${computer.id}/${openTarget.id}`)
-  })
-
-  root.querySelector('.graph-split-btn')?.addEventListener('click', () => {
-    if (!graph) return
-    if (splitGraph) {
-      disableSplit()
-      writeSplitPref(false)
-    } else {
-      enableSplit()
-      writeSplitPref(true)
-    }
   })
 
   editButton.addEventListener('click', () => {
@@ -1117,7 +1457,6 @@ export function computersView({ initialComputer = null, navigate }) {
   }
 
   function clearMountedGraph() {
-    disableSplit()
     graph?.destroy()
     graph = null
     canvas?.remove()
@@ -1174,18 +1513,53 @@ export function computersView({ initialComputer = null, navigate }) {
      session is born (submitCompose), and a per-session turn buffer -- the
      engine emits one delta per token, and a reply is one message, not one
      message per token (the agent page's CORRECTED note is the measured version
-     of why). nodeReplies is what the rail renders under "What it said". */
-  const sessionNodeIds = new Map()
+     of why). nodeReplies is what the rail renders under "What it said".
+
+     The session map itself is RUN_SESSION_NODES, above: it belongs to the app
+     run and not to this view instance, for the reason given there. */
+  const sessionNodeIds = RUN_SESSION_NODES
   const sessionTurnText = new Map()
   const nodeReplies = new Map()
   /* The latest narration line per node ("Running a command: …"), cleared when
      the turn completes -- the reply takes over from there. */
   const nodeActivity = new Map()
-  /* The compact card's waiting answer-slot, one per session: registered when
-     the card sends at an idle agent, delivered by the turn-completed branch,
-     dropped if the card closed first (the reply still lands on the chip, the
-     rail and the store — the card is a window, not the record). */
-  const cardReplies = new Map()
+  /* EVERY SURFACE WAITING ON THIS TURN, not the last one to ask.
+   *
+   * This was one callback per session, set unconditionally by whichever
+   * surface sent. Since 5f394a4 gave the compact card the whole shared config,
+   * BOTH the card and the rail's Chat tab can send -- so a second send
+   * overwrote the first surface's callback, and that surface's pending bubble
+   * was never answered by anything. The person watched a message they had
+   * really sent sit unanswered while the reply appeared somewhere else (owner,
+   * 2026-08-18: "the messages in history disappear or combine into each
+   * other").
+   *
+   * A set, drained once when the turn completes. A surface that closed in the
+   * meantime simply is not in it; the reply still lands on the chip, the store
+   * and the transcript, because those are the record and a card is a window. */
+  const turnReplies = new Map()
+  function awaitTurnReply(sessionId, reply) {
+    if (!sessionId || typeof reply !== 'function') return
+    const waiting = turnReplies.get(sessionId) || new Set()
+    waiting.add(reply)
+    turnReplies.set(sessionId, waiting)
+  }
+  function dropTurnReply(sessionId, reply) {
+    const waiting = turnReplies.get(sessionId)
+    if (!waiting) return
+    waiting.delete(reply)
+    if (waiting.size === 0) turnReplies.delete(sessionId)
+  }
+  /* Taken and cleared in one step, so a reply handler that sends again cannot
+     be answered by the turn it is answering. */
+  function deliverTurnReply(sessionId, said) {
+    const waiting = turnReplies.get(sessionId)
+    if (!waiting) return
+    turnReplies.delete(sessionId)
+    for (const reply of waiting) {
+      try { reply(said) } catch { /* one broken surface must not starve the rest */ }
+    }
+  }
   /* THE CONVERSATION, kept in this window's memory and said to be exactly
      that. The STORE keeps one reply per node (the durable part); these maps
      keep the back-and-forth so the card and the rail can show a real history
@@ -1194,6 +1568,20 @@ export function computersView({ initialComputer = null, navigate }) {
      day point at "the message where I said …". */
   const TRANSCRIPT_MAX_ENTRIES = 60
   const sessionTranscripts = new Map()
+  /* WHAT THE AGENT DID, kept beside what it said and for the same reason: a
+     chat opened halfway through a turn must already show the work taken so
+     far, and a chat that was never open must show it afterwards. One bounded
+     buffer per session -- the caps live in createActionBuffer, and both of
+     them are the kind a person can see. */
+  const sessionActions = new Map()
+  /* EVERY CHAT MOUNTED OVER THIS SESSION. The product mounts two surfaces from
+     one config (the rail's Chat tab and the compact card on the canvas), and an
+     action that reached only one of them would be exactly the drift the shared
+     config exists to prevent. Roots are added by the config's onReady and
+     dropped again the moment they leave the document -- a chat that has been
+     closed must never be written to, and holding one is how a retired view is
+     retained. */
+  const chatSurfaces = new Map()
   const sessionTurnLog = new Map()
   /* What the engine says the session has used, latest reading per session —
      the usage events crossed the wire from day one and were dropped here. */
@@ -1212,13 +1600,266 @@ export function computersView({ initialComputer = null, navigate }) {
   const sessionEfforts = new Map()
   const sessionThreadIds = new Map()
 
-  function transcriptAppend(sessionId, entry) {
+  /* THE TURN EACH SESSION'S OPEN BUBBLE AND ACCUMULATOR BELONG TO. Absent
+     means nothing is in flight; an engine that does not name its turns leaves
+     it absent forever and behaves exactly as it did before. */
+  const sessionOpenTurns = new Map()
+
+  /* SESSIONS WHOSE RUNNING TURN THE PERSON STOPPED, from this window. Both
+     interrupt doors — the palette row and the composer's Stop face — reach
+     one handler, which records the press only after the engine accepted it;
+     the completion that follows consumes the record and says "stopped by
+     you" instead of "the last turn failed". Per turn, never sticky: the next
+     completion answers for itself. */
+  const sessionsInterrupted = new Set()
+
+  /* THE QUESTION AN AGENT IS STILL WAITING ON. sessionId -> the approval
+     activity, exactly as the event carried it. MEASURED on the shipped 1.0.20:
+     a child called agent_comms.send_local, approval_request fired while the
+     person was looking at the tree rather than at that node's rail, and the
+     card render below was gated on the rail being open -- so the one event
+     that could paint the Approve button passed unrendered, nothing re-read the
+     request on a later rail open, and the session sat blocked until
+     interrupted. "It stops and asks you" had stopped and asked nobody. The
+     event is remembered here, rendered whenever that node's rail opens, and
+     forgotten when it is answered or its turn ends. */
+  const sessionPendingApprovals = new Map()
+
+  /* A turn that was never formally completed still SAID something, and those
+     words are the record. Called when a delta arrives naming a different turn
+     than the one still open: the previous answer is filed, its bubble is
+     ended, and every surface waiting on it is answered -- then the accumulator
+     is cleared so the new turn starts from nothing. */
+  function settleTurnBoundary(sessionId, turnId) {
+    if (!turnId) return
+    const open = sessionOpenTurns.get(sessionId)
+    sessionOpenTurns.set(sessionId, turnId)
+    if (!open || open === turnId) return
+    const spoken = (sessionTurnText.get(sessionId) || '').trim()
+    sessionTurnText.delete(sessionId)
+    /* The work before the words, because that is the order it happened in. */
+    recordTurnActions(sessionId)
+    if (spoken) {
+      const nodeId = sessionNodeIds.get(sessionId)
+      if (nodeId) nodeReplies.set(nodeId, spoken)
+      transcriptAppend(sessionId, { who: 'agent', text: spoken, at: Date.now() })
+      deliverTurnReply(sessionId, spoken)
+    }
+    if (railChat && railChat.sessionId === sessionId && railChat.stream) {
+      railChat.stream.close(spoken || null)
+      railChat.stream = null
+    }
+  }
+
+  function transcriptAppend(sessionId, entry, { persist = true } = {}) {
     if (!sessionId) return
+    /* WINDOW MEMORY AND THE DURABLE RECORD ARE ONE HISTORY, AND UNTIL NOW THEY
+     * WERE TWO.
+     *
+     * THE DEFECT, measured 2026-08-18. treeChatConfigFor reads the record only
+     * `if (!history.length)` and deliberately never seeds this map -- reading
+     * is reading. But nothing seeded it on the WRITE side either, so the FIRST
+     * line appended for a session this window had not held became the whole of
+     * `history`, and a five-line saved record was shadowed for the life of the
+     * view. That is the owner's screenshot: a panel showing one YOU bubble over
+     * a conversation that really happened.
+     *
+     * So the seed happens HERE, once, before the first append -- which is
+     * exactly the moment the map stops being empty and starts standing in for
+     * the record. `has`, not `get().length`: a session deliberately set to an
+     * empty history (a plain start) has already been decided about, and
+     * re-seeding it would resurrect a conversation somebody chose to leave. */
+    if (!sessionTranscripts.has(sessionId)) {
+      const seedNodeId = sessionNodeIds.get(sessionId)
+      const saved = seedNodeId && transcriptStore ? transcriptStore.get(seedNodeId) : null
+      sessionTranscripts.set(sessionId, saved && Array.isArray(saved.lines) ? saved.lines.slice() : [])
+    }
     const held = sessionTranscripts.get(sessionId) || []
     held.push(entry)
     if (held.length > TRANSCRIPT_MAX_ENTRIES) held.splice(0, held.length - TRANSCRIPT_MAX_ENTRIES)
     sessionTranscripts.set(sessionId, held)
+    /* A batch of appends persists ONCE, at its end. Writing the whole record to
+       storage per line was fine at one line per turn and is not fine now that a
+       turn can also file the dozen things the agent did. */
+    if (persist) persistTranscript(sessionId)
+  }
+
+  /* ---- WHAT THE AGENT DID: BUFFER, SURFACES, RECORD ----
+   *
+   * THE DEFECT (owner, item 1). The engine narrates every turn -- tool_call,
+   * tool_result, approval_request, each with the command or the path, the exit
+   * code, and the name that pairs a result with its call -- and every one of
+   * those packets already reached this view. The activity branch below turned
+   * them into ONE overwritten status line and a chip, and deleted that on
+   * completion. Nothing reached the chat, the record, or any list. A turn that
+   * spent five minutes running commands put zero rows in front of a person.
+   *
+   * These three functions are the missing half, and they are deliberately the
+   * same shape the words already have: buffer it, tell both open surfaces, and
+   * record it with the conversation. */
+  function actionBufferFor(sessionId) {
+    let buffer = sessionActions.get(sessionId)
+    if (!buffer) {
+      buffer = createActionBuffer()
+      sessionActions.set(sessionId, buffer)
+    }
+    return buffer
+  }
+
+  /* One buffered row, in the shape a chat log draws: words for the tool and
+     the outcome (from the copy module, where the plain-language gate holds
+     them), the one-line detail, and the whole command plus its captured output
+     for when the row is opened. */
+  function actionChatRow(row) {
+    const words = actionRowWords(row)
+    return {
+      id: `action:${row.id}`,
+      tool: words.tool,
+      detail: words.detail,
+      state: words.state,
+      stateKey: row.state,
+      body: [row.detail, row.output].filter(Boolean).join('\n\n'),
+      at: row.at,
+    }
+  }
+
+  function registerChatSurface(sessionId, root) {
+    if (!sessionId || !root) return
+    const held = chatSurfaces.get(sessionId) || new Set()
+    held.add(root)
+    chatSurfaces.set(sessionId, held)
+  }
+
+  /* TELL EVERY CHAT THAT IS STILL ON SCREEN, and forget the ones that are not.
+     `isConnected` is the test rather than a close callback: a card collapses,
+     a rail rebuilds and a view is destroyed by three different mechanisms, and
+     a set that only ever grows would hold a detached chat -- and the whole tree
+     behind it -- for the life of the page. */
+  function broadcastAction(sessionId, chatRow) {
+    const held = chatSurfaces.get(sessionId)
+    if (!held) return
+    for (const root of [...held]) {
+      if (!root.isConnected) { held.delete(root); continue }
+      try { root.addAction?.(chatRow) } catch { /* one broken surface must not starve the rest */ }
+    }
+    if (held.size === 0) chatSurfaces.delete(sessionId)
+  }
+
+  /* THE RECORD, WRITTEN ONCE PER TURN RATHER THAN ONCE PER EVENT. A busy turn
+     emits thousands of tool events and each one used to be a whole-record write
+     away from the durable store; the newest handful are filed when the turn
+     ends, which is the same moment the agent's words are filed. Rows already
+     written are marked, so a second turn never re-files the first turn's work
+     out of order. */
+  function recordTurnActions(sessionId) {
+    const buffer = sessionActions.get(sessionId)
+    if (!buffer) return
+    /* THE BOOKS ARE CLOSED BEFORE THEY ARE FILED, and the order is the whole
+       point: the record below takes `row.state` verbatim, so a row settled
+       after filing would read correctly on screen and wrongly for ever in the
+       saved conversation. Every surface already showing the row is told too --
+       otherwise the chat a person is looking at keeps the word "running" until
+       something unrelated happens to repaint it. See settleUnfinished() in
+       src/agent-session-events.js for why the settled outcome is `unknown`
+       rather than the convenient "finished". */
+    for (const settled of buffer.settleUnfinished()) broadcastAction(sessionId, actionChatRow(settled))
+    const fresh = buffer.list().filter(row => !row.recorded)
+    if (fresh.length === 0) return
+    for (const row of fresh) row.recorded = true
+    for (const row of fresh.slice(-TRANSCRIPT_LIMITS.maxActionLines)) {
+      const words = actionRowWords(row)
+      /* THE TOOL'S NAME IN ITS OWN SLOT, not folded into the text. Joined into
+         one string, a restored row painted with an EMPTY tool chip and the
+         whole sentence in the detail -- the same row, two different looks,
+         which is the defect items 2 and 4 describe reappearing on the
+         restore path. Measured on a staged build before this line changed:
+         live rows read Command / "npm test", restored rows read "" /
+         "Command npm test". */
+      transcriptAppend(sessionId, {
+        who: 'action',
+        text: words.detail || words.tool,
+        tool: words.tool,
+        at: row.at,
+        state: row.state,
+      }, { persist: false })
+    }
     persistTranscript(sessionId)
+  }
+
+  /* One action line as the record kept it, back in the shape a chat draws. */
+  function savedActionRow(entry, index) {
+    return {
+      who: 'action',
+      id: `saved:${index}:${entry.at || 0}`,
+      tool: typeof entry.tool === 'string' ? entry.tool : '',
+      detail: typeof entry.text === 'string' ? entry.text : '',
+      state: actionRowWords(entry).state,
+      stateKey: typeof entry.state === 'string' ? entry.state : '',
+      body: '',
+      at: entry.at,
+    }
+  }
+
+  /* THE CONVERSATION AND THE WORK, IN ONE LIST, IN THE ORDER THEY HAPPENED.
+   *
+   * A chat opened mid-turn has to show both halves: the record's own lines
+   * (what was said, and the actions of turns that have finished) and the
+   * actions of the turn still running, which have not been filed yet.
+   *
+   * THEY ARE NOT SORTED, AND THAT IS THE POINT. The record's order IS the
+   * order things happened -- it was appended one line at a time -- and a sort
+   * would need a timestamp on every line, which the brief-and-latest-reply
+   * fallback does not have. What is still in flight is by definition the
+   * newest, so it goes on the end. The two halves cannot double up either:
+   * a buffered row is marked the moment it is filed, and only unfiled rows
+   * are added here. */
+  /* THE TREE'S OWN WORDS, NAMED AS SUCH BEFORE THEY ARE DRAWN. The address
+     block is recorded `who: 'you'` because that is the side it was sent from
+     (see onSessionOpen), and both chat surfaces therefore painted it as a
+     second dark YOU bubble — three hundred pixels of plumbing wearing the
+     person's colour, the loudest thing in the conversation (measured on a
+     staged packaged build, 2026-08-20). It is recognised here by the same
+     contract line shell/agent-host.cjs reads the address back out of —
+     readTreeAddress, exported for exactly this kind of caller — never by
+     guessing at prose. The record is untouched; only the drawing changes. */
+  /* `openKey` is the SESSION, so a person who opens this aside has it open for
+     the conversation they are reading and not for every conversation they ever
+     open. `summary` is the closed line, in words rather than in characters,
+     because a fold whose label is plumbing is one nobody presses. Both ride on
+     the entry: src/components.js draws this and stays copy-free. */
+  function markTreeContext(history, sessionId) {
+    return (Array.isArray(history) ? history : []).map(entry => (
+      entry && entry.who === 'you' && typeof entry.text === 'string' && readTreeAddress(entry.text)
+        ? {
+          ...entry,
+          who: 'context',
+          label: TREE_CONTEXT_LABEL,
+          summary: treeContextSummary(entry.text),
+          openKey: typeof sessionId === 'string' ? sessionId : '',
+        }
+        : entry
+    ))
+  }
+
+  function mergeActionsIntoHistory(history, sessionId) {
+    const buffer = sessionActions.get(sessionId)
+    const held = buffer ? buffer.list() : []
+    /* WHILE THIS WINDOW IS OPEN, THE RICHER COPY WINS. The saved record keeps
+       the command and not the output it printed -- it is an excerpt, and an
+       archive of every command's output is not what belongs in a person's
+       settings file. But the buffer still holds that output for as long as the
+       window lives, so a row reopened five minutes later can still be opened
+       onto what the command said. Joined on the moment the row was opened,
+       which is what the record carries. */
+    const byMoment = new Map(held.map(row => [row.at, row]))
+    const drawn = (Array.isArray(history) ? history : []).map((entry, index) => {
+      if (!entry || entry.who !== 'action') return entry
+      const richer = byMoment.get(entry.at)
+      return richer ? { who: 'action', ...actionChatRow(richer) } : savedActionRow(entry, index)
+    })
+    const pending = held.filter(row => !row.recorded)
+    if (pending.length === 0) return drawn
+    return [...drawn, ...pending.map(row => ({ who: 'action', ...actionChatRow(row) }))]
   }
 
   /* THE DURABLE HALF. Every append lands the bounded excerpt on disk under
@@ -1232,10 +1873,20 @@ export function computersView({ initialComputer = null, navigate }) {
     if (!nodeId) return
     const lines = sessionTranscripts.get(sessionId) || []
     if (lines.length === 0) return
+    /* A SAVE MUST NOT NULL WHAT IT DOES NOT KNOW.
+     *
+     * transcriptStore.save REPLACES a node's record whole -- it has never
+     * merged. Both fields below are read from WINDOW memory, and a window that
+     * never opened this session holds neither, so a save from such a window
+     * wrote null over the engine thread name that makes a real Resume possible
+     * and over the reasoning depth the node was started at. The record is
+     * therefore read first and its answers kept wherever this window has none;
+     * a window that DOES know still wins, because it is the live fact. */
+    const kept = transcriptStore.get(nodeId)
     transcriptStore.save(nodeId, {
       lines,
-      threadId: sessionThreadIds.get(sessionId) || null,
-      effort: sessionEfforts.get(sessionId) || null,
+      threadId: sessionThreadIds.get(sessionId) || kept?.threadId || null,
+      effort: sessionEfforts.get(sessionId) || kept?.effort || null,
     })
   }
 
@@ -1259,6 +1910,25 @@ export function computersView({ initialComputer = null, navigate }) {
       engineModelCatalog = answer.models
     }).catch(() => { engineCatalogAsked = false })
   }
+  /* Everything a start needs in order to tell the agent where it stands. Built
+     from the store, so the name in the brief is the name on the circle.
+   *
+   * THE PARENT'S NAME IS READ, NOT RECOMPUTED, and getting that wrong is a
+   * measured defect rather than a precaution. composeParentFor() hands over a
+   * PROJECTION -- `{ id, name }` -- and its `name` has already been through
+   * treeNodeName. Passing that projection back into treeNodeName finds no
+   * `role` on it, so roleLabel falls through to its generic word: the brief
+   * told a child under a circle drawn "Manager" that its manager was "Agent",
+   * and the running agent dutifully repeated it (measured 2026-08-18 on a
+   * staged build with a real Codex session: "My manager is Agent"). The node
+   * itself IS a store record and keeps the computed name. */
+  function briefContextFor(node, parent) {
+    return {
+      selfName: treeNodeName(node),
+      parentName: parent ? (parent.name || null) : null,
+    }
+  }
+
   /* The efforts for the model this node is actually running, or the widest
      the catalog knows when the model cannot be identified. */
   function engineEffortsFor(node) {
@@ -1273,13 +1943,22 @@ export function computersView({ initialComputer = null, navigate }) {
      back as 'starting', so after an app restart every mid-turn node reads
      busy FOREVER over a dead session — the stop button would stand over a
      corpse and every send would silently queue into a queue nothing will
-     ever drain. sessionNodeIds holds exactly the sessions THIS run started
-     or reattached, so status AND membership is the honest busy test; a
-     restart-stale node reads idle, its send goes out, the engine refuses
-     with MC_AGENT_UNKNOWN_SESSION, and the recovery below takes over. */
-  const nodeBusy = node => Boolean(node
-    && (node.status === 'starting' || node.status === 'running')
-    && node.sessionId && sessionNodeIds.has(node.sessionId))
+     ever drain. sessionNodeIds holds exactly the sessions THIS RUN started
+     or reattached (RUN_SESSION_NODES), so status AND membership is the honest
+     busy test; a restart-stale node reads idle, its send goes out, the engine
+     refuses with MC_AGENT_UNKNOWN_SESSION, and the recovery below takes over.
+
+     EVERY READER OF "IS THIS NODE BUSY" GOES THROUGH HERE. The status field
+     alone was still being read in five other places -- the chip's word, the
+     rail's waiting line, the graph's clock, the resume verb and the runtime
+     face -- and each one of them told the restart-stale story its own way. */
+  /* The three readers, bound to THIS run's session map. The rules themselves
+     live in src/tree-session-liveness.js, where the suite drives them for
+     real -- see the note at the top of that file for the six surfaces that
+     each used to answer this question their own way. */
+  const nodeSessionLive = node => sessionIsLive(node, sessionNodeIds)
+  const nodeBusy = node => nodeIsBusy(node, sessionNodeIds)
+  const nodeSessionEnded = node => sessionEndedWithApp(node, sessionNodeIds)
 
   /* The chat composer's ear on a node's status. Notified from refreshTree(),
      the choke point every status mutation already flows through — no second
@@ -1342,19 +2021,112 @@ export function computersView({ initialComputer = null, navigate }) {
      so a chat over a node that has plainly spoken never opens empty.
      Renderer memory only; the store stays the record. */
   function treeChatConfigFor(node) {
-    if (!node || !node.sessionId) return null
+    if (!node) return null
+    /* A NODE WITH NO SESSION STILL HAS A CONVERSATION, and it used to open
+     * nothing. See CHAT_NOT_RUNNING's note in src/fleet-tree-copy.js for the
+     * owner report this closes: a refused start leaves the node `failed` with
+     * a null session id, so on a build that cannot start the picked engine
+     * EVERY node is one of these and both chat surfaces were dead.
+     *
+     * What opens is the real record and nothing invented: the brief the person
+     * typed, the reply if one was ever kept, the actions that still apply, and
+     * a disabled message box carrying the node's OWN refusal sentence. No
+     * onSend, deliberately -- there is nothing to send to, and composerReason
+     * makes buildChat refuse `send` before its seeded simulator can be
+     * reached, so this chat cannot answer itself. */
+    if (!node.sessionId) {
+      const history = []
+      if (node.message) history.push({ who: 'you', text: node.message, at: null })
+      const kept = nodeReplies.get(node.id) || node.reply
+      if (kept) history.push({ who: 'agent', text: kept, at: null })
+      const reason = typeof node.statusNote === 'string' ? node.statusNote.trim() : ''
+      return {
+        title: treeNodeName(node),
+        subtitle: CHAT_NOT_RUNNING.subtitle,
+        roleKey: node.role,
+        history,
+        /* NEVER THE SIMULATOR, ON EITHER SURFACE. buildChat's `seed` defaults
+           to 3, and its rule is `history.length ? [] : CHAT.slice(start, seed)`
+           -- so a chat opened over an EMPTY history renders three canned
+           bubbles from the demonstration fixture. The compact card pinned
+           `seed: 0` in 5f394a4; the rail's Chat tab spreads this config and
+           pinned nothing, so it fabricated a conversation for any node whose
+           transcript was empty and then dropped it on the next rebuild. That
+           is half of "messages in history disappear" (owner, 2026-08-18). It
+           belongs on the config rather than on either mount, because a rule
+           kept in two places is a rule that drifts again. */
+        seed: 0,
+        composerReason: reason ? CHAT_NOT_RUNNING.refused(reason) : CHAT_NOT_RUNNING.neverStarted,
+        actions: () => chatActionRowsFor(node),
+        actionsNote: PALETTE_PANEL.footer,
+      }
+    }
     let history = sessionTranscripts.get(node.sessionId) || []
+    /* THE RECORD IS READ BACK, AND UNTIL NOW IT NEVER WAS.
+     *
+     * MEASURED ON A STAGED PACKAGED BUILD, 2026-08-18, three separate runs. A
+     * node with two real Codex turns holds five lines in the durable store --
+     * the brief, the tree context, "391", the second question, "81". Close the
+     * app, open it again, press the circle: BOTH surfaces drew two bubbles, the
+     * FIRST question above the SECOND answer. The conversation a person comes
+     * back to was not the conversation they had, and it did not merely lose
+     * lines -- it paired a question with an answer to a different question. On
+     * a research machine that is a fabricated result, not a rendering glitch.
+     *
+     * THE CAUSE WAS ONE MAP. `sessionTranscripts` is window memory, keyed by
+     * session id, and a new window has none. So `history` was empty for every
+     * node on every restart and the `!history.length` fallback below fired --
+     * that fallback composes `node.message` (the brief) with `node.reply` (the
+     * LATEST reply), which is the pairing that was observed. The fallback is
+     * right for what it was written for, a node whose conversation was never
+     * recorded; it was standing in for a record that exists.
+     *
+     * IT IS THE SAME READ THE RESUME PATH ALREADY MAKES -- resumeNodeSession()
+     * takes `transcriptStore.get(node.id).lines` and seeds the map with it, so
+     * the store was already trusted for the harder job of feeding an agent its
+     * own past. Reading it to SHOW a person that past is the smaller claim.
+     *
+     * THE MAP IS NOT SEEDED FROM HERE, deliberately. transcriptAppend() writes
+     * whatever the map holds back to the store, so seeding it under a session id
+     * this window never opened would put the read back on the write path, and
+     * one appended line could then rewrite the record. Reading is reading. */
+    if (!history.length) {
+      const saved = transcriptStore ? transcriptStore.get(node.id) : null
+      const savedLines = saved && Array.isArray(saved.lines) ? saved.lines : []
+      if (savedLines.length) history = savedLines
+    }
     if (!history.length) {
       history = []
       if (node.message) history.push({ who: 'you', text: node.message, at: null })
       const kept = nodeReplies.get(node.id) || node.reply
       if (kept) history.push({ who: 'agent', text: kept, at: null })
     }
+    /* A RECORD THAT LOST LINES SAYS SO, in the conversation, where the gap is.
+       A shortened excerpt shown as if it were the whole conversation is the
+       kind of quiet loss this whole area is being cured of. */
+    const savedRecord = transcriptStore ? transcriptStore.get(node.id) : null
+    if (savedRecord && savedRecord.trimmed > 0 && history.length) {
+      history = [{ who: 'note', text: TRANSCRIPT_TRIMMED_NOTE, at: null }, ...history]
+    }
     return {
       title: treeNodeName(node),
-      subtitle: 'your agent · live session',
+      /* A SESSION ID IS NOT A LIVE SESSION. This header said "live session"
+         over a node whose engine child was killed when the app last closed,
+         which is the sentence a person believed while typing into it. */
+      subtitle: nodeSessionLive(node) ? 'your agent · live session' : ENDED_SESSION.subtitle,
       roleKey: node.role,
-      history,
+      /* THE WORK, MERGED INTO THE WORDS. A chat opened halfway through a turn
+         has to show the commands already run, or a person watching a five-
+         minute turn sees an empty log and concludes the product is hung -- the
+         exact reading the owner reported. */
+      history: mergeActionsIntoHistory(markTreeContext(history, node.sessionId), node.sessionId),
+      /* BOTH SURFACES REGISTER THEMSELVES THROUGH THE SHARED CONFIG. The rail's
+         Chat tab and the compact card each spread this object, so neither can
+         be the one that forgot to. */
+      onReady: root => registerChatSurface(node.sessionId, root),
+      /* See the note on the other return: seed 0 on the CONFIG, so neither
+         surface can fall through to the demonstration excerpt. */
+      seed: 0,
       onSend: (text, handlers) => treeCardSend(treeStore ? treeStore.getNode(node.id) || node : node, text, handlers),
       onAttach: async () => {
         const bridge = typeof window === 'undefined' ? null : window.mcAgent
@@ -1391,6 +2163,17 @@ export function computersView({ initialComputer = null, navigate }) {
           const slash = parseSlashCommand(text)
           if (slash) {
             if (slash.kind === 'help' || slash.kind === 'unknown') return { ok: false, sentence: slash.sentence }
+            if (slash.kind === 'request') {
+              /* A rule typed while the agent is BUSY is exactly when it
+                 matters, and it must never queue as a message to the model.
+                 This contract is synchronous, so the filing runs async and
+                 the one-sentence answer lands on the page status line — the
+                 same surface the other busy-path commands report through. */
+              if (!slash.rest) return { ok: false, sentence: requestUsageSentence(slash.scope) }
+              void fileStandingRequestFor(treeStore ? treeStore.getNode(node.id) || node : node, slash)
+                .then(result => setOrgStatus(result.sentence, result.ok ? 'ok' : 'refuse'))
+              return { ok: true }
+            }
             if (slash.action === 'queue') {
               if (!slash.rest) return { ok: false, sentence: QUEUE_PANEL.emptyQueueCommand }
               return outboxEnqueue(node.sessionId, slash.rest)
@@ -1509,18 +2292,24 @@ export function computersView({ initialComputer = null, navigate }) {
         transcriptStore = createTranscriptStore({
           computerId,
           storage: safeTreeStorage(typeof window === 'undefined' ? null : window.localStorage),
+          /* A SAVE THAT LOSES ANYTHING SAYS SO. The store used to delete a
+             whole node's conversation to fit another node's save and return
+             true; it now gives up the oldest LINES instead, but "quieter" is
+             not "silent" -- on a research machine a lost transcript is lost
+             work, and a person is owed the sentence at the moment it happens.
+             The record itself also carries the count, so the chat that opens
+             it repeats the admission where the gap is. */
+          onLoss: () => setOrgStatus(TRANSCRIPT_TRIMMED_NOTE, 'warn'),
         })
       } catch { transcriptStore = null }
-      /* RE-LEARN WHOSE ANSWER IS WHOSE. sessionNodeIds used to be written at
-         exactly one line, inside submitCompose -- so leaving this view and
-         coming back orphaned every session this window still owned: the
-         listener's own guard dropped their events, the node never left
-         "starting", and the reply had nowhere to land. Measured 2026-08-13 on
-         the installed build. Every session-bearing node re-registers here; a
-         session that is genuinely gone just never emits again, which is the
-         same silence it had before and costs nothing. */
+      /* THE REPLIES COME BACK; THE SESSIONS DO NOT.
+         A saved reply is a fact about a node and is worth re-reading. A saved
+         session id is a fact about a PROCESS, and re-registering one here is
+         how a session killed at the last shutdown came back as live -- see the
+         note on RUN_SESSION_NODES. Sessions this run owns are already in that
+         map and need nothing from storage; sessions it does not own are gone,
+         and saying so is the point. */
       for (const node of treeStore.snapshot().nodes) {
-        if (node.sessionId) sessionNodeIds.set(node.sessionId, node.id)
         if (node.reply) nodeReplies.set(node.id, node.reply)
       }
     } catch {
@@ -1581,7 +2370,10 @@ export function computersView({ initialComputer = null, navigate }) {
    * nothing is coming from it, because nothing is running.
    */
   function treeAgentRecord(node) {
-    const running = node.status === 'running' || node.status === 'starting'
+    /* nodeBusy, not the saved status: 'enabled' is the graph's word for a live
+       agent, and painting it over a session that ended at the last shutdown is
+       how a dead node kept its blue circle. */
+    const running = nodeBusy(node)
     /* A node that HELD a session keeps its clock. Measured 2026-08-13: bornAt
        was granted only while running, and stoppedAt was hardcoded null -- so
        the moment a real turn completed, the agent that had just run, replied
@@ -1590,19 +2382,28 @@ export function computersView({ initialComputer = null, navigate }) {
        start time, and a terminal one carries its stop time (updatedAt is
        written on the same beat as the terminal status), so the circle shows
        the run's real duration instead of denying the run happened. */
-    const held = Boolean(node.sessionId)
-    const terminal = node.status === 'finished' || node.status === 'failed'
-    const bornAt = held ? Date.parse(node.createdAt) : NaN
-    const stoppedAt = held && terminal ? Date.parse(node.updatedAt) : NaN
+    /* AND THE CLOCK STOPS WHEN THE SESSION DOES, however it ended. A terminal
+       status alone left one gap and a person fell straight into it: a node
+       saved mid-turn loads back as 'starting', which is neither finished nor
+       failed, so it was granted a start time and no stop time -- a clock
+       ticking on the canvas over a process killed when the app last closed
+       (measured 2026-08-16, 0:00:33 climbing to 0:04:12 on a reopened
+       profile). treeNodeClock owns that rule now. */
+    const clock = treeNodeClock(node, sessionNodeIds)
+    const terminal = clock.terminal
     return {
       id: node.id,
       name: treeNodeName(node),
       role: node.role || 'default',
       declaredRole: node.role || 'default',
       parentId: node.parentId || null,
-      state: running ? 'enabled' : terminal ? node.status : 'not started',
-      bornAt: Number.isFinite(bornAt) ? bornAt : null,
-      stoppedAt: Number.isFinite(stoppedAt) ? stoppedAt : null,
+      /* The graph's state vocabulary is its own (enabled/disabled/finished/
+         failed); 'turn-failed' translates to its 'failed' colour here, while
+         the chip word — the words a person reads — comes from
+         treeNodeStatusWord via the context feed and stays distinct. */
+      state: running ? 'enabled' : terminal ? (node.status === 'turn-failed' ? 'failed' : node.status === 'interrupted' ? 'finished' : node.status) : clock.endedWithApp ? ENDED_SESSION.word : 'not started',
+      bornAt: clock.bornAt,
+      stoppedAt: clock.stoppedAt,
       tasksDone: null,
       failRate: null,
       provider: null,
@@ -1660,11 +2461,15 @@ export function computersView({ initialComputer = null, navigate }) {
      up saying "running" in one place and "starting" in another about the same
      circle. */
   function treeNodeStatusWord(node) {
-    if (node.status === 'running') return 'running'
-    if (node.status === 'starting') return 'starting'
-    if (node.status === 'failed') return 'did not start'
-    if (node.status === 'finished') return 'finished'
-    return 'not started yet'
+    /* A SAVED 'running' IS NOT A RUNNING AGENT — nodeSessionEnded first, so a
+       record orphaned by shutdown says so. The words themselves live in
+       NODE_STATUS_WORDS (src/fleet-tree-copy.js), one entry per status the
+       store accepts, because an if-chain here is where a failed TURN came to
+       read "did not start": the store gained a status the chain had no word
+       for, and the fallthrough lied. A shared table cannot fall through — the
+       suite checks every NODE_STATUSES entry has its word. */
+    if (nodeSessionEnded(node)) return ENDED_SESSION.word
+    return NODE_STATUS_WORDS[node.status] || NODE_STATUS_WORDS.draft
   }
 
   function treeContextFeed(agent) {
@@ -1680,7 +2485,7 @@ export function computersView({ initialComputer = null, navigate }) {
        (node.reply, persisted). That is what the chip shows. The unavailable
        sentence remains only as the last resort for a node with no message and
        no session — a shape addNode cannot produce. */
-    const running = node.status === 'starting' || node.status === 'running'
+    const running = nodeBusy(node)
     const streaming = node.sessionId ? sessionTurnText.get(node.sessionId) : null
     const reply = nodeReplies.get(node.id) || node.reply || null
     const asked = String(node.message || '').split('\n').map(line => line.trim()).find(Boolean) || null
@@ -1707,104 +2512,14 @@ export function computersView({ initialComputer = null, navigate }) {
     /* Every status mutation flows through here; the chat composers listening
        for their node's busy state hear it here and only here. */
     notifyNodeStatusListeners()
-    /* ONE subscription refreshes every pane: the split pane re-reads the same
-       store snapshot here rather than subscribing on its own, so the two
-       canvases can never disagree about what the fleet holds. */
-    if (splitGraph) {
-      splitGraph.computer = graphComputer()
-      splitGraph.refresh()
-    }
     refreshTreeSwitch()
   }
 
-  /* THE SPLIT PANE (owner defect 5's "split view for side by side viewing").
-     A second, VIEW-ONLY StaticTreeGraph over the same computer: it drills,
-     zooms and routes clicks to the same rail, but offers no chips, no slots,
-     no drags and no chat card — the probe (window.__mcGraph) and the edit
-     gestures stay with the first pane, whose harness contracts predate this
-     feature. OFF by default; the preference survives reloads in one
-     localStorage key (the same storage shape metrics-layout uses, not an
-     import of it). */
-  const SPLIT_PREF_KEY = 'mc.page2.split'
-  let splitGraph = null
-  let splitPane = null
-  function readSplitPref() {
-    try { return localStorage.getItem(SPLIT_PREF_KEY) === 'on' } catch { return false }
-  }
-  function writeSplitPref(on) {
-    try { on ? localStorage.setItem(SPLIT_PREF_KEY, 'on') : localStorage.removeItem(SPLIT_PREF_KEY) } catch { /* best effort */ }
-  }
-  function enableSplit() {
-    if (splitGraph || !graph || !computer) return
-    /* The second pane carries the SAME bar shape as the first — one nice bar
-       per split (owner, iteration 6). Its tools slot starts empty; the
-       pane's own graph parks its zoomer there, and buildPaneSwitch fills
-       the trees slot. */
-    splitPane = el(`<div class="graph-wrap glass graph-pane-2">
-      <div class="graph-bar"><div class="graph-bar-trees"></div><div class="graph-tools"></div></div>
-      <div class="graph-canvas-slot"><div class="computer-tree-canvas"></div></div>
-    </div>`)
-    graphWrap.insertAdjacentElement('afterend', splitPane)
-    root.querySelector('.comp-body')?.classList.add('is-split')
-    /* THE SECOND PANE IS A REAL TREE VIEW (owner, iteration 5: "split node
-       should use the exact same tree as the first ones setup"). Same slots,
-       same drags, same drops, same refusal sentences, same compose flow --
-       everything the first pane offers except the chip overlay, which stays
-       with pane one because window.__mcGraph and the screen-chip harness
-       contracts are singletons. Each pane keeps its own zoom, pan and drilled
-       root: that independence is the reason a split exists. */
-    splitGraph = new StaticTreeGraph(splitPane.querySelector('.computer-tree-canvas'), {
-      computer: graphComputer(),
-      screenChips: false,
-      emptySlots: liveMode === true,
-      edges: liveMode ? computer.graphEdges : null,
-      onReparent: liveMode ? handleReparent : null,
-      canDrag: agent => Boolean(agent.treeNode) || agent.role !== 'coordinator',
-      onDropRefused: (rule, detail) => {
-        const sentence = typeof MOVE_PANEL[rule] === 'function'
-          ? MOVE_PANEL[rule](detail.name, detail.parent ?? detail.target)
-          : null
-        if (sentence) setOrgStatus(sentence, 'warn')
-      },
-      onDetachToNewTree: (agentId) => {
-        if (!treeStore?.getNode(agentId)) {
-          setOrgStatus(MOVE_PANEL.mixed, 'refuse', { sticky: true })
-          return false
-        }
-        const out = treeStore.detachToNewTree(agentId)
-        if (!out.ok) {
-          setOrgStatus(out.problems[0] || MOVE_PANEL.notSaved, 'refuse', { sticky: true })
-          return false
-        }
-        setOrgStatus(SECOND_TREE.detached(treeNodeName(out.node)), 'ok')
-        return true
-      },
-      canExtend: graph?.canExtend || null,
-      onEmptyPress: graph?.onEmptyPress || null,
-      treeChat: agent => treeChatConfigFor(agent.treeNode),
-      onOpenControls: (agent) => {
-        if (agent?.treeNode) {
-          setOpenTarget(null)
-          showTreeNodeControls(agent.treeNode)
-          return
-        }
-        setOpenTarget(agent)
-        showControls(agent)
-      },
-      /* The second pane's own switcher rides its root changes too. */
-      onRootChange: () => refreshTreeSwitch(),
-    })
-    buildPaneSwitch(splitPane, splitGraph)
-    root.querySelector('.graph-split-btn')?.classList.add('on')
-  }
-  function disableSplit() {
-    splitGraph?.destroy()
-    splitGraph = null
-    splitPane?.remove()
-    splitPane = null
-    root.querySelector('.comp-body')?.classList.remove('is-split')
-    root.querySelector('.graph-split-btn')?.classList.remove('on')
-  }
+  /* The second view-only pane stood here until 2026-08-16. Owner: "lets throw
+     it away for now". The packaging lane's branch predates that directive, so
+     its copy of the pane's enable and disable helpers arrived in this merge
+     and is dropped here deliberately; notifyNodeStatusListeners() above is
+     theirs and stays, because the chat composers depend on it. */
 
   /* THE TREE SWITCHER (owner defect 5: "buttons to navigate between them").
      One button per tree, named by treeLabel — the first words the person typed
@@ -1812,53 +2527,97 @@ export function computersView({ initialComputer = null, navigate }) {
      two or more trees: a switcher over one tree is chrome with no decision in
      it. Rebuilt from listTrees() on every store change, so a tree created,
      detached or emptied updates the row without anyone remembering to. */
-  /* A pane's own tree switcher: the same seg the main tools strip carries,
-     built against THAT pane's graph so each side of a split can look at a
-     different tree -- which is the entire point of the split. */
-  function buildPaneSwitch(pane, paneGraph) {
-    if (!pane || !paneGraph || !treeStore) return
-    let host = pane.querySelector('.graph-pane-switch')
-    const trees = treeStore.listTrees()
-    if (trees.length < 2) { host?.remove(); return }
-    if (!host) {
-      host = document.createElement('div')
-      host.className = 'seg graph-tree-switch graph-pane-switch'
-      host.setAttribute('role', 'group')
-      host.setAttribute('aria-label', 'Trees in this pane')
-      /* Into the pane bar's trees slot — the one place that scrolls. */
-      ;(pane.querySelector('.graph-bar-trees') || pane).prepend(host)
-    }
-    host.innerHTML = ''
-    const current = paneGraph.rootId ? treeStore.getNode(paneGraph.rootId)?.treeId ?? null : null
-    const all = document.createElement('button')
-    all.type = 'button'
-    all.textContent = 'Every tree'
-    all.classList.toggle('on', current === null)
-    all.addEventListener('click', () => { paneGraph.clearRoot(); buildPaneSwitch(pane, paneGraph) })
-    host.appendChild(all)
-    for (const tree of trees) {
-      const button = document.createElement('button')
-      button.type = 'button'
-      button.textContent = treeStore.treeLabel(tree.id)
-      button.classList.toggle('on', current === tree.id)
-      button.addEventListener('click', () => {
-        const treeRoot = treeStore.rootOf(tree.id)
-        if (treeRoot) paneGraph.setRoot(treeRoot.id)
-        buildPaneSwitch(pane, paneGraph)
-      })
-      host.appendChild(button)
-    }
+  /* Filing a whole scope under a research project: the selected tree files
+     each of its sessions; "Every tree" writes the live assign-all rule that
+     also covers sessions started later. One shared control (the same factory
+     the rail and the research page use), mounted once the projects are read. */
+  /* IT LIVES ON THE RAIL NOW, NOT IN THE TOOL STRIP. Mounted into
+     `.graph-tools`, this control put "No research projects exist yet. Create one
+     on the research page first." between Edit and the zoom buttons -- a sentence
+     about a different page, in the row of controls for this one, and the owner's
+     first complaint about the bar. Filing is a setting about the whole fleet, so
+     it sits beside Session profiles and Roles, which are the other two.
+
+     NOT MOUNTED UNTIL THE SERVICE HAS ANSWERED. `researchService` is null while
+     the read is in flight, and an empty project list means "there are none" --
+     mounting early would print that sentence about a service nobody has asked
+     yet. The slot holds a waiting line until then and this replaces it. */
+  function mountResearchScopeControl() {
+    const slot = root.querySelector('[data-research-scope-slot]')
+    if (!slot || slot.querySelector('[data-assign-control]') || !liveMode || !researchService) return
+    slot.innerHTML = ''
+    slot.appendChild(createAssignmentControl({
+      projects: researchService?.ok ? researchService.projects : [],
+      unavailableReason: researchService && !researchService.ok ? researchService.reason : null,
+      label: 'File this scope under',
+      onAssign: async projectId => {
+        const currentTreeId = graph?.rootId ? treeStore?.getNode(graph.rootId)?.treeId ?? null : null
+        if (currentTreeId === null) {
+          const result = await researchAssignments.assign(projectId, 'all')
+          if (result.ok && !result.sentence) result.sentence = 'Every session on this computer is filed there, including ones started later.'
+          return result
+        }
+        const sessions = (treeStore?.listNodes(currentTreeId) || []).filter(node => node.sessionId)
+        if (sessions.length === 0) {
+          return { ok: false, sentence: 'This tree has no attached sessions to file yet.' }
+        }
+        let filed = 0
+        let pending = false
+        for (const node of sessions) {
+          const result = await researchAssignments.assign(projectId, 'observed', node.sessionId)
+          if (result.ok) { filed += 1; pending = pending || result.pending === true }
+        }
+        return {
+          ok: true,
+          sentence: `${filed} session${filed === 1 ? '' : 's'} filed.${pending ? ' The research service has not heard some of them yet.' : ''}`,
+        }
+      },
+    }))
+  }
+
+  if (liveMode) {
+    readResearchSnapshot().then(result => {
+      if (destroyed) return
+      researchService = result
+      if (result.ok) {
+        researchAssignments.adoptServiceRows(result.assignments)
+        researchAssignments.flushPending()
+      }
+      mountResearchScopeControl()
+    })
   }
 
   function refreshTreeSwitch() {
-    if (splitPane && splitGraph) buildPaneSwitch(splitPane, splitGraph)
-    /* The main pane's own trees slot — never the tools cluster: the slot is
-       the one section of the bar that scrolls, so a computer with many trees
-       slides its buttons sideways instead of squeezing the strip over the
-       title (the iteration-6 bar complaint). */
-    const slot = graphWrap.querySelector('.graph-bar-trees')
-    if (!slot) return
-    let host = slot.querySelector('.graph-tree-switch')
+  /* A per-pane tree switcher arrived here in the packaging lane's merge; its
+     only caller was the second pane. That pane went out on the owner's
+     2026-08-16 direction, so its switcher goes with it rather than sitting
+     unreferenced. rail-chrome.test.mjs scans this file for the pane's own
+     identifiers, which is why none of them are named here.
+
+     THE SECOND TREE KILLED THE WHOLE PAGE. Measured on the owner's own installed
+     build, 2026-08-17, with real mouse input: the pane removal deleted this
+     function's `const slot = ...` declaration and left `slot.prepend(host)`
+     behind. refreshTreeSwitch() runs at mount, so on any computer holding TWO
+     OR MORE trees the ReferenceError aborted the entire computers view before
+     it drew anything -- no tree, no nodes, no chips, no empty slot, no zoom
+     controls. The page reported "the fleet record could not be fetched: slot is
+     not defined" and nothing on it could be pressed, which is why BOTH "agents
+     do not launch" and "the chat bubbles do not open" were the same defect.
+     The `trees.length < 2` guard below is why it hid: it is invisible until the
+     person owns a second tree, and pressing the empty slot beside an existing
+     top-level agent silently creates one. The owner's saved state records his
+     second tree appearing at 16:12:38Z; his app was dead from that minute.
+
+     Both lookups were also aimed at the wrong element. `.graph-bar-trees` and
+     `.graph-tools` are SIBLING slots inside `.graph-bar` (see the markup around
+     :737), and board.css:870 styles the switcher as
+     `.graph-bar-trees .graph-tree-switch` -- so reading and writing it through
+     `.graph-tools` would have produced an unstyled switcher in the wrong place
+     even once the crash was gone. */
+  const slot = root.querySelector('.graph-bar-trees')
+  if (!slot) return
+  let host = slot.querySelector('.graph-tree-switch')
+
     const trees = treeStore ? treeStore.listTrees() : []
     if (trees.length < 2) {
       host?.remove()
@@ -1920,6 +2679,66 @@ export function computersView({ initialComputer = null, navigate }) {
     return { id: node.id, name: treeNodeName(node) }
   }
 
+  /* The three facts this owes a person, in the order they need them: what is
+     off, that turning it on starts nothing by itself, and where the switch is.
+     The first sentence is shared with the agent page's switched-off surface,
+     which is the other place this same flag is explained. */
+  /* SHORT ON PURPOSE, AND THE COMMENT IS SHORT FOR A REASON TOO: the gate that
+     guards this sentence (start-control-flag-gates-the-tree.test.mjs) reads a
+     700-character window from this function, so a long note here pushes the
+     code out of its own test. The rest of the reasoning is in the commit.
+
+     Four sentences became three (owner, on this panel: "messy"). What went was
+     the JOURNEY -- "Settings -> Write -> Run an agent session" -- spelled out in
+     prose directly above a button that does it in one press. Settings is still
+     named, because a refusal that names nowhere to change a thing is a dead end
+     and that gate is right. */
+  function startControlOffReason() {
+    return `${startControlOffBecause()} Turning it on starts nothing by itself, it just puts the Start control back. You can change this later in Settings.`
+  }
+
+  /* THE ONE-PRESS WAY OUT, offered only for the one reason a press can undo.
+   *
+   * Owner's rule, and it is the reason this is a control and not a default:
+   * his recorded answer stays off until HE presses. So nothing here writes
+   * anything -- composeUnavailableAction only DESCRIBES a press, and the write
+   * happens inside `run`, which is the click handler and nowhere else.
+   *
+   * It answers null for every other absence. A browser with no application
+   * behind it and a saved forest that would not open are both real reasons the
+   * panel is switched off, and neither is a thing this button could change; a
+   * control that cannot work is worse than the sentence alone.
+   *
+   * THE SAME WRITE THE SETTINGS CONTROL MAKES, not a second one:
+   * setWriteEnabled is the single writer of these rows (src/write-flags.js),
+   * which is what makes the two surfaces incapable of disagreeing. */
+  function composeUnavailableAction(detail) {
+    if (!liveMode || treeStoreProblem) return null
+    if (isWriteEnabled(START_CONTROL_FLAG)) return null
+    return {
+      label: START_CONTROL_ON.label,
+      run: () => {
+        /* RECORDED BEFORE THE WRITE, because the write is what destroys this
+           view. See composeToRestore: the announcement is synchronous, the
+           re-render is a microtask behind it, and by the time this function
+           returns there may be no panel left to answer. */
+        composeToRestore = detail || null
+        setWriteEnabled(START_CONTROL_FLAG, true)
+        /* READ BACK, never assumed. The flag store can refuse -- a browser with
+           storage switched off keeps the old answer -- and reporting a switch
+           that did not move would reopen the panel with a live Start control
+           over a computer that still refuses every start. */
+        if (!isWriteEnabled(START_CONTROL_FLAG)) { composeToRestore = null; return false }
+        /* AND THE WHOLE QUESTION IS ASKED AGAIN, not just this half of it.
+           composeUnavailableReason() checks the flag BEFORE the bridge, so a
+           page open in a browser was showing the flag's sentence over a second,
+           equally real absence. Handing that one back means the panel says what
+           is true after the press instead of what was true before it. */
+        return composeUnavailableReason() || true
+      },
+    }
+  }
+
   /* WHY THE PANEL IS NEVER WITHHELD.
      A press is a question, and every press gets an answer in the place the
      person is looking. When there is no installed application behind this page,
@@ -1931,6 +2750,23 @@ export function computersView({ initialComputer = null, navigate }) {
   function composeUnavailableReason() {
     if (!liveMode) return EXAMPLE_BOARD_TEXT
     if (treeStoreProblem) return treeStoreProblem
+    /* THE SWITCH THAT DECIDES WHETHER THIS PRODUCT MAY START AN AGENT, asked
+       on the surface that actually starts them.
+     *
+     * Setup's own words for the cautious answer are "nothing here will start an
+     * agent", and it turns this flag off to make that true. It was true of the
+     * agent page, which asks -- and only of the agent page. THIS page never
+     * asked: the dashed circle opened its panel, "Start this agent" went all
+     * the way to the engine, and what came back was an ENGINE refusal about
+     * Codex, on a computer whose owner had been promised nothing here would
+     * start anything. Measured on the packaged build 2026-08-16 on a fresh
+     * profile that answered "Nothing yet -- let me look around first".
+     *
+     * A promise the product makes in setup is checked where the promise can be
+     * broken. The panel still opens and still says why -- see the note above on
+     * why the panel is never withheld -- and the sentence names the switch, so
+     * a person who wants it can find it. */
+    if (!isWriteEnabled(START_CONTROL_FLAG)) return startControlOffReason()
     const bridge = typeof window === 'undefined' ? null : window.mcAgent
     if (!bridge || typeof bridge.start !== 'function') return START_NEEDS_APP_TEXT
     /* THE LIMITS ARE NOT RE-ASKED HERE. src/fleet-trees.js refuses a tree past
@@ -1941,8 +2777,216 @@ export function computersView({ initialComputer = null, navigate }) {
     return ''
   }
 
+  /* ASK THE SHELL WHICH ENGINES START, ONCE PER MOUNT.
+   *
+   * The renderer used to answer this itself, from a frozen ['codex'] in
+   * src/fleet-tree-copy.js. The shell's tier gate now opens on the payload
+   * genuinely carrying an engine -- a require() that must export a start
+   * function -- so a build WITH the Claude engine would start a Claude tier
+   * while the menu went on saying it could not. A menu that contradicts the
+   * button is worse than either answer alone.
+   *
+   * Read once at mount rather than per press: the answer is a property of the
+   * installed payload, which cannot change while this page is open, and a round
+   * trip on every press of an empty node would be paid for nothing. Every
+   * failure -- no bridge, no channel, a rejected call, an unparseable reply --
+   * leaves the pessimistic default in place, because none of them learned
+   * anything about what this copy can start.
+   */
+  /* THE FOLDER A TREE STARTS IN, ASKED WHERE THE PERSON STARTS THE TREE.
+   *
+   * Owner, 2026-08-16: "when a user starts a tree they should select a folder,
+   * they can have a default folder, where the agents spawn"; and again on
+   * 2026-08-19, having gone looking for it: "what happened to sessions and
+   * choosing a folder for each tree and such?"
+   *
+   * NOTHING NEW IS BUILT HERE. The named folders already exist in the main
+   * process (mcAgent.profiles(), created through the OS dialog by the fleet
+   * rail's own panel), a tree already carries one (`setTreeProfile`), and every
+   * start already sends it (`profileId`, below). The only thing missing was the
+   * QUESTION at the moment a tree is created. This reads the same list once per
+   * mount, for the same reason readStartableTiers() does: it is a property of
+   * this computer, not of the press.
+   *
+   * A REFUSAL IS AN EMPTY LIST, NEVER A THROWN ERROR. With no bridge, or a
+   * bridge that will not answer, the panel draws its "no folders set up yet"
+   * sentence and a start still works -- in the product's own workspace, exactly
+   * as it did before folders existed. */
+  let composeFolders = []
+  async function readComposeFolders() {
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    if (!bridge || typeof bridge.profiles !== 'function') return
+    let answer = null
+    try { answer = await bridge.profiles() } catch { answer = null }
+    if (destroyed) return
+    composeFolders = answer && answer.ok && Array.isArray(answer.profiles)
+      ? answer.profiles.map(profile => ({ id: profile.id, name: profile.name }))
+      : []
+    if (composePanel?.isOpen?.()) composePanel.open({ folders: composeFolders })
+  }
+
+  /* WHERE A START THAT NAMES NO FOLDER REALLY RUNS, ASKED OF THE PROCESS THAT
+   * DECIDES IT.
+   *
+   * shell/main.cjs resolves a start with no profileId through
+   * chosenWorkspaceCwd(): the folder the person answered the setup question
+   * with, and <userData>\workspace only on a machine where nobody was ever
+   * asked. The panel above was still telling everyone the second answer.
+   * Measured on the packaged build, two runs, same panel sentence:
+   *
+   *   finished setup, took the suggested folder   signed record cwd = that folder
+   *   skipped setup, nobody was ever asked        signed record cwd = null
+   *
+   * `chosen` IS THE GATE, and it is the same gate the shell uses -- setup picks
+   * a default folder silently before the question is shown, so the mere presence
+   * of a root proves nothing about whether anyone answered. Anything less than a
+   * clean, available, chosen reading leaves this empty, which is exactly the
+   * sentence this panel drew before the setup folder was honoured.
+   *
+   * Read ONCE per mount, like readComposeFolders() and readStartableTiers():
+   * it is a property of this computer, not of the press. */
+  let composeDefaultFolder = ''
+  async function readComposeDefaultFolder() {
+    const bridge = typeof window === 'undefined' ? null : window.mcSetup
+    if (!bridge || typeof bridge.workspaceState !== 'function') return
+    let answer = null
+    try { answer = await bridge.workspaceState() } catch { answer = null }
+    if (destroyed) return
+    const roots = answer && answer.ok === true && answer.available === true && answer.chosen === true
+      && Array.isArray(answer.roots) ? answer.roots : []
+    const first = roots.find(entry => typeof entry === 'string' && entry.trim() !== '')
+    composeDefaultFolder = first ? first.trim() : ''
+    if (composePanel?.isOpen?.()) composePanel.open({ defaultFolder: composeDefaultFolder })
+  }
+
+  /* Remembered posture, not a setting -- the same rule src/settings-presentation.js
+     states for its own open-groups memory: it "grants nothing, gates nothing, and
+     the settings footer does not count it". This decides which row a menu OPENS
+     on; the person overrides it in the same gesture, and a folder they have since
+     removed simply stops matching a row. */
+  const LAST_FOLDER_KEY = 'mc.compose.last-folder'
+  const lastComposeFolder = () => {
+    try { return localStorage.getItem(LAST_FOLDER_KEY) || null } catch { return null }
+  }
+  const rememberComposeFolder = profileId => {
+    try {
+      if (profileId) localStorage.setItem(LAST_FOLDER_KEY, profileId)
+      else localStorage.removeItem(LAST_FOLDER_KEY)
+    } catch { /* session-only is still a real change */ }
+  }
+
+  /* THE SECOND REASON A ROW CANNOT START, WHICH THE MENU WAS PROMISING TO SAY.
+   *
+   * The panel's own help reads "Luna is a good default. Each row says so if this
+   * copy cannot start it." That is a GUARANTEE, and a person who reads it stops
+   * looking -- which is why it is worse than no warning at all.
+   *
+   * startableTiers() answers only "does this payload carry a launcher": the
+   * shell's resolveStartTier() returns the row for any codex tier
+   * unconditionally, so it structurally cannot see a missing sign-in. Measured
+   * on the packaged build from a cold install, one machine, one moment: presence
+   * said codex signedIn "no", startableTiers listed luna/terra/sol, the rows said
+   * nothing, and the press refused with "This session needs a Codex sign-in".
+   * Re-reading the probe after the press -- a completed round trip -- changed
+   * nothing, and flipping presence to "yes" drew byte-identical rows.
+   *
+   * NOTHING NEW IS PROBED HERE. mcProviders.presence() already ships, is already
+   * on this preload, and src/setup-review-readiness.js already asks it this exact
+   * question one screen earlier. The only thing missing was this panel asking.
+   * Only a PROVEN negative is used, and signedOutProviderIds() owns that
+   * judgement -- see shell/provider-cli-presence.cjs, where only Codex treats a
+   * missing sign-in file as proof, "because this shell already refuses a start on
+   * exactly that basis".
+   *
+   * READ AT MOUNT AND AGAIN ON EVERY PANEL OPEN, which is a correction to what
+   * stood here. This said "read once per mount ... a person who signs in and
+   * comes back gets a fresh answer because the view is rebuilt", and that is
+   * true only of a person who NAVIGATES AWAY and returns. The refusal this whole
+   * warning exists to pre-empt ends "then come back to this screen", and the
+   * literal reading of that -- stay on the board, run the command, press the
+   * node again -- rebuilds no view.
+   *
+   * MEASURED ON THE PACKAGED BUILD, one moment, both sides read together: with
+   * the sign-in restored while the board stayed open, presence answered codex
+   * signedIn:'yes' and the reopened menu still drew "nobody is signed in to
+   * Codex on this computer". A stale warning is a FALSE sentence, and it is the
+   * more expensive direction of the two: it tells someone who has just done the
+   * work that it did not take.
+   *
+   * IT IS CHEAP ENOUGH TO ASK AGAIN, which is why this is the fix rather than a
+   * cache invalidation. shell/provider-cli-presence.cjs spawns no child and
+   * reads no byte of any credential -- it is a handful of fs.statSync calls --
+   * and it deliberately caches nothing, "a person who signs in and comes back to
+   * this screen must see the new answer, and a cache is how they would not".
+   * `signedOutProviders` is declared with startableTierIdList, above. */
+  function repaintTierRows() {
+    startableTierChoices = tierChoicesFor(startableTierIdList, signedOutProviders, noProgramProviders)
+    /* A panel already on screen is re-opened over the same node so its menu
+       carries the answer, rather than leaving the person reading rows that were
+       drawn before the shell replied. */
+    if (composePanel?.isOpen?.()) composePanel.open({ tiers: startableTierChoices })
+  }
+
+  async function readStartableTiers() {
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    if (!bridge || typeof bridge.startableTiers !== 'function') return
+    let reply
+    try { reply = await bridge.startableTiers() } catch { reply = null }
+    if (destroyed) return
+    startableTierIdList = startableTierIds(reply)
+    repaintTierRows()
+  }
+
+  async function readProviderSignIn() {
+    const bridge = typeof window === 'undefined' ? null : window.mcProviders
+    if (!bridge || typeof bridge.presence !== 'function') return
+    let reply
+    try { reply = await bridge.presence() } catch { reply = null }
+    if (destroyed) return
+    signedOutProviders = signedOutProviderIds(reply)
+    noProgramProviders = notInstalledProviderIds(reply)
+    repaintTierRows()
+  }
+
+  /* WHAT A SESSION STARTED FROM THIS PANEL WOULD BE ALLOWED TO DO.
+   *
+   * THE DEFECT THIS CLOSES, measured end to end on a scratch install at the
+   * RECOMMENDED permission level: a person walked the whole walkthrough, pressed
+   * an empty node here, wrote "create a file in this folder", and the operating
+   * system refused the write. The only thing on screen about it was the agent's
+   * own prose. src/agent-confinement-copy.js has owned the honest sentence for
+   * that state since it was written, and src/agent-session.js renders it under
+   * the agent page's Start button -- but this panel is the Start button a
+   * first-time person actually reaches, and it said nothing at all.
+   *
+   * READ ONCE PER MOUNT, exactly like readStartableTiers() and
+   * readComposeFolders() above, and for the same reason: the recorded permission
+   * level is a property of this computer, not of the press.
+   *
+   * A BRIDGE THAT CANNOT ANSWER IS STILL ANSWERED. startControlLine() collapses
+   * an absent or unreadable reading to "this page cannot tell", never to
+   * something reassuring -- so the one case this must not produce is the one it
+   * structurally cannot. It is the SAME channel and the SAME function the agent
+   * page uses, so the two Start controls cannot describe one computer two ways.
+   */
+  let composeConfinementLine = ''
+  async function readComposeConfinement() {
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    if (!bridge || typeof bridge.confinement !== 'function') return
+    let reading = null
+    try { reading = await bridge.confinement() } catch { reading = null }
+    if (destroyed) return
+    composeConfinementLine = startControlLine(reading)
+    if (composePanel?.isOpen?.()) composePanel.open({ confinementLine: composeConfinementLine })
+  }
+
   function openComposeFor(detail) {
     if (destroyed || !computer) return
+    /* ASKED AGAIN HERE, because the sign-in is the one input that changes while
+       this view stays mounted -- see readProviderSignIn(). It settles after the
+       panel is built and repaints the menu over the same node, exactly as the
+       tier list and the confinement line already do. */
+    void readProviderSignIn()
     syncTreeStore()
     const parent = composeParentFor(detail)
     const unavailable = composeUnavailableReason()
@@ -1962,15 +3006,43 @@ export function computersView({ initialComputer = null, navigate }) {
          when the words change, and its refusals name the button by its real
          name. */
       unavailableReason: unavailable,
+      /* AND THE WAY OUT OF IT, when this page owns one. See
+         composeUnavailableAction(): it is offered for the switched-off flag and
+         for nothing else, and it writes only when pressed. */
+      unavailableAction: composeUnavailableAction(detail),
+      /* WHICH ENGINES THIS COPY CAN REALLY START, asked of the shell rather
+         than assumed by the renderer. See startableTiersNow() below. */
+      tiers: startableTierChoices,
+      /* THE FOLDERS, FROM THE ONE STORE THAT HOLDS THEM. Same list the fleet
+         rail's profile panel reads and the tree rail's "Works in" menu is
+         built from -- read once at mount by readComposeFolders(), never a
+         second register of folders kept beside the first. */
+      folders: composeFolders,
+      folderSelectedId: lastComposeFolder(),
+      /* AND WHERE "NAME NO FOLDER" ACTUALLY LANDS ON THIS COMPUTER — see
+         readComposeDefaultFolder(). Asked of the shell for the same reason the
+         engine rows and the confinement line are: only the main process knows,
+         and the renderer must not guess. */
+      defaultFolder: composeDefaultFolder,
+      /* WHAT THE SESSION THIS BUTTON STARTS MAY DO -- see
+         readComposeConfinement(). Empty until that read answers, and empty
+         renders nothing rather than something comfortable. */
+      confinementLine: composeConfinementLine,
       onSubmit: draft => submitCompose(draft, detail),
       onCancel: () => closeComposePanel(),
     })
     if (!composePanel) return
     activateRail(composePage)
-    /* A press made with the keyboard puts the caret where the person is going
-       next; a pointer press leaves focus alone, because moving it out from under
-       a mouse is how a page steals a click. */
+    /* Focus lands INSIDE the panel either way, or the panel's root-level
+       Escape handler is deaf: measured on the packaged build 2026-08-20
+       (order-drive), a mouse-opened panel kept focus on the page behind it and
+       Escape -- the panel's own documented cancel -- did nothing until a field
+       was clicked. A key press still puts the caret in the first field, where
+       that person is going next; a pointer press focuses the panel's ROOT
+       instead, so no caret jumps into a field out from under the mouse (the
+       harm the old keyboard-only condition guarded against). */
     if (detail?.via === 'keyboard') composePanel.focus()
+    else composePanel.focusRoot()
   }
 
   /* ONE SUBMIT, FOUR OUTCOMES, AND THE MODEL TELLS THE TRUTH IN ALL OF THEM.
@@ -1995,6 +3067,13 @@ export function computersView({ initialComputer = null, navigate }) {
   async function submitCompose(draft, detail) {
     const store = treeStore
     if (!store) return { ok: false, message: treeStoreProblem || START_NEEDS_APP_TEXT }
+    /* ASKED AGAIN HERE, AND THIS IS THE ONE THAT COUNTS. The panel's disabled
+       fields are what a person sees; this is what actually stops a start. The
+       flag can be turned off in Settings while this panel stands open, and a
+       gate that only paints is not a gate. Nothing is created and nothing is
+       sent: the refusal comes before addNode, so a switched-off computer does
+       not accumulate half-started agents. */
+    if (!isWriteEnabled(START_CONTROL_FLAG)) return { ok: false, message: startControlOffReason() }
 
     const parent = composeParentFor(detail)
     const added = store.addNode({
@@ -2012,6 +3091,19 @@ export function computersView({ initialComputer = null, navigate }) {
     if (!added.ok) return { ok: false, message: added.problems[0] || START_REFUSAL.noReasonGiven }
 
     const node = added.node
+    /* THE FOLDER THE PERSON CHOSE BECOMES THE TREE'S FOLDER, and it has to
+       happen HERE -- between the node existing (so there is a treeId) and the
+       start reading `treeProfile(node.treeId)` a few lines below.
+       ONLY WHEN A TREE WAS JUST CREATED. `parent` null is what made addNode
+       mint a tree; a start UNDER an existing agent joins a tree that already
+       has a folder, and writing this there would let one nested start re-point
+       every agent in that tree. The compose panel draws no folder menu in that
+       case, so draft.profileId is null anyway -- this condition is the second
+       lock on the same door, on the side that owns the store. */
+    if (!parent && draft.profileId) {
+      store.setTreeProfile(node.treeId, draft.profileId)
+    }
+    if (!parent) rememberComposeFolder(draft.profileId || null)
     /* The draft is on the canvas BEFORE the bridge is called. A start takes
        seconds, and a person who pressed a circle and sees nothing appear will
        press it again — which is how two agents get started for one job. */
@@ -2024,8 +3116,26 @@ export function computersView({ initialComputer = null, navigate }) {
        presses a second circle for the same job. */
     setOrgStatus(startingLine(draft.role), 'busy', { sticky: true })
 
+    /* THE NODE IS BOUND TO ITS SESSION BEFORE ITS MESSAGE IS SENT, and every
+       line of this block used to sit after the send. See the note on
+       startAgentForNode's `onSessionOpen`: a turn whose first words arrive
+       before the send is answered found no binding here and was dropped whole,
+       so the node stayed at `running` for as long as anyone waited. Nothing
+       here is optimistic -- the session is open and named by the time this
+       runs; only the message is still on its way. */
+    let attachProblem = null
+    /* WHERE THIS AGENT STANDS IN THE TREE, SENT WITH THE JOB.
+     *
+     * Owner, 2026-08-18: "This one is not realizing and not able to contact its
+     * manager." The tree drew Default under Manager and the session was told
+     * neither fact, so the agent asked the person for "the manager's
+     * identifier". The names here are treeNodeName's, which is to say the words
+     * on the circles -- an agent that answers "Manager: ..." is naming what the
+     * person can see, never an internal id. */
+    const briefContext = briefContextFor(node, parent)
+    const startText = composeNodeBrief({ message: draft.message, ...briefContext })
     const result = await startAgentForNode({
-      text: draft.message,
+      text: startText,
       surface: 'fleet-tree',
       tier: draft.tier,
       effort: draft.effort,
@@ -2033,6 +3143,47 @@ export function computersView({ initialComputer = null, navigate }) {
          per-tree onboarding, which is the whole point of profiles. Null means
          the product's own workspace, exactly as before profiles existed. */
       profileId: treeStore && node.treeId ? treeStore.treeProfile(node.treeId) : null,
+      requestKeys: nodeRequestKeys(node),
+      onSessionOpen: ({ sessionId, threadId }) => {
+        sessionNodeIds.set(sessionId, node.id)
+        sessionEfforts.set(sessionId, draft.effort || tierEffortOf(draft.tier))
+        if (threadId) sessionThreadIds.set(sessionId, threadId)
+        /* THE FIRST THING SAID IS RECORDED LIKE EVERY OTHER THING SAID, and
+         * until now it was the one turn that was not.
+         *
+         * Owner, 2026-08-18: "Sometimes the messages in history disappear."
+         * transcriptAppend was called from three places -- a typed message, a
+         * drained queued message, and a completed turn -- and the compose
+         * panel's brief was none of them. It survived on screen only through
+         * treeChatConfigFor's `!history.length` fallback, and the FIRST reply
+         * ended that: one appended agent line made the transcript non-empty,
+         * the fallback stopped firing, and the person's own opening question
+         * vanished from the conversation for good. The durable excerpt was
+         * written from the same lines, so a resumed agent was handed a
+         * conversation with no brief in it either.
+         *
+         * TWO ENTRIES, NOT ONE. The person's words stand alone in the first,
+         * exactly as typed. What the product added about the tree is the
+         * second, visible and separate -- this page does not send an agent
+         * something it will not show. `who: 'you'` for both, which is the same
+         * slot the resume marker already uses: it is the side of the
+         * conversation these words were sent from, not a claim about who typed
+         * them. Ordered before any reply can arrive, because this runs before
+         * the send. */
+        if (draft.message) transcriptAppend(sessionId, { who: 'you', text: draft.message, at: Date.now() })
+        transcriptAppend(sessionId, { who: 'you', text: nodeManagerContext(briefContext), at: Date.now() })
+        /* First running session of the window: ask the engine what it offers,
+           so every depth menu after this is the provider's list rather than
+           ours. */
+        readEngineCatalog(sessionId)
+        const attached = store.attachSession(node.id, sessionId)
+        if (!attached.ok) {
+          attachProblem = attached.problems[0] || null
+          return
+        }
+        store.setNodeStatus(node.id, 'running', { note: '' })
+        refreshTree()
+      },
     })
     if (destroyed) return { ok: false, message: result.sentence || START_NEEDS_APP_TEXT }
 
@@ -2060,24 +3211,15 @@ export function computersView({ initialComputer = null, navigate }) {
       return { ok: false, message: panelSentence }
     }
 
-    sessionNodeIds.set(result.sessionId, node.id)
-    sessionEfforts.set(result.sessionId, draft.effort || tierEffortOf(draft.tier))
-    if (result.threadId) sessionThreadIds.set(result.sessionId, result.threadId)
-    /* First running session of the window: ask the engine what it offers, so
-       every depth menu after this is the provider's list rather than ours. */
-    readEngineCatalog(result.sessionId)
-    const attached = store.attachSession(node.id, result.sessionId)
-    if (!attached.ok) {
+    if (attachProblem !== null) {
       /* The session is real and the tree could not record it. Saying "started"
          would leave a person with an agent they cannot find from this page. */
-      const sentence = `${attached.problems[0] || 'This tree could not record the session that was started.'} Your agent is running. Reload this page to pick it up again.`
+      const sentence = `${attachProblem || 'This tree could not record the session that was started.'} Your agent is running. Reload this page to pick it up again.`
       store.setNodeStatus(node.id, 'failed', { note: statusNote(sentence) })
       refreshTree()
       setOrgStatus(sentence, 'refuse', { sticky: true })
       return { ok: false, message: sentence }
     }
-    store.setNodeStatus(node.id, 'running', { note: '' })
-    refreshTree()
     /* THE AGENT RAN AND THE TREE WAS NOT SAVED IS ITS OWN OUTCOME, and reporting
        it as a plain success would be the worst kind of true: the session really
        is running, and the drawing of it is on screen and nowhere else. The store
@@ -2161,7 +3303,13 @@ export function computersView({ initialComputer = null, navigate }) {
           setOrgStatus(out.problems[0] || MOVE_PANEL.notSaved, 'refuse', { sticky: true })
           return false
         }
-        setOrgStatus(SECOND_TREE.detached(treeNodeName(out.node)), 'ok')
+        /* `unchanged` means the store understood the gesture and had nothing
+           to do -- the node was already the sole root of its own tree. Saying
+           "is now its own tree" there told a person a move had happened. */
+        setOrgStatus(
+          out.unchanged ? SECOND_TREE.alreadyOwnTree(treeNodeName(out.node)) : SECOND_TREE.detached(treeNodeName(out.node)),
+          'ok',
+        )
         return true
       },
       /* The compact card: real config or nothing. A node without a session has
@@ -2185,7 +3333,7 @@ export function computersView({ initialComputer = null, navigate }) {
         setOpenTarget(agent)
         showControls(agent)
       },
-      onRootChange: (next, trail) => { renderCrumb(next, trail); refreshTreeSwitch() },
+      onRootChange: (next, trail) => { renderCrumb(next, trail); refreshTreeSwitch(); railFollowsCanvas(next) },
       onOverridesChange: syncResetButton,
       /* THE OFFER, AND ONLY WHERE IT CAN BE HONOURED. Empty nodes are drawn on
          the board that reads this computer and are absent from the example one,
@@ -2216,6 +3364,21 @@ export function computersView({ initialComputer = null, navigate }) {
     })
     graph.onDensity = (dense) => hintElement.classList.toggle('show', dense)
     graph.updateDensity()
+    /* Asked as the board comes up, so the answer is usually in hand before the
+       first empty node is pressed. */
+    void readStartableTiers()
+    void readProviderSignIn()
+    void readComposeFolders()
+    void readComposeDefaultFolder()
+    void readComposeConfinement()
+    /* THE PANEL THE PERSON WAS IN, REOPENED AFTER THE SWITCH THEY PRESSED IN IT
+       tore this view down. Read once and cleared, so an ordinary visit never
+       inherits it. See composeToRestore for the measurement. */
+    if (composeToRestore) {
+      const resume = composeToRestore
+      composeToRestore = null
+      queueMicrotask(() => { if (!destroyed) openComposeFor(resume) })
+    }
     window.__mcGraph = graph
     renderCrumb(null)
     syncEditButton()
@@ -2226,14 +3389,12 @@ export function computersView({ initialComputer = null, navigate }) {
        store that outlives them all. */
     treeStoreUnsub?.()
     treeStoreUnsub = treeStore ? treeStore.subscribe(() => { if (!destroyed) refreshTree() }) : null
-    /* The split pane returns only when this person switched it on: absence of
-       the preference is single-pane, the state every harness contract runs
-       in. */
-    if (readSplitPref()) enableSplit()
+    /* A split-pane preference saved before 2026-08-16 is simply not
+       read any more: the split pane is gone (owner: "lets throw it away for
+       now"), and a key nobody reads is a key that cannot bring it back. */
     /* Aim the button before anything is clicked, so it is a way IN rather than a
-       reward for having already found the way in. A computer with no agents at
-       all leaves the target null and the button hidden. */
-    setOpenTarget(computer.agents?.[0] || null)
+       reward for having already found the way in. */
+    setOpenTarget(computer.agents?.[0] || firstDeclaredTarget())
     /* The switcher builds AT MOUNT, not on the first store write. Every other
        caller of refreshTreeSwitch is a change handler (store events, root
        drills, compose flows), so a quietly-loaded page with five saved trees
@@ -2274,7 +3435,7 @@ export function computersView({ initialComputer = null, navigate }) {
        node set with the new relationships laid over it, which is a second
        renderer of the same fact and the one that drifts. */
     const source = declaredOnlyReason && orgReady()
-      ? (declaredFleetData(orgAvailability.org) || lastFleetData)
+      ? (declaredFleetData(orgAvailability.org, readLiveSession()) || lastFleetData)
       : lastFleetData
     mountProjection(source, { preferComputerId: computerId })
     if (rootId && graph?.nodes.has(rootId)) graph.setRoot(rootId)
@@ -2322,32 +3483,163 @@ export function computersView({ initialComputer = null, navigate }) {
     updateTasks()
   }
 
+  /* THE RAIL THE OWNER CALLED HARD TO READ, REBUILT AROUND THREE CHANGES.
+   *
+   * IT WAS A WALL OF MONO. Every sentence here was a `.rail-sub`, and that
+   * class is `font-family: var(--font-mono)` — a paragraph of code type in a
+   * 330px column. `.rail-prose` is the rail's reading voice and already exists
+   * for exactly this (see its note in styles.css); mono is kept for the values
+   * in the fact list, which is what mono is for.
+   *
+   * IT SAID THINGS IN FRAGMENTS. "This computer · declared source · 0 described
+   * in the fleet record · graph revision 4" is four facts wearing one sentence's
+   * clothes, and the reader has to do the parsing. Four facts are now four rows
+   * with their own labels, and the sentences around them are sentences.
+   *
+   * THE WARNING LEAKED A HASH. See orgNotices() in src/org-controls.js: the
+   * drift notice printed two content hashes, and at this width they truncated
+   * mid-hash against the rail's edge. Nothing a person can act on was in them. */
   function renderLiveStats() {
     const services = computer.services || []
+    const sourceSentence = RECORD_SOURCE[computer.note] || 'This computer did not say where its record came from.'
     statsPage.innerHTML = `
       ${railTitleRow({ title: 'Fleet overview' })}
       <div class="rail-scroll" data-live-mode="live" data-projection-state="available">
-        <div class="stat-hero"><span class="v" id="agent-count">${computer.spawnedTotal}</span><span class="l">Agents on record</span></div>
-        <div class="rail-sub">${escapeMarkup(computer.name)} · ${escapeMarkup(computer.note)} source · graph revision ${computer.graphRevision ?? 'unavailable'}</div>
-        ${declaredOnlyReason ? `<div class="rail-sub projection-unavailable" data-projection-state="declared">The live fleet data could not be read · ${escapeMarkup(declaredOnlyReason)} These are the agents this computer has on record, not agents seen running.</div>
-        <a class="rail-sub host-absent-action" href="${escapeMarkup(GUIDE_ACTION.href)}">${escapeMarkup(GUIDE_ACTION.label)}</a>` : ''}
-        <div class="rail-sec">Services</div>
-        <div class="task-list projection-state">
-          ${services.length ? services.map(service => {
-            const meta = [service.state, service.detail].filter(Boolean).join(' · ').replace(/\s--\s/g, ' — ')
-            return `<div class="task-chip" data-service-id="${escapeMarkup(service.id)}"><i></i><b>${escapeMarkup(service.name)}</b><span class="svc-meta">${escapeMarkup(meta)}</span></div>`
-          }).join('') : '<div class="rail-sub">No services are on record for this computer</div>'}
-        </div>
-        <div class="rail-sec">Recorded relationships</div>
-        <div class="rail-sub">${computer.graphEdges.length} recorded relationships · runtime, load, tasks, and messages are not part of this record</div>
-        ${orgSourceMarkup()}
-        <div class="rail-sec">Session profiles</div>
+        <div class="stat-hero"><span class="v" id="agent-count" data-record-state="reading">—</span><span class="l">Agents on record</span></div>
+        <div class="rail-prose is-dim" data-agent-record-note>Reading this computer’s own record of what has run here.</div>
+        ${declaredOnlyReason ? `<div class="rail-note projection-unavailable" data-projection-state="declared">
+          <b class="rail-note-h">This is the record, not a live reading</b>
+          <span class="rail-note-b">${escapeMarkup(declaredOnlyReason)} So these are the agents this computer has on file, not agents anyone has seen running.</span>
+          <a class="rail-note-a host-absent-action" href="${escapeMarkup(GUIDE_ACTION.href)}">${escapeMarkup(GUIDE_ACTION.label)}</a>
+        </div>` : ''}
+        <!-- THE FOLDER COMES FIRST NOW. It used to be the SEVENTH section, under
+             the heading "Session profiles", and tools/rail-inventory-drive.mjs
+             measured what that cost on the packaged build: 1152px down a 1524px
+             scroll at 1440x900, and 1042px down a 1339px scroll at 1024x768 --
+             below the fold at every width this product supports, behind the
+             484px, 51-control Role library. The owner went looking for it and
+             could not find it ("i think its in there maybe somewhere",
+             2026-08-19). Nothing was removed to fix that; the section moved up
+             and took a heading with the word "folder" in it.
+
+             IT SITS ABOVE "This computer", NOT BELOW IT, and the difference was
+             measured too. Below it the heading landed at 415px, which cleared
+             the fold at 1440 and 1920 but left its CONTROLS under the floating
+             notice at 1024 -- a heading a person can read over a box they
+             cannot reach. Above it the whole section clears at every width.
+             It stays BELOW the hero and its "this is the record" caveat,
+             because that caveat qualifies the number directly above it and
+             separating the two would be trading one defect for another. -->
+        <div class="rail-sec">${escapeMarkup(PROFILE_PANEL.overviewTitle)}</div>
         <div class="board-profile-slot" data-profile-slot></div>
+        <div class="rail-sec">This computer</div>
+        <dl class="rail-facts">
+          <div class="rail-fact"><dt>Agents described</dt><dd>${computer.spawnedTotal}</dd></div>
+          <div class="rail-fact"><dt>Recorded relationships</dt><dd>${computer.graphEdges.length}</dd></div>
+          <div class="rail-fact"><dt>Graph revision</dt><dd>${computer.graphRevision ?? 'not recorded'}</dd></div>
+        </dl>
+        <p class="rail-prose is-dim">${escapeMarkup(sourceSentence)} Runtime, load, tasks and messages are not kept in it.</p>
+        <div class="rail-sec">Services</div>
+        ${services.length
+          ? `<div class="task-list projection-state">${services.map(service => {
+              const meta = [service.state, service.detail].filter(Boolean).join(' · ').replace(/\s--\s/g, ', ')
+              return `<div class="task-chip" data-service-id="${escapeMarkup(service.id)}"><i></i><b>${escapeMarkup(service.name)}</b><span class="svc-meta">${escapeMarkup(meta)}</span></div>`
+            }).join('')}</div>`
+          /* OUTSIDE the .projection-state box, not inside it. That class is a
+             96px grid with centred content and 24px of side padding — right for
+             a wall of service chips, and wrong for one sentence, which it hung
+             in the middle of an empty panel while every other sentence on the
+             rail started at the left margin. */
+          : '<p class="rail-prose is-dim">No services are on record for this computer.</p>'}
+        <div class="rail-sec">Organisation</div>
+        ${orgSourceMarkup()}
         <div class="rail-sec">Roles</div>
         <div class="board-org-slot"></div>
+        <div class="rail-sec">Research filing</div>
+        <p class="rail-prose is-dim">Pick a project and every session in the tree you are looking at gets filed under it. Every tree files the whole computer.</p>
+        <div class="rail-research-slot" data-research-scope-slot><p class="rail-prose is-dim">Reading your research projects.</p></div>
       </div>`
     mountOrgLibrary(statsPage.querySelector('.board-org-slot'))
     void mountProfilePanel(statsPage.querySelector('[data-profile-slot]'))
+    mountResearchScopeControl()
+    void paintAgentsOnRecord()
+  }
+
+  /* "AGENTS ON RECORD" NOW COUNTS THE RECORD, WHICH IT DID NOT BEFORE.
+   *
+   * WHAT WAS MEASURED. Three nodes on the canvas, an agent that really ran, and
+   * this hero reading 0. It was printing `computer.spawnedTotal`, which is
+   * `agents.length` off the FLEET PROJECTION -- a build-time file that ships
+   * `ok:false` and describes nothing on a customer machine, which is the whole
+   * argument in the header of src/declared-fleet.js. So the number was not
+   * wrong about the record; it was never about the record at all. On the
+   * packaged build with two starts in the signed ledger it still said 0.
+   *
+   * WHERE THE TRUE NUMBER LIVES. The app writes every start into its own
+   * hash-chained agent-spawn-records.jsonl before it starts anything
+   * (shell/spawn-record.cjs, called by mc-agent:start), and reads it back
+   * through mcAgent.history(). src/views/home.js already counts exactly this,
+   * through readLocalSessions() -- the same function is used here rather than a
+   * second reading of the same file, so the two screens cannot disagree about
+   * how many agents this computer has run.
+   *
+   * AN UNREADABLE RECORD IS NOT ZERO, and that distinction is the reason this
+   * is asynchronous rather than a swapped expression. Zero is a claim: it says
+   * nothing has ever run here. A record that could not be opened is the absence
+   * of a claim, and painting it as 0 would be the same lie this repair is for,
+   * wearing the other sign. So the hero starts as an em dash, and every branch
+   * below either produces a number it can defend or says in words why there is
+   * none.
+   *
+   * THE PROJECTION'S OWN COUNT IS NOT DELETED. It moved to the line beneath,
+   * under a label that says what it actually is -- what the fleet record
+   * DESCRIBES, rather than what has run. */
+  async function paintAgentsOnRecord() {
+    const hero = statsPage.querySelector('#agent-count')
+    const note = statsPage.querySelector('[data-agent-record-note]')
+    if (!hero || !note) return
+
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    let raw
+    if (!bridge || typeof bridge.history !== 'function') raw = undefined
+    else {
+      /* 200 is the recorder's own ceiling. The count itself comes from the
+         whole-chain tally rather than from these rows, but when that tally is
+         missing the rows are what is left to count, and a bigger page makes
+         that fallback less of an understatement. */
+      try { raw = await bridge.history({ limit: 200 }) } catch { raw = null }
+    }
+    if (destroyed || !hero.isConnected) return
+
+    const sessions = readLocalSessions(raw)
+    if (!sessions.supported) {
+      hero.textContent = '—'
+      hero.dataset.recordState = 'unsupported'
+      note.textContent = 'This page is not running inside the installed application, so there is no record here to read.'
+      return
+    }
+    if (!sessions.readable) {
+      hero.textContent = '—'
+      hero.dataset.recordState = 'unreadable'
+      note.textContent = 'This copy could not open its record of what has run here, so this is not a count yet. Nothing has been lost and new runs are still written down.'
+      return
+    }
+    /* `started` is null exactly when the recorder returned no whole-chain
+       tally, and `total` is only a start count when that tally is present --
+       without it the ledger's line count includes the outcome records too and
+       would report roughly twice as many agents as ever ran. */
+    const tallied = sessions.started !== null
+    const count = tallied ? sessions.total : sessions.runs.length
+    hero.textContent = String(count)
+    hero.dataset.recordState = tallied ? 'counted' : 'partial'
+    const verified = sessions.verified === true
+      ? 'The record checks out as unbroken.'
+      : (sessions.verified === false
+        ? 'The record does not check out as unbroken, so treat this count as a floor.'
+        : 'This copy did not say whether the record checks out.')
+    note.textContent = tallied
+      ? `From this computer’s own signed record of every agent it has started. ${verified}`
+      : `Counted from the most recent runs this copy could read, so it may be short. ${verified}`
   }
 
   /* SESSION PROFILES, MANAGED WHERE THE FLEET IS DESCRIBED. A profile is a
@@ -2359,15 +3651,15 @@ export function computersView({ initialComputer = null, navigate }) {
     if (!slot) return
     const bridge = typeof window === 'undefined' ? null : window.mcAgent
     if (!bridge || typeof bridge.profiles !== 'function') {
-      slot.innerHTML = `<div class="rail-sub">${escapeMarkup(PROFILE_PANEL.needsApp)}</div>`
+      slot.innerHTML = `<p class="rail-prose is-dim">${escapeMarkup(PROFILE_PANEL.needsApp)}</p>`
       return
     }
     const answer = await bridge.profiles().catch(() => null)
     const profiles = answer && answer.ok ? answer.profiles : []
     slot.innerHTML = `
       <div class="board-box board-ctl-box">
-        <div class="rail-sub">${escapeMarkup(PROFILE_PANEL.help)}</div>
-        <ul class="rail-sub profile-list" data-profile-list>
+        <p class="rail-prose is-dim">${escapeMarkup(PROFILE_PANEL.help)}</p>
+        <ul class="rail-prose profile-list" data-profile-list>
           ${profiles.map(profile => `<li><b>${escapeMarkup(profile.name)}</b> · <span class="profile-folder">${escapeMarkup(profile.cwd)}</span> <button class="ctl-btn profile-remove" type="button" data-profile-remove="${escapeMarkup(profile.id)}">${escapeMarkup(PROFILE_PANEL.remove)}</button></li>`).join('')
             || `<li>${escapeMarkup(PROFILE_PANEL.none)}</li>`}
         </ul>
@@ -2375,7 +3667,7 @@ export function computersView({ initialComputer = null, navigate }) {
           <input class="ctl-select" type="text" data-profile-name placeholder="${escapeMarkup(PROFILE_PANEL.namePlaceholder)}" aria-label="${escapeMarkup(PROFILE_PANEL.namePlaceholder)}">
           <button class="ctl-btn" type="button" data-profile-add>${escapeMarkup(PROFILE_PANEL.add)}</button>
         </div>
-        <output class="rail-sub" role="status" data-profile-out></output>
+        <output class="rail-prose" role="status" data-profile-out></output>
       </div>`
     const out = slot.querySelector('[data-profile-out]')
     slot.querySelector('[data-profile-add]')?.addEventListener('click', async () => {
@@ -2406,9 +3698,13 @@ export function computersView({ initialComputer = null, navigate }) {
       return `<div class="org-notice" data-notice="off">${escapeMarkup(failureSentence(orgAvailability, 'The declared organisation could not be read.'))}</div>`
     }
     const source = orgAvailability.org.source === 'overlay'
-      ? 'Showing your saved organisation.'
-      : 'Showing the organisation this build ships. Nothing has been changed on this computer yet.'
-    return `${orgNoticeMarkup(orgAvailability.org)}<div class="rail-sub">${escapeMarkup(source)} Revision ${escapeMarkup(String(orgAvailability.org.revision))}.</div>`
+      ? 'This is the organisation you saved.'
+      : 'This is the organisation the app ships with. Nothing has been changed on this computer yet.'
+    return `${orgNoticeMarkup(orgAvailability.org)}
+      <p class="rail-prose is-dim">${escapeMarkup(source)}</p>
+      <dl class="rail-facts">
+        <div class="rail-fact"><dt>Revision</dt><dd>${escapeMarkup(String(orgAvailability.org.revision))}</dd></div>
+      </dl>`
   }
 
   /* The role library is HIDDEN, not disabled, when there is no bridge at all.
@@ -2422,12 +3718,28 @@ export function computersView({ initialComputer = null, navigate }) {
       slot.remove()
       return
     }
-    slot.replaceWith(buildRoleLibraryBox({
+    const box = buildRoleLibraryBox({
       availability: orgAvailability,
       onCreate: (definition) => callRoleBridge('createRole', definition, 'The role was not created.'),
       onEdit: (edit) => callRoleBridge('editRole', edit, 'The role wording was not saved.'),
       onReset: (target) => callRoleBridge('resetRole', target, 'The shipped wording was not restored.'),
-    }))
+    })
+    slot.replaceWith(box)
+    /* THE PERSON'S OPEN EDITORS AND UNSAVED WORDING, BACK WHERE THEY WERE.
+       NOT read-once, deliberately, and this is where it differs from
+       composeToRestore above: the live mount can build this box more than once
+       while it settles (measured 2026-08-20, two builds 8ms apart on the
+       drawer's live-flip -- a read-once restore was consumed by the first
+       build and wiped by the second). So the snapshot is re-applied to every
+       build until the person touches the restored library; their first input
+       or press makes the page the truth, and a later rebuild must not drag it
+       back to the snapshot. Each flags capture above overwrites the snapshot
+       wholesale, so it can never be older than the last remount. */
+    if (roleLibraryToRestore && restoreRoleLibrary(box, roleLibraryToRestore) > 0) {
+      const settle = () => { roleLibraryToRestore = null }
+      box.addEventListener('input', settle, { once: true, capture: true })
+      box.addEventListener('click', settle, { once: true, capture: true })
+    }
   }
 
   /* One door to the three role-vocabulary calls. Each returns {ok, roles} and
@@ -2487,6 +3799,14 @@ export function computersView({ initialComputer = null, navigate }) {
   }
 
   function showStats() {
+    /* THE DOOR COMES BACK WITH THE OVERVIEW. Selecting a node in your own tree
+       aims "Open agent detail" at nothing (a tree node has no drill-in page,
+       and the button must not pretend otherwise); this is the other half:
+       leaving that selection re-aims it exactly the way mount does. Measured
+       before this line existed: one click on an own agent and the door was
+       display:none for the rest of the visit -- the "reward for having already
+       found the way in" the mount-time aim was written to end. */
+    if (!openTarget) setOpenTarget(computer?.agents?.[0] || firstDeclaredTarget())
     renderStats()
     activateRail(statsPage)
   }
@@ -3007,6 +4327,11 @@ export function computersView({ initialComputer = null, navigate }) {
   function mountRailChat(agent, role) {
     const host = controlsPage.querySelector('.board-chat-box')
     if (!host) return
+    /* The chat this box built last time. render() runs again whenever the
+       person changes a chatbox setting, and the wipe below used to drop a
+       mounted buildChat on the floor -- its observers, frames and timers stay
+       alive on a detached root. Same rule as railChat: dispose, then wipe. */
+    let mounted = null
     const render = () => {
       if (!host.isConnected) return
       const plan = planNodeChatbox({
@@ -3018,15 +4343,18 @@ export function computersView({ initialComputer = null, navigate }) {
         runs: railRuns,
         runsSupported: railRunsSupported,
       })
+      mounted?.dispose?.()
+      mounted = null
       host.innerHTML = ''
       host.dataset.chatChannel = plan.channel.kind
       if (plan.channel.kind === 'simulated' && plan.showContext) {
-        host.appendChild(buildChat({
+        mounted = buildChat({
           title: agent.name,
           subtitle: channelCaption(plan.channel, role.label),
           roleKey: agent.role,
           seed: 6,
-        }))
+        })
+        host.appendChild(mounted)
       } else {
         host.appendChild(el(`
           <div class="chat chat-readonly">
@@ -3101,18 +4429,44 @@ export function computersView({ initialComputer = null, navigate }) {
    * nothing. The channel now carries `tier` end to end (parseAgentStart ->
    * startSession -> resolveStartTier), and the CHOICE lives where the start
    * lives: the compose panel's model menu, whose value rides in the draft and
-   * onto mcAgent.start(). This rail keeps only the fact: sessions started from
-   * this tree run on Codex -- a picked Claude row refuses by name at start
-   * (AGENT_TIER_NO_LAUNCHER) rather than quietly becoming Codex, so a RUNNING
-   * session here is always a Codex one. Nothing in this box is focusable. */
-  const TREE_ENGINE_LABEL = 'Codex'
-  const TREE_ENGINE_NOTE = 'Agents you start from this tree run on Codex. You pick the model in the start panel; the Claude choices are listed there and say so when they cannot start yet.'
+   * onto mcAgent.start(). This rail keeps only the fact. Nothing in this box is
+   * focusable.
+   *
+   * AND THE FACT IS NOW ASKED FOR, NOT DECLARED. What stood here was
+   * `TREE_ENGINE_LABEL = 'Codex'` and a note reading "Agents you start from
+   * this tree run on Codex. You pick the model in the start panel; the Claude
+   * choices are listed there and say so when they cannot start yet." Both
+   * halves were true when Codex was the only engine in the payload and both
+   * are false today, which is what the owner reported. Measured on a staged
+   * packaged build with real presses (the post-cut-truth lane, 2026-08-17):
+   * the shell answers luna, terra, sol, claude-fable, claude-sonnet,
+   * claude-opus; the menu renders "Sonnet · Claude" with NO marker on it; and
+   * a Claude agent started from a tree really answered, on a profile carrying
+   * a Claude sign-in and no Codex credential at all.
+   *
+   * So the words come from `startableTierIdList` -- what mc-agent:startable-tiers
+   * answered, which is the same resolveStartTier() a press runs -- and a node
+   * that already ran says what IT ran on, from the tier recorded on it. Neither
+   * can name a provider the shell did not list, and no edit here is needed when
+   * the payload changes. The sentences live in src/fleet-tree-copy.js so a
+   * guard can walk them; the fourth copy of this same false claim was found
+   * only because it was somewhere a test could reach. */
+  function treeEngineFace(node) {
+    const ran = node?.tier ? tierProviderWord(node.tier) : null
+    if (node?.sessionId) {
+      return { label: ran || TREE_ENGINE.unrecorded, note: ran ? TREE_ENGINE.ran(ran) : '' }
+    }
+    const words = startableProviderWords(startableTierIdList)
+    if (words.length === 0) return { label: TREE_ENGINE.none, note: TREE_ENGINE.noneNote }
+    return { label: words.join(' · '), note: TREE_ENGINE.note(words) }
+  }
 
   function showTreeNodeControls(node) {
     disposeRailSaid()
     clearBoard()
     currentRailTreeNode = node
     const role = ROLES[node.role] || ROLES.default
+    const engineFace = treeEngineFace(node)
     controlsPage.style.setProperty('--rc', role.hex)
     disposeRailChat()
     controlsPage.innerHTML = `
@@ -3129,11 +4483,14 @@ export function computersView({ initialComputer = null, navigate }) {
         <button type="button" class="on" data-rail-tab="chat">Chat</button>
         <button type="button" data-rail-tab="details">Details</button>
       </div>
+      <!-- ONE HOST, EVERY STATE. This used to be a chat host for a node with a
+           session and a paragraph of prose for one without -- and the prose
+           said "Press its circle on the canvas to start it", which is the
+           gesture that opens THIS PANEL and starts nothing. A node with no
+           session now mounts the same chat, read-only, carrying its own
+           refusal where the message box would be (treeChatConfigFor). -->
       <div class="rail-tab-body rail-chat-body" data-rail-body="chat">
-        ${node.sessionId ? '<div class="rail-chat-host" data-rail-chat-host></div>' : `
-        <div class="board-box board-ctl-box">
-          <div class="rail-prose">${escapeMarkup(node.statusNote || 'This agent has not been started yet. Press its circle on the canvas to start it; the conversation opens here.')}</div>
-        </div>`}
+        <div class="rail-chat-host" data-rail-chat-host></div>
       </div>
       <div class="rail-tab-body rail-scroll" data-rail-body="details" hidden>
         <!-- The head names the agent and its ROLE — never its brief. The brief
@@ -3142,6 +4499,29 @@ export function computersView({ initialComputer = null, navigate }) {
              again in its own box) which is most of what "unreadable mess"
              meant. -->
         <div class="agent-head board-head"><span class="role-dot"></span><div><div class="an">${escapeMarkup(treeNodeName(node))}</div><div class="ar">${escapeMarkup(roleLabel(node.role))}</div></div></div>
+        <!-- THE FOLDER IS THE FIRST THING UNDER THE NAME, and it used to be a
+             four-step scavenger hunt: press Details, scroll past three boxes,
+             read "Setup" as the place folders live, then read "Works in" as
+             meaning a folder. It was the fifth of nine panels
+             (tools/rail-inventory-drive.mjs). Owner, 2026-08-19: "what happened
+             to sessions and choosing a folder for each tree and such?"
+
+             EVERY DATA HOOK KEEPS ITS EXACT NAME -- data-tree-profile,
+             data-tree-profile-out, data-tree-profile-restart-row,
+             data-tree-profile-restart. The handlers below query controlsPage,
+             not this box, so they moved without a single rewrite. That is what
+             makes this placement change safe rather than a rebuild. -->
+        <div class="board-box board-ctl-box" data-tree-folder>
+          <div class="board-box-h"><span class="bh-t">${escapeMarkup(PROFILE_PANEL.nodeTitle)}</span></div>
+          <div class="rail-prose is-dim">${escapeMarkup(PROFILE_PANEL.treeHelp)}</div>
+          <div class="ctl-row">
+            <select class="ctl-select" data-tree-profile aria-label="${escapeMarkup(PROFILE_PANEL.title)}"></select>
+          </div>
+          <output class="rail-prose" role="status" data-tree-profile-out></output>
+          <div class="ctl-row" data-tree-profile-restart-row hidden>
+            <button class="ctl-btn" type="button" data-tree-profile-restart>${escapeMarkup(PROFILE_PANEL.switchGo)}</button>
+          </div>
+        </div>
         <!-- TWO BOXES, NOT FOUR (iteration 7). Each of the old four carried an
              uppercase header over one word — "finished", "DELTA" — so the tab
              was mostly chrome shouting at its own contents. What it is doing
@@ -3150,8 +4530,8 @@ export function computersView({ initialComputer = null, navigate }) {
              two halves of one exchange. -->
         <div class="board-box board-ctl-box">
           <div class="board-box-h"><span class="bh-t">What it is doing</span></div>
-          <div class="rail-prose">${escapeMarkup(treeNodeStatusWord(node))}</div>
-          ${node.statusNote ? `<div class="rail-prose is-dim">${escapeMarkup(node.statusNote)}</div>` : ''}
+          <div class="rail-prose" data-tree-status>${escapeMarkup(treeNodeStatusWord(node))}</div>
+          <div class="rail-prose is-dim" data-tree-status-note${node.statusNote ? '' : ' hidden'}>${escapeMarkup(node.statusNote || '')}</div>
           <div class="rail-prose is-dim" data-tree-activity${nodeActivity.get(node.id) ? '' : ' hidden'}>${escapeMarkup(nodeActivity.get(node.id) || '')}</div>
           ${node.sessionId ? `
           <div class="rail-prose is-dim" data-tree-usage${sessionUsage.has(node.sessionId) ? '' : ' hidden'}>${escapeMarkup(sessionUsage.has(node.sessionId) ? usageSentence(sessionUsage.get(node.sessionId)) : '')}</div>` : ''}
@@ -3167,23 +4547,20 @@ export function computersView({ initialComputer = null, navigate }) {
           <div class="rail-sec">${escapeMarkup(SAID_PANEL.title)}</div>
           <div class="rail-prose rail-said" data-tree-said></div>` : ''}
         </div>
-        <!-- SETUP: the two controls that describe the node rather than the
-             conversation — its folder and its place in the tree — moved here
-             when the Actions tab retired (iteration 6). Every data hook keeps
-             its exact name, so the handlers below moved without rewrites. -->
+        ${node.sessionId ? `
+        <div class="board-box board-ctl-box" data-research-file-box>
+          <div class="board-box-h"><span class="bh-t">Research project</span></div>
+          <div class="rail-prose is-dim" data-research-filed-line>Reading where this session is filed.</div>
+          <div data-research-file-mount></div>
+        </div>` : ''}
+        <!-- SETUP: what describes the node rather than the conversation. The
+             FOLDER used to live here too and now stands on its own above -- see
+             the comment on [data-tree-folder]. What is left is the engine this
+             agent runs on and where it sits in the tree. -->
         <div class="board-box board-ctl-box" data-tree-move>
           <div class="board-box-h"><span class="bh-t">Setup</span></div>
-          <div class="ctl-row"><span class="cl">Engine</span><span class="cv">${escapeMarkup(TREE_ENGINE_LABEL)}</span></div>
-          ${node.sessionId ? '' : `<p class="board-absent-copy">${escapeMarkup(TREE_ENGINE_NOTE)}</p>`}
-          <div class="rail-sec">${escapeMarkup(PROFILE_PANEL.title)}</div>
-          <div class="rail-prose is-dim">${escapeMarkup(PROFILE_PANEL.treeHelp)}</div>
-          <div class="ctl-row">
-            <select class="ctl-select" data-tree-profile aria-label="${escapeMarkup(PROFILE_PANEL.title)}"></select>
-          </div>
-          <output class="rail-prose" role="status" data-tree-profile-out></output>
-          <div class="ctl-row" data-tree-profile-restart-row hidden>
-            <button class="ctl-btn" type="button" data-tree-profile-restart>${escapeMarkup(PROFILE_PANEL.switchGo)}</button>
-          </div>
+          <div class="ctl-row"><span class="cl">Engine</span><span class="cv">${escapeMarkup(engineFace.label)}</span></div>
+          ${engineFace.note ? `<p class="board-absent-copy">${escapeMarkup(engineFace.note)}</p>` : ''}
           <div class="rail-sec">${escapeMarkup(MOVE_PANEL.title)}</div>
           <div class="rail-prose is-dim">${escapeMarkup(MOVE_PANEL.help)}</div>
           <div class="ctl-row" data-tree-move-row hidden>
@@ -3192,10 +4569,60 @@ export function computersView({ initialComputer = null, navigate }) {
           </div>
           <output class="rail-prose" role="status" data-tree-move-out></output>
         </div>
+        <!-- THE RULES THESE AGENTS ARE ALREADY BEING TOLD, read back. The
+             /Request family has been able to WRITE per-tree instructions for
+             a while and every start carries them, but nothing could read them
+             back: a person filed a rule, got a confirmation, and then had no
+             way to see what this circle carries while every agent in it was
+             being told at boot. Mounted after the start-work controls
+             because it describes what these agents are, not what to do next.
+             See mountStandingRequests(). -->
+        <div class="board-box board-ctl-box" data-requests-slot>
+          <div class="board-box-h"><span class="bh-t">${escapeMarkup(REQUEST_PANEL.title)}</span></div>
+          <div data-requests-body><p class="rail-prose is-dim">${escapeMarkup(REQUEST_PANEL.reading)}</p></div>
+        </div>
+        <!-- Launch, Team, Loop and Codex Cloud. See mountStartWorkControls():
+             this is the rail a person actually reaches for an agent they
+             started on this computer, and until 2026-08-18 those four controls
+             were built only on a rail nothing could open. -->
+        <div class="board-start-work-slot"></div>
       </div>`
     controlsPage.querySelector('.rail-back').addEventListener('click', showStats)
-    /* The tabs toggle [hidden] on persistent bodies — see the markup
-       comment for why nothing is ever re-rendered on a tab press. */
+    mountStartWorkControls(
+      { id: node.id, name: treeNodeName(node) },
+      controlsPage.querySelector('.board-start-work-slot'),
+    )
+    void mountStandingRequests(node, controlsPage.querySelector('[data-requests-slot]'))
+    /* Filing this session under a research project. The projects list was read
+       once at mount; a refusal renders as its sentence, never as an empty
+       select. The session reference is the OBSERVED id — the one identity a
+       tree node always has once a session is attached. */
+    const fileMount = controlsPage.querySelector('[data-research-file-mount]')
+    if (fileMount && node.sessionId) {
+      const filedLine = controlsPage.querySelector('[data-research-filed-line]')
+      const projects = researchService?.ok ? researchService.projects : []
+      const projectName = id => projects.find(project => project.projectId === id)?.name || id
+      const renderFiledLine = () => {
+        const filed = researchAssignments.projectsOfSession('observed', node.sessionId)
+        if (filedLine) {
+          filedLine.textContent = filed.length === 0
+            ? 'Not filed under a research project.'
+            : `Filed under: ${filed.map(projectName).join(', ')}.`
+        }
+      }
+      renderFiledLine()
+      fileMount.appendChild(createAssignmentControl({
+        projects,
+        unavailableReason: researchService && !researchService.ok ? researchService.reason : (researchService ? null : 'the projects have not been read yet'),
+        currentProjectIds: researchAssignments.projectsOfSession('observed', node.sessionId),
+        onAssign: async projectId => {
+          const result = await researchAssignments.assign(projectId, 'observed', node.sessionId)
+          renderFiledLine()
+          return result
+        },
+      }))
+    }
+    /* The tabs toggle [hidden] on persistent bodies — see the markup       comment for why nothing is ever re-rendered on a tab press. */
     const railTabs = controlsPage.querySelector('[data-rail-tabs]')
     railTabs?.addEventListener('click', (event) => {
       const pressed = event.target.closest('[data-rail-tab]')
@@ -3213,26 +4640,43 @@ export function computersView({ initialComputer = null, navigate }) {
        send wraps the shared handlers so a turn that STREAMED into an open
        bubble closes that bubble instead of printing the reply twice. */
     const chatHost = controlsPage.querySelector('[data-rail-chat-host]')
-    if (chatHost && node.sessionId) {
+    if (chatHost) {
       const config = treeChatConfigFor(node)
       if (config) {
+        /* The send wrapper exists only for a config that CAN send: a node with
+           no session carries composerReason instead, and wrapping an absent
+           onSend would put a function where buildChat reads "this chat can
+           reach the agent". */
+        /* THE CHAT THIS WRAPPER BELONGS TO, CAPTURED, NOT LOOKED UP.
+         *
+         * The wrapper used to read the live `railChat` variable, and that
+         * variable is reassigned every time the rail is rebuilt onto another
+         * node. A reply arriving after a rebuild therefore closed a DIFFERENT
+         * node's bubble with this node's words, and this node's own handler was
+         * never called -- one message merged into another conversation and one
+         * vanished (owner, 2026-08-18). The object is built first and compared
+         * by identity, so a stale wrapper answers its own chat or nothing. */
+        const mine = { sessionId: node.sessionId, nodeId: node.id, root: null, stream: null }
         const chat = buildChat({
           ...config,
           tall: true,
-          onSend: (text, handlers) => config.onSend(text, {
-            reply: (said) => {
-              if (railChat?.stream) {
-                railChat.stream.close(said)
-                railChat.stream = null
-              } else {
-                handlers.reply(said)
-              }
-            },
-            fail: handlers.fail,
-          }),
+          ...(typeof config.onSend === 'function' ? {
+            onSend: (text, handlers) => config.onSend(text, {
+              reply: (said) => {
+                if (railChat === mine && mine.stream) {
+                  mine.stream.close(said)
+                  mine.stream = null
+                } else {
+                  handlers.reply(said)
+                }
+              },
+              fail: handlers.fail,
+            }),
+          } : {}),
         })
+        mine.root = chat
         chatHost.appendChild(chat)
-        railChat = { sessionId: node.sessionId, nodeId: node.id, root: chat, stream: null }
+        railChat = mine
       }
     }
     /* THE KEYBOARD HALF OF "quickly connect nodes and change hierarchies".
@@ -3298,12 +4742,29 @@ export function computersView({ initialComputer = null, navigate }) {
         placeholder.value = ''
         placeholder.textContent = MOVE_PANEL.prompt
         moveSelect.appendChild(placeholder)
+        /* TWO ROWS READING "Manager" ARE A CHOICE NOBODY CAN MAKE. Measured on
+           the flagship walkthrough (2026-08-19): two trees each rooted in a
+           node named Manager put two indistinguishable rows in this picker.
+           The name stays first — it is what the person typed — and the tree's
+           own label is appended ONLY when the bare name appears more than
+           once, so the common case stays clean and the ambiguous one becomes
+           answerable. */
+        const seen = new Map()
+        for (const point of points) {
+          const parent = treeStore.getNode(point.parentId)
+          if (!parent) continue
+          const name = treeNodeName(parent)
+          seen.set(name, (seen.get(name) || 0) + 1)
+        }
         for (const point of points) {
           const parent = treeStore.getNode(point.parentId)
           if (!parent) continue
           const option = document.createElement('option')
           option.value = point.parentId
-          option.textContent = treeNodeName(parent)
+          const name = treeNodeName(parent)
+          option.textContent = seen.get(name) > 1
+            ? `${name} — ${treeStore.treeLabel(parent.treeId)}`
+            : name
           moveSelect.appendChild(option)
         }
         moveSave.addEventListener('click', () => {
@@ -3338,7 +4799,10 @@ export function computersView({ initialComputer = null, navigate }) {
     const saidHost = controlsPage.querySelector('[data-tree-said]')
     if (saidHost) {
       const reply = nodeReplies.get(node.id)
-      const live = node.sessionId && (node.status === 'starting' || node.status === 'running')
+      /* nodeBusy, not the saved status: a stale node opened a stream appender
+         and sat under "no answer yet" for a turn that ended at the last
+         shutdown. */
+      const live = nodeBusy(node)
       if (reply) {
         saidHost.textContent = reply
       } else if (live) {
@@ -3359,11 +4823,100 @@ export function computersView({ initialComputer = null, navigate }) {
           railSaid.waitingLine = null
           appender.push(spokenSoFar)
         }
+      } else if (nodeSessionEnded(node)) {
+        /* "No answer yet" is a promise that one is coming. For a node whose
+           session died with the app there is no turn left to wait for, so this
+           says what happened and what to do instead. */
+        saidHost.textContent = ENDED_SESSION.said
       } else {
         saidHost.textContent = SAID_PANEL.waiting
       }
     }
+    /* THE QUESTION THAT ARRIVED WHILE THIS RAIL WAS CLOSED. Without this the
+       Approve button existed only for a person already looking at the node the
+       moment approval_request fired -- see sessionPendingApprovals. */
+    const pendingApproval = sessionPendingApprovals.get(node.sessionId)
+    if (pendingApproval) renderApprovalCard(node.sessionId, pendingApproval)
     activateRail(controlsPage)
+  }
+
+  /* A STATUS LANDING REPAINTS THE WORDS THAT CHANGED, NEVER THE WHOLE RAIL.
+   *
+   * THE DEFECT, measured twice on a live drive, 2026-08-18: a settling
+   * session's status re-called showTreeNodeControls, and that is an innerHTML
+   * rebuild -- it disposes the mounted chat, and buildChat's dispose closes an
+   * open actions popup. A person typing in the popup's filter lost the menu
+   * and their word mid-keystroke every time a turn ended or a queued message
+   * drained. The palette driver reopens and counts; a person just loses it.
+   *
+   * WHAT THOSE CALLERS ACTUALLY NEEDED, read from the rebuild they reached
+   * for. The re-calls predate iteration 6 (3887c93): the rail then rendered
+   * status and queue as static markup, so a rebuild was the only repaint.
+   * Today the composer's send-stop face and the queue strip subscribe through
+   * the chat config -- notifyNodeStatusListeners and SESSION_OUTBOX_EVENT --
+   * the canvas chip repaints through scheduleChipRefresh, and the popup's rows
+   * are rebuilt from the store at every open. What does NOT repaint itself is
+   * the static half of the Details tab: the status word, its note, the
+   * activity line, and the settled reply in the said box. So this updates
+   * exactly those hosts, in place, and the chat -- popup, filter text, cursor
+   * and all -- is never torn down by a status. */
+  function repaintRailStatus(node) {
+    currentRailTreeNode = node
+    const statusHost = controlsPage.querySelector('[data-tree-status]')
+    if (statusHost) statusHost.textContent = treeNodeStatusWord(node)
+    const noteHost = controlsPage.querySelector('[data-tree-status-note]')
+    if (noteHost) {
+      noteHost.textContent = node.statusNote || ''
+      noteHost.hidden = !node.statusNote
+    }
+    const activityHost = controlsPage.querySelector('[data-tree-activity]')
+    if (activityHost) {
+      const line = nodeActivity.get(node.id) || ''
+      activityHost.textContent = line
+      activityHost.hidden = !line
+    }
+    /* The said box is repainted only when it is settled: a live railSaid is
+       mid-write into this host and owns it until the completion flushes it. */
+    if (!railSaid) {
+      const saidHost = controlsPage.querySelector('[data-tree-said]')
+      const reply = nodeReplies.get(node.id)
+      if (saidHost && reply) saidHost.textContent = reply
+    }
+  }
+
+  /* THE RAIL FOLLOWS THE CANVAS ACROSS A TREE SWITCH.
+   *
+   * THE DEFECT, measured on a live drive, 2026-08-18: switch trees and the
+   * rail keeps showing the PREVIOUS tree's chat until another circle is
+   * pressed. onRootChange repainted the crumb and the switcher and never
+   * consulted what the rail was showing, so the two halves of the page told
+   * two different stories about which tree the person was in.
+   *
+   * WHICH TREE IS ON THE CANVAS: the graph's root is a node id, and that
+   * node's own record names its tree. A null root is "Every tree" -- every
+   * tree is on the canvas, so whatever the rail shows is still there and it
+   * stays. A re-root INSIDE the rail's own tree (a drill, a crumb press)
+   * keeps the rail too. Only when the rooted node belongs to a different
+   * tree -- or to no tree this store knows, which is what a fleet agent's
+   * subtree answers -- does the rail return to the overview, the conservative
+   * reading: the node it was showing cannot be on that canvas, and pressing
+   * its circle again reopens it whole.
+   *
+   * NOTHING HERE TOUCHES THE CONVERSATION. The chat stays mounted under the
+   * now-hidden page exactly as an ordinary Back press leaves it; transcripts,
+   * the turn accumulator and the open stream belong to the session layer and
+   * are neither read nor written on this path. tools/chat-history-drive.mjs
+   * scenarios E and F hold that shut, and
+   * tools/test/rail-follows-canvas.test.mjs refuses any such reference in
+   * this function's body. */
+  function railFollowsCanvas(rootId) {
+    if (!rootId || !currentRailTreeNode || !treeStore) return
+    if (!controlsPage.classList.contains('is-active')) return
+    const canvasTree = treeStore.getNode(rootId)?.treeId ?? null
+    const shown = treeStore.getNode(currentRailTreeNode.id)
+    const shownTree = shown?.treeId ?? currentRailTreeNode.treeId ?? null
+    if (canvasTree !== null && shownTree !== null && canvasTree === shownTree) return
+    showStats()
   }
 
   /* THE REWIND, AS A NAMED FUNCTION. Its rail select retired with the
@@ -3376,9 +4929,15 @@ export function computersView({ initialComputer = null, navigate }) {
     const bridge = typeof window === 'undefined' ? null : window.mcAgent
     if (!bridge || typeof bridge.rewind !== 'function') return false
     let done = null
-    try { done = await bridge.rewind({ sessionId: node.sessionId, turnId }) } catch { done = null }
+    let refusal = null
+    try { done = await bridge.rewind({ sessionId: node.sessionId, turnId }) } catch (error) { refusal = error; done = null }
     if (!done || done.turnId !== turnId) {
-      if (out) out.textContent = REWIND_PANEL.failed
+      /* THE REASON RIDES TO THE PERSON. This catch used to drop the error, so a
+         Claude session -- whose engine cannot fork and therefore can never
+         rewind (CLAUDE_CLI_FORK_UNSUPPORTED) -- drew "Try once more", forever.
+         A permanent refusal says what is true and names the door that works. */
+      const words = /CLAUDE_CLI_FORK_UNSUPPORTED/.test(String(refusal?.message || '')) ? REWIND_PANEL.cannotFork : REWIND_PANEL.failed
+      if (out) out.textContent = words
       return false
     }
     /* The agent's memory now ends at that turn; every screen follows it.
@@ -3511,15 +5070,25 @@ export function computersView({ initialComputer = null, navigate }) {
           ctx.say(MODEL_PANEL.currentDefault)
         },
       }
-      return [keepRow, ...LAUNCH_TIERS.map(tier => ({
-        id: `model-${tier.model}`,
-        label: `${tier.label} · ${tier.provider === 'codex' ? 'Codex' : tier.provider === 'claude' ? 'Claude — cannot start here yet' : 'your computer — cannot start here yet'}`,
+      /* THE ROWS ARE ASKED FOR, NOT BUILT HERE. What stood here was a label
+         hardcoding `Claude — cannot start here yet` and `enabled:
+         tier.provider === 'codex'`. The label was false about this product
+         (the shell's startableTiers() names all three Claude tiers on a
+         payload carrying the engine) and it answered a question these rows do
+         not ask — they set a per-turn override, they start nothing. The rule
+         and its words now live in src/fleet-tree-copy.js sessionModelChoices(),
+         where the suite drives them, and it gates on THIS conversation's
+         provider rather than on a provider's name. */
+      return [keepRow, ...sessionModelChoices(fresh().tier).map(choice => ({
+        id: `model-${choice.model}`,
+        label: choice.label,
         hint: null,
-        current: override === tier.model,
-        enabled: tier.provider === 'codex',
+        current: override === choice.model,
+        enabled: choice.enabled,
+        disabledHint: choice.disabledHint,
         run: ctx => {
-          sessionModelOverride.set(fresh().sessionId, tier.model)
-          ctx.say(MODEL_PANEL.next(tier.model))
+          sessionModelOverride.set(fresh().sessionId, choice.model)
+          ctx.say(MODEL_PANEL.next(choice.model))
         },
       }))]
     }
@@ -3541,21 +5110,96 @@ export function computersView({ initialComputer = null, navigate }) {
         }], { title: `“${entry.yourText.slice(0, 60)}”` })
       },
     }))
+    /* THE REMOVE CONFIRM — the same sub-stage device as rewind's picker: one
+       Remove row plus the popup's own Back, with the sentence naming what
+       goes (and that the signed run records stay) carried on the row where a
+       hint is read and spoken. The popup is closed BEFORE the removal runs,
+       because the removal disposes the chat under it. */
+    const removeRows = () => [{
+      id: 'remove-go',
+      label: REMOVE_PANEL.go,
+      hint: REMOVE_PANEL.confirm(treeNodeName(fresh())),
+      enabled: true,
+      run: goCtx => {
+        goCtx.close()
+        void performNodeRemoval(fresh())
+      },
+    }]
+    /* THE TABLE, GROUPED, EVERY ROW SAYING WHY WHEN IT CANNOT BE PRESSED.
+     *
+     * The owner's report on this menu: "more like vscode, much more intuitive
+     * preferably". Three things were wrong with the list itself, and each is
+     * a field on the row now.
+     *
+     * `group`: eleven rows of mixed severity in source order put "Stop this
+     * agent" directly beside "Copy what it said". Three headings, and the one
+     * that ends or forgets something is last, on its own.
+     *
+     * `disabledHint`: a switched-off row rendered its ordinary hint (or
+     * nothing) and would not say why it could not be pressed. Every row that
+     * can be disabled now carries the sentence for its own state; the popup
+     * shows it in place of the hint and speaks it on Enter.
+     *
+     * THREE DOORS THAT WERE MISSING. Attach an image, mention a file and queue
+     * a message are all things this build genuinely does -- their runners were
+     * already in runPaletteAction, reachable from the slash commands and the
+     * composer's own buttons -- and the menu simply never built the rows. They
+     * are rows now. Nothing here adds a power; it adds the way to reach one.
+     *
+     * A picker needs the installed application, so attach and mention are
+     * enabled only where the bridge really offers one, and say so where it does
+     * not, rather than sitting enabled over a call that returns nothing. */
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    const canPick = Boolean(bridge && typeof bridge.pickAttachment === 'function' && typeof bridge.pickMention === 'function')
+    const started = Boolean(current.sessionId)
+    const pickerWhy = !started ? PALETTE_PANEL.whyNotStarted : (!canPick ? PALETTE_PANEL.whyNoPicker : '')
+    const turnsSoFar = (sessionTurnLog.get(current.sessionId) || []).length
+    /* Measured 2026-08-18: after a restart the Rewind row said "You have not
+       sent it a message yet." beside a panel showing four sent messages.
+       turnsSoFar is window memory and resets with the window; the durable
+       transcript does not. So the row consults the record before calling the
+       conversation empty: rewind still reaches only turns sent since this
+       window opened (performRewind needs the live session's turn log), but the
+       REASON tells the truth about the saved messages. */
+    const savedConversation = transcriptStore ? transcriptStore.get(node.id) : null
+    const sentEarlier = Boolean(savedConversation && Array.isArray(savedConversation.lines)
+      && savedConversation.lines.some(line => line && line.who === 'you'))
+    /* THE REMOVE ROW'S TWO GATES, judged here so the row and the store agree.
+       Direct reports first-class: each one is an agent the person moves out
+       through the reports-to picker or the drag, and the reason counts them.
+       "A run could be behind it" is the node's own live status — busy, or a
+       start still in flight with no session id yet. The one exception is a
+       record orphaned by shutdown (live status over a session this run cannot
+       reach): there is nothing left to stop, so the row stays pressable and
+       the run handler lets that dead session go through the store's own
+       detach. */
+    const childCount = treeStore ? treeStore.childrenOf(current.id).length : 0
+    const removeBlockedByRun = (current.status === 'starting' || current.status === 'running') && !nodeSessionEnded(current)
+    const conversation = PALETTE_PANEL.groupConversation
+    const agent = PALETTE_PANEL.groupAgent
+    const danger = PALETTE_PANEL.groupDanger
     return [
-      { id: 'interrupt', label: PALETTE_PANEL.interrupt, hint: PALETTE_PANEL.interruptHint, enabled: running, run: ctx => runPaletteAction('interrupt', fresh(), sinkFor(ctx)) },
-      { id: 'stop', label: PALETTE_PANEL.stop, hint: PALETTE_PANEL.stopHint, enabled: running, run: ctx => runPaletteAction('stop', fresh(), sinkFor(ctx)) },
-      { id: 'effort', label: EFFORT_SWITCH.title, hint: EFFORT_SWITCH.help, enabled: Boolean(current.sessionId), run: ctx => ctx.show(effortRows(), { title: EFFORT_SWITCH.title }) },
-      { id: 'model', label: PALETTE_PANEL.switchModel, hint: PALETTE_PANEL.switchModelHint, enabled: Boolean(current.sessionId), run: ctx => ctx.show(modelRows(), { title: MODEL_PANEL.title }) },
-      { id: 'rewind', label: PALETTE_PANEL.rewind, hint: PALETTE_PANEL.rewindHint, enabled: Boolean(current.sessionId) && (sessionTurnLog.get(current.sessionId) || []).length > 0, run: ctx => ctx.show(rewindRows(), { title: REWIND_PANEL.title }) },
+      { id: 'queue', group: conversation, label: PALETTE_PANEL.queueFocus, hint: PALETTE_PANEL.queueFocusHint, enabled: true, run: ctx => { ctx.close(); void runPaletteAction('queue', fresh(), statusSink()) } },
+      { id: 'attach', group: conversation, label: PALETTE_PANEL.attach, hint: PALETTE_PANEL.attachHint, enabled: started && canPick, disabledHint: pickerWhy, run: ctx => runPaletteAction('attach', fresh(), sinkFor(ctx)) },
+      { id: 'mention', group: conversation, label: PALETTE_PANEL.mention, hint: PALETTE_PANEL.mentionHint, enabled: started && canPick, disabledHint: pickerWhy, run: ctx => runPaletteAction('mention', fresh(), sinkFor(ctx)) },
+      { id: 'effort', group: conversation, label: EFFORT_SWITCH.title, hint: EFFORT_SWITCH.help, enabled: started, disabledHint: PALETTE_PANEL.whyNotStarted, run: ctx => ctx.show(effortRows(), { title: EFFORT_SWITCH.title }) },
+      { id: 'model', group: conversation, label: PALETTE_PANEL.switchModel, hint: PALETTE_PANEL.switchModelHint, enabled: started, disabledHint: PALETTE_PANEL.whyNotStarted, run: ctx => ctx.show(modelRows(), { title: MODEL_PANEL.title }) },
+      { id: 'rewind', group: conversation, label: PALETTE_PANEL.rewind, hint: PALETTE_PANEL.rewindHint, enabled: started && turnsSoFar > 0, disabledHint: started ? (sentEarlier ? PALETTE_PANEL.whyOnlySavedTurns : PALETTE_PANEL.whyNoTurns) : PALETTE_PANEL.whyNotStarted, run: ctx => ctx.show(rewindRows(), { title: REWIND_PANEL.title }) },
+      { id: 'copy-brief', group: conversation, label: PALETTE_PANEL.copyBrief, hint: '', enabled: Boolean(current.message), disabledHint: PALETTE_PANEL.whyNoBrief, run: ctx => runPaletteAction('copy-brief', fresh(), sinkFor(ctx)) },
+      { id: 'copy-reply', group: conversation, label: PALETTE_PANEL.copyReply, hint: '', enabled: Boolean(reply), disabledHint: PALETTE_PANEL.whyNoReply, run: ctx => runPaletteAction('copy-reply', fresh(), sinkFor(ctx)) },
+      { id: 'child', group: agent, label: PALETTE_PANEL.child, hint: PALETTE_PANEL.childHint, enabled: true, run: ctx => { ctx.close(); openComposeFor({ kind: 'child', parentId: node.id }) } },
+      { id: 'move', group: agent, label: PALETTE_PANEL.moveFocus, hint: PALETTE_PANEL.moveFocusHint, enabled: true, run: ctx => { ctx.close(); focusDetailsControl(node, '[data-tree-move-select]') } },
       /* Enabled exactly when it can act: a saved conversation exists and no
          session is mid-turn over it. A running agent is resumed by talking
          to it, not by restarting it out from under itself. */
-      { id: 'resume', label: RESUME_PANEL.action, hint: RESUME_PANEL.hint, enabled: !running && Boolean(transcriptStore && transcriptStore.has(node.id)), run: ctx => { ctx.close(); void resumeNodeSession(fresh(), { out: statusSink() }) } },
-      { id: 'clear', label: PALETTE_PANEL.clear, hint: PALETTE_PANEL.clearHint, enabled: Boolean(current.sessionId), run: ctx => { ctx.close(); void runPaletteAction('clear', fresh(), statusSink()) } },
-      { id: 'child', label: PALETTE_PANEL.child, hint: PALETTE_PANEL.childHint, enabled: true, run: ctx => { ctx.close(); openComposeFor({ kind: 'child', parentId: node.id }) } },
-      { id: 'move', label: PALETTE_PANEL.moveFocus, hint: PALETTE_PANEL.moveFocusHint, enabled: true, run: ctx => { ctx.close(); focusDetailsControl(node, '[data-tree-move-select]') } },
-      { id: 'copy-brief', label: PALETTE_PANEL.copyBrief, hint: '', enabled: Boolean(current.message), run: ctx => runPaletteAction('copy-brief', fresh(), sinkFor(ctx)) },
-      { id: 'copy-reply', label: PALETTE_PANEL.copyReply, hint: '', enabled: Boolean(reply), run: ctx => runPaletteAction('copy-reply', fresh(), sinkFor(ctx)) },
+      { id: 'resume', group: agent, label: RESUME_PANEL.action, hint: RESUME_PANEL.hint, enabled: !running && Boolean(transcriptStore && transcriptStore.has(node.id)), disabledHint: running ? RESUME_PANEL.busy : PALETTE_PANEL.whyNoSaved, run: ctx => { ctx.close(); void resumeNodeSession(fresh(), { out: statusSink() }) } },
+      { id: 'interrupt', group: danger, label: PALETTE_PANEL.interrupt, hint: PALETTE_PANEL.interruptHint, enabled: running, disabledHint: PALETTE_PANEL.whyNotRunning, run: ctx => runPaletteAction('interrupt', fresh(), sinkFor(ctx)) },
+      { id: 'stop', group: danger, label: PALETTE_PANEL.stop, hint: PALETTE_PANEL.stopHint, enabled: running, disabledHint: PALETTE_PANEL.whyNotRunning, run: ctx => runPaletteAction('stop', fresh(), sinkFor(ctx)) },
+      { id: 'clear', group: danger, label: PALETTE_PANEL.clear, hint: PALETTE_PANEL.clearHint, enabled: started, disabledHint: PALETTE_PANEL.whyNotStarted, run: ctx => { ctx.close(); void runPaletteAction('clear', fresh(), statusSink()) } },
+      /* LAST ON PURPOSE: the one row that ends an agent for good closes the
+         destructive group. Its two reasons are the store's own refusals, in
+         the design's order — a live run first, then the agents underneath. */
+      { id: 'remove', group: danger, label: REMOVE_PANEL.action, hint: REMOVE_PANEL.hint, enabled: !removeBlockedByRun && childCount === 0, disabledHint: removeBlockedByRun ? REMOVE_PANEL.whyRunning : (childCount > 0 ? REMOVE_PANEL.whyChildren(childCount) : ''), run: ctx => ctx.show(removeRows(), { title: REMOVE_PANEL.action }) },
     ]
   }
 
@@ -3571,10 +5215,21 @@ export function computersView({ initialComputer = null, navigate }) {
      A node that never spoke resumes as a bare restart (clear-shaped, brief
      NOT re-sent) — there is nothing to read, and re-running the original ask
      uninvited could redo real work. */
-  async function resumeNodeSession(node, { effort = null, out = null } = {}) {
+  /* `deliverQueued` is false for exactly one caller: the dead-session recovery
+     below, which is holding a message of its own and sends it itself. Two
+     senders on one idle agent would race, and the engine refuses the loser. */
+  async function resumeNodeSession(node, { effort = null, out = null, deliverQueued = true } = {}) {
     const bridge = typeof window === 'undefined' ? null : window.mcAgent
     if (!bridge || typeof bridge.start !== 'function') {
       if (out) out.textContent = START_NEEDS_APP_TEXT
+      return false
+    }
+    /* A resume IS a start -- bridge.start, a real child process -- so the same
+       switch decides it. Gating only the compose panel would leave "nothing
+       here will start an agent" true of the dashed circle and false of every
+       node already on the canvas. */
+    if (!isWriteEnabled(START_CONTROL_FLAG)) {
+      if (out) out.textContent = startControlOffReason()
       return false
     }
     const oldSessionId = node.sessionId || null
@@ -3593,7 +5248,13 @@ export function computersView({ initialComputer = null, navigate }) {
         try { await bridge.close({ sessionId: oldSessionId }) }
         catch { /* an already-dead session is the expected state here */ }
       }
-      outboxClearSession(oldSessionId)
+      /* THE WAITING WORDS ARE NOT THROWN AWAY HERE. This used to clear the old
+         session's outbox, which deleted every queued message the composer had
+         already promised to send -- silently, in the middle of an action the
+         person took to get that very agent BACK. The queue is
+         left standing and moved to the new session below, once there is one;
+         a resume that fails leaves it exactly where it was, beside the
+         conversation it belongs to. */
       sessionTranscripts.delete(oldSessionId)
       sessionTurnLog.delete(oldSessionId)
       sessionUsage.delete(oldSessionId)
@@ -3621,6 +5282,10 @@ export function computersView({ initialComputer = null, navigate }) {
           ...(node.tier ? { tier: node.tier } : {}),
           ...(chosenEffort ? { effort: chosenEffort } : {}),
           ...(profileId ? { profileId } : {}),
+          /* A RESUME CARRIES THE KEYS TOO — the standing-request block rides
+             the resumed session's first turn, because a restart is exactly
+             when a thread rule must be re-asserted. */
+          requestKeys: nodeRequestKeys(node),
         })
       } catch { started = null }
       if (started && typeof started.sessionId === 'string' && started.sessionId) {
@@ -3638,6 +5303,12 @@ export function computersView({ initialComputer = null, navigate }) {
         tier: node.tier,
         effort: chosenEffort,
         profileId,
+        requestKeys: nodeRequestKeys(node),
+        /* Bound before the seed is sent, for the reason startAgentForNode's
+           note gives: a turn that starts answering before the send is answered
+           would otherwise arrive for a session this page has never heard of.
+           The block below sets the same key again, which costs nothing. */
+        onSessionOpen: ({ sessionId }) => { sessionNodeIds.set(sessionId, node.id) },
       })
     } else {
       let started = null
@@ -3647,6 +5318,7 @@ export function computersView({ initialComputer = null, navigate }) {
           ...(node.tier ? { tier: node.tier } : {}),
           ...(chosenEffort ? { effort: chosenEffort } : {}),
           ...(profileId ? { profileId } : {}),
+          requestKeys: nodeRequestKeys(node),
         })
       } catch { started = null }
       result = started && typeof started.sessionId === 'string' && started.sessionId
@@ -3663,24 +5335,30 @@ export function computersView({ initialComputer = null, navigate }) {
       return false
     }
     sessionNodeIds.set(result.sessionId, node.id)
+    /* The messages that were waiting for the old session are waiting for this
+       one: same node, same conversation, same person still expecting them to
+       go. Drained by the turn-completed listener like any other queued
+       message -- or immediately below, when the agent came back idle and there
+       is no turn for them to wait behind. */
+    const carriedForward = oldSessionId ? outboxMoveSession(oldSessionId, result.sessionId) : 0
     if (chosenEffort) sessionEfforts.set(result.sessionId, chosenEffort)
     if (result.threadId) sessionThreadIds.set(result.sessionId, result.threadId)
-    /* THE CONVERSATION ON SCREEN COMES FROM THE ENGINE WHEN THE ENGINE HAS
-       IT. A real resume hands back the thread's own turns — that is the
-       authoritative record, and it can be longer and truer than the excerpt
-       we kept. The excerpt is used only when the engine could not restore
-       the thread, where it is followed by the marker line saying a fresh
-       agent read it. */
-    const engineLines = engineResumed
-      ? engineResumed.turns.flatMap(turn => (turn.said || []).map(line => ({ who: line.who, text: line.text, at: null })))
-      : []
-    if (engineLines.length > 0) {
-      sessionTranscripts.set(result.sessionId, engineLines)
-    } else if (savedLines.length > 0) {
-      sessionTranscripts.set(result.sessionId, engineResumed
-        ? savedLines
-        : [...savedLines, { who: 'you', text: RESUME_PANEL.marker, at: Date.now() }])
-    }
+    /* THE CONVERSATION ON SCREEN IS THE ONE THE PERSON WAS ALREADY READING.
+       A real resume changed nothing about the past -- that is what makes it
+       free -- so nothing about the past changes here either. This used to
+       rebuild the whole conversation from the engine's turns, believing them
+       "longer and truer than the excerpt we kept"; measured, they are a
+       speech-only projection that carries no tool actions and returns the
+       product's two opening `you` lines as the one user message that went out.
+       Rebuilding from them DELETED the person's opening request and every row
+       showing what the agent did, and persistTranscript below then wrote that
+       over the only durable copy. See src/tree-resume-transcript.js, which the
+       suite drives; this file cannot be imported by a test process. */
+    sessionTranscripts.set(result.sessionId, resumedTranscriptLines({
+      engineResumed,
+      savedLines,
+      marker: RESUME_PANEL.marker,
+    }))
     nodeActivity.delete(node.id)
     if (treeStore) {
       treeStore.attachSession(node.id, result.sessionId)
@@ -3691,6 +5369,16 @@ export function computersView({ initialComputer = null, navigate }) {
       refreshTree()
     }
     persistTranscript(result.sessionId)
+    /* AN IDLE AGENT HAS NO TURN FOR THE QUEUE TO WAIT BEHIND. The drain is
+       normally the turn-completed listener's job, because that is the engine's
+       only "I am free" signal -- but an engine-resumed agent came back with its
+       memory and was asked nothing, so no completion is coming and the words
+       would sit there forever. Exactly one goes; its completion drains the
+       next, through the one drain site every queued message uses. */
+    if (deliverQueued && carriedForward > 0 && engineResumed) {
+      const nextQueued = outboxTakeNext(result.sessionId)
+      if (nextQueued) void drainOutboxMessage(result.sessionId, node.id, nextQueued)
+    }
     if (out) out.textContent = engineResumed ? RESUME_PANEL.continued : RESUME_PANEL.done
     if (controlsPage.classList.contains('is-active') && currentRailTreeNode && currentRailTreeNode.id === node.id) {
       showTreeNodeControls(treeStore ? treeStore.getNode(node.id) || node : node)
@@ -3738,6 +5426,9 @@ export function computersView({ initialComputer = null, navigate }) {
     }
     if (id === 'clear') {
       if (!bridge || typeof bridge.start !== 'function' || typeof bridge.close !== 'function' || !node.sessionId) return
+      /* "Start over" closes one session and starts another, so it is a start
+         and the same switch decides it. */
+      if (!isWriteEnabled(START_CONTROL_FLAG)) { out.textContent = startControlOffReason(); return }
       const oldSessionId = node.sessionId
       /* Read before the wipe below erases them: the fresh session keeps the
          depth this one ran at, and the folder its tree is assigned to. */
@@ -3797,7 +5488,11 @@ export function computersView({ initialComputer = null, navigate }) {
       return
     }
     if (id === 'resume') {
-      if (node.status === 'starting' || node.status === 'running') { out.textContent = RESUME_PANEL.busy; return }
+      /* nodeBusy, not the saved status. "It is busy, wait" over a session that
+         died with the last shutdown is the refusal that left a person with no
+         way out of this node at all: Resume refused for being busy, Stop
+         standing over a corpse. */
+      if (nodeBusy(node)) { out.textContent = RESUME_PANEL.busy; return }
       if (!transcriptStore || !transcriptStore.has(node.id)) { out.textContent = RESUME_PANEL.nothing; return }
       await resumeNodeSession(node, { out })
       return
@@ -3806,7 +5501,11 @@ export function computersView({ initialComputer = null, navigate }) {
       if (!bridge || typeof bridge.pickMention !== 'function' || !node.sessionId) return
       let picked = null
       try { picked = await bridge.pickMention({ sessionId: node.sessionId }) } catch { picked = null }
-      if (!picked || !picked.path) { out.textContent = PALETTE_PANEL.attachCancelled; return }
+      /* ITS OWN SENTENCE. This branch used to reuse the attach branch's cancel
+         line, "Nothing was attached.", which is true of a different action. A
+         person who had just pressed Mention and closed the picker read a
+         sentence about Attach. */
+      if (!picked || !picked.path) { out.textContent = PALETTE_PANEL.mentionCancelled; return }
       showTreeNodeControls(node)
       /* Into the chat composer — the queue box retired with the Actions
          tab; the composer is where a mention's path belongs now. */
@@ -3815,6 +5514,7 @@ export function computersView({ initialComputer = null, navigate }) {
         input.value = input.value ? `${input.value} ${picked.path}` : `Read ${picked.path} and use it for what I ask next.`
         input.focus()
       }
+      out.textContent = PALETTE_PANEL.mentionWritten
       return
     }
     if (id === 'copy-brief' || id === 'copy-reply') {
@@ -3832,6 +5532,11 @@ export function computersView({ initialComputer = null, navigate }) {
       if (!bridge || typeof bridge.interrupt !== 'function' || !node.sessionId) return
       try {
         await bridge.interrupt({ sessionId: node.sessionId })
+        /* Recorded only once the engine ACCEPTED the interrupt, so the
+           completion that follows can say "stopped by you" instead of "the
+           last turn failed". The missed path below records nothing: there was
+           no running turn, so nothing that completes next was stopped. */
+        sessionsInterrupted.add(node.sessionId)
         out.textContent = PALETTE_PANEL.interruptDone
       } catch {
         /* AGENT_TURN_NONE and its siblings all mean the same observable thing
@@ -3855,6 +5560,91 @@ export function computersView({ initialComputer = null, navigate }) {
     }
   }
 
+  /* THE REMOVAL — the missing leg of the tree verbs (owner finding, verbatim:
+   * "there was also no way to remove an old node you wanted to delete").
+   *
+   * WHAT GOES AND WHAT STAYS IS A FIXED CONTRACT, the one the confirm stage
+   * just read out. Goes: the node's record in the tree store (its tree too,
+   * when it was the last agent in it), the durable conversation for the node
+   * — through session-transcript-store's OWN remove(), never a hand on its
+   * key — and this window's node- and session-keyed caches, so no ghost
+   * reply can resurface on a later node. Stays: the signed run records. They
+   * are the permanent record of what ran on this machine and nothing on this
+   * path reaches them.
+   *
+   * THE STORE IS THE GATE, NOT THIS FUNCTION. removeNode() refuses a live
+   * agent and a parent with agents under it, in the same exported sentences
+   * the palette row shows — so the re-check here on a race (a queued message
+   * put the agent back to work while the confirm stage sat open) speaks the
+   * store's words, and any store refusal is reported as it came. The only
+   * session this function closes is the removed node's own reachable one; a
+   * record orphaned by shutdown is let go through detachSession, the store's
+   * documented verb for exactly that state. */
+  async function performNodeRemoval(node) {
+    if (!treeStore) return false
+    const live = treeStore.getNode(node.id) || node
+    if (nodeBusy(live)) {
+      setOrgStatus(NODE_REMOVE_REFUSALS.running, 'refuse', { sticky: true })
+      return false
+    }
+    const name = treeNodeName(live)
+    const sessionId = live.sessionId || null
+    if (sessionId) {
+      if (nodeSessionLive(live)) {
+        const bridge = typeof window === 'undefined' ? null : window.mcAgent
+        if (bridge && typeof bridge.close === 'function') {
+          try { await bridge.close({ sessionId }) }
+          catch { /* an already-closed session is the goal state */ }
+        }
+      }
+      if (live.status === 'starting' || live.status === 'running') treeStore.detachSession(live.id)
+    }
+    const result = treeStore.removeNode(live.id)
+    if (!result.ok) {
+      setOrgStatus(result.problems[0] || REMOVE_PANEL.notRemoved, 'refuse', { sticky: true })
+      return false
+    }
+    /* The durable conversation leaves through the store's own door. */
+    transcriptStore?.remove(live.id)
+    /* This window's caches — node-keyed, then everything keyed by the session
+       the node held, so nothing can deliver into a record that is gone. */
+    nodeReplies.delete(live.id)
+    nodeActivity.delete(live.id)
+    if (sessionId) {
+      outboxClearSession(sessionId)
+      sessionTranscripts.delete(sessionId)
+      sessionTurnLog.delete(sessionId)
+      sessionTurnText.delete(sessionId)
+      sessionUsage.delete(sessionId)
+      sessionModelOverride.delete(sessionId)
+      sessionPendingImages.delete(sessionId)
+      sessionPendingApprovals.delete(sessionId)
+      sessionsInterrupted.delete(sessionId)
+      sessionNodeIds.delete(sessionId)
+      sessionEfforts.delete(sessionId)
+      sessionThreadIds.delete(sessionId)
+      sessionActions.delete(sessionId)
+      chatSurfaces.delete(sessionId)
+      turnReplies.delete(sessionId)
+    }
+    /* The canvas repaints without the node. A drill rooted AT it re-roots on
+       its parent — the removed node is always a leaf here — or zooms out when
+       it stood alone. */
+    if (graph && graph.rootId === live.id) {
+      if (live.parentId) graph.setRoot?.(live.parentId)
+      else graph.clearRoot?.()
+    }
+    refreshTree()
+    /* The rail: railFollowsCanvas's conservative answer, for the same reason —
+       the node it was showing cannot be on any canvas now, so back to the
+       overview. */
+    if (currentRailTreeNode && currentRailTreeNode.id === live.id && controlsPage.classList.contains('is-active')) {
+      showStats()
+    }
+    setOrgStatus(REMOVE_PANEL.done(name), 'ok')
+    return true
+  }
+
   function showControls(agent) {
     if (liveMode) {
       showProjectionControls(agent)
@@ -3863,6 +5653,16 @@ export function computersView({ initialComputer = null, navigate }) {
     clearBoard()
     const role = ROLES[agent.role] || ROLES.default
     controlsPage.style.setProperty('--rc', role.hex)
+    /* DISPOSE BEFORE THE WIPE. The rule is stated where railChat is declared
+       -- never innerHTML over a mounted chat -- and only showTreeNodeControls
+       obeyed it. After any of the other three rebuilds, railChat survived
+       pointing at a DETACHED root whose sessionId still matched, so the event
+       listener kept opening streams and pushing every delta into a chat log
+       that was no longer in the document: the answer was recorded and never
+       seen (owner, 2026-08-18, "the messages in history disappear"). It also
+       leaked that chat's observers, frames and timers. */
+    disposeRailSaid()
+    disposeRailChat()
     controlsPage.innerHTML = `
       ${railTitleRow({ back: { aria: 'Back to statistics' }, title: 'Agent Controls' })}
       <div class="rail-scroll">
@@ -3930,6 +5730,111 @@ export function computersView({ initialComputer = null, navigate }) {
     activateRail(controlsPage)
   }
 
+  /**
+   * THE FOUR ANSWERS TO "HOW DOES WORK GET STARTED FROM THIS COMPUTER",
+   * MOUNTED ON EVERY RAIL THAT IS ENTITLED TO THEM.
+   *
+   * WHAT WAS MEASURED, 2026-08-18, on a staged packaged build with a sterile
+   * profile, driving with real input:
+   *
+   *   fleet page, nothing started        .static-tree-node 0, one empty slot
+   *   press the slot, pick a role,       a node appears (status "did not start"
+   *     write a brief, press Start       -- the engine is signed out) and its
+   *                                      rail carries What it is doing / The
+   *                                      conversation / Setup and NOTHING ELSE
+   *   agent page, press Start            session opens; navigate to the fleet
+   *                                      page and the surface's own teardown
+   *                                      has closed it again, by design
+   *
+   * So the projection rail -- the ONLY builder of Launch, Team, Loop and Codex
+   * Cloud -- was reached by selecting a node that is drawn only for a LIVE
+   * session on a declared seat, and a live session cannot outlive the page that
+   * owns it (src/agent-session.js's teardown calls publishLiveSession(null), and
+   * src/agent-session-registry.js explains why it must). Those four controls
+   * were therefore unreachable on every install, in every state, for anyone.
+   * Four packaged drivers had been reporting it from four directions:
+   * team-panel ("clicking an agent opens the rail board: absent"), loop, the
+   * live half of example-page-write-fence, and refusal-copy's three
+   * "UNMEASURED -- the control could not be reached".
+   *
+   * THE RAIL A PERSON ACTUALLY REACHES IS THE TREE NODE'S. That is the node the
+   * fleet page's own start path creates, it is on the board that reads THIS
+   * computer, and it is absent from the example board by construction --
+   * graphComputer() returns the untouched example computer when the page is not
+   * live, so no tree node and no empty slot can appear there. The fence
+   * tools/example-page-write-fence-qa measures is structural, not a flag, and it
+   * still holds: the example rail goes through showControls(), which builds
+   * exampleControlsAbsentBox() and never calls this function.
+   *
+   * `live: true` is stated HERE and nowhere else, for the reason it was stated
+   * on the projection rail: only a rail reading this computer may build a
+   * control that reaches the audited bridge. One builder for both rails, so the
+   * entitlement rule has one place to be right and the two rails cannot drift
+   * into offering different controls for the same computer.
+   */
+  /* Remembered posture, not a setting. src/settings-presentation.js already
+     ruled on this shape for its own open-groups memory: it "grants nothing,
+     gates nothing, and the settings footer does not count it". Whether a person
+     left a disclosure open is a scroll position, not a permission. */
+  const START_WORK_OPEN_KEY = 'mc.rail.start-work-open'
+  const startWorkWasOpen = () => {
+    try { return localStorage.getItem(START_WORK_OPEN_KEY) === 'open' } catch { return false }
+  }
+  const rememberStartWork = open => {
+    try { localStorage.setItem(START_WORK_OPEN_KEY, open ? 'open' : 'closed') } catch { /* session-only is still a real change */ }
+  }
+
+  function mountStartWorkControls(agent, slot) {
+    if (!slot) return
+    /* ONE GROUP, FOUR PANELS, NOTHING REMOVED. See START_WORK_GROUP in
+       src/fleet-tree-copy.js for what was measured and why these four belong
+       together. The button is a real button with aria-expanded and a chevron,
+       and it names all four panels on its own line -- a disclosure a person
+       cannot identify is worse than the scroll it saved. */
+    const open = startWorkWasOpen()
+    const bodyId = `start-work-${Math.random().toString(36).slice(2, 9)}`
+    const group = el(`
+      <div class="board-box board-ctl-box rail-group" data-start-work-group>
+        <button class="rail-group-toggle" type="button" data-start-work-toggle aria-expanded="${open ? 'true' : 'false'}" aria-controls="${bodyId}">
+          <span class="rail-group-chev" aria-hidden="true">⌄</span>
+          <span class="rail-group-name">
+            <span class="bh-t">${escapeMarkup(START_WORK_GROUP.title)}</span>
+            <span class="board-cap">${escapeMarkup(START_WORK_GROUP.contents)}</span>
+          </span>
+        </button>
+        <div class="rail-group-body" id="${bodyId}" data-start-work-body${open ? '' : ' hidden'}></div>
+      </div>`)
+    slot.replaceWith(group)
+    const body = group.querySelector('[data-start-work-body]')
+    const toggle = group.querySelector('[data-start-work-toggle]')
+    toggle.setAttribute('aria-label', open ? START_WORK_GROUP.collapseLabel : START_WORK_GROUP.expandLabel)
+
+    /* THE FOUR ARE BUILT AND MOUNTED EITHER WAY, open or closed. Building them
+       lazily on first press would mean the live updaters that query these boxes
+       find nothing until somebody presses, and a control that exists only after
+       a gesture is the defect this rail already has a comment about. `hidden`
+       is a paint decision; the boxes are real from the moment the rail is. */
+    const launchBox = launchControlsBox(agent, { live: true })
+    body.appendChild(launchBox)
+    const teamBox = teamControlsBox(agent, { live: true })
+    body.appendChild(teamBox)
+    const loopBox = loopControlsBox(agent, { live: true })
+    body.appendChild(loopBox)
+    /* Codex Cloud sits with Launch, Team and Loop because it is the fourth
+       answer to the same question -- how does work get started from this
+       computer -- and the first one whose answer is "somewhere else". */
+    boardCloudBox = cloudControlsBox()
+    body.appendChild(boardCloudBox)
+
+    toggle.addEventListener('click', () => {
+      const nowOpen = toggle.getAttribute('aria-expanded') !== 'true'
+      toggle.setAttribute('aria-expanded', nowOpen ? 'true' : 'false')
+      toggle.setAttribute('aria-label', nowOpen ? START_WORK_GROUP.collapseLabel : START_WORK_GROUP.expandLabel)
+      body.hidden = !nowOpen
+      rememberStartWork(nowOpen)
+    })
+  }
+
   function showProjectionControls(agent) {
     clearBoard()
     const role = ROLES[agent.role] || ROLES.default
@@ -3945,6 +5850,16 @@ export function computersView({ initialComputer = null, navigate }) {
        a control box whose knobs are real. Leaving them here would have the
        panel report two things missing while they sit above it. */
     const missing = [runtime === null ? 'runtime' : null, taskSummary === null ? 'task history' : null, 'activity'].filter(Boolean)
+    /* DISPOSE BEFORE THE WIPE. The rule is stated where railChat is declared
+       -- never innerHTML over a mounted chat -- and only showTreeNodeControls
+       obeyed it. After any of the other three rebuilds, railChat survived
+       pointing at a DETACHED root whose sessionId still matched, so the event
+       listener kept opening streams and pushing every delta into a chat log
+       that was no longer in the document: the answer was recorded and never
+       seen (owner, 2026-08-18, "the messages in history disappear"). It also
+       leaked that chat's observers, frames and timers. */
+    disposeRailSaid()
+    disposeRailChat()
     controlsPage.innerHTML = `
       ${railTitleRow({ back: { aria: 'Back to the fleet overview' }, title: 'Recorded agent' })}
       <div class="rail-scroll" data-live-mode="live" data-projection-state="available">
@@ -3969,22 +5884,7 @@ export function computersView({ initialComputer = null, navigate }) {
       </div>`
     mountRailChat(agent, role)
     mountRoleControl(agent, controlsPage.querySelector('.board-role-slot'))
-    /* `live: true` is stated here and nowhere else. This is the projection rail
-       -- the one reading declared topology from this computer -- and it is the
-       only caller entitled to build a control that reaches the bridge. */
-    const projectionLaunchBox = launchControlsBox(agent, { live: true })
-    controlsPage.querySelector('.board-launch-slot').replaceWith(projectionLaunchBox)
-    const projectionTeamBox = teamControlsBox(agent, { live: true })
-    projectionLaunchBox.after(projectionTeamBox)
-    const projectionLoopBox = loopControlsBox(agent, { live: true })
-    projectionTeamBox.after(projectionLoopBox)
-    /* Codex Cloud sits with Launch, Team and Loop because it is the fourth
-       answer to the same question -- how does work get started from this
-       computer -- and the first one whose answer is "somewhere else".
-       ONLY ON THIS RAIL. The simulated rail above gets no cloud box: it is the
-       example copy, and its own banner says nothing on it is real. */
-    boardCloudBox = cloudControlsBox()
-    projectionLoopBox.after(boardCloudBox)
+    mountStartWorkControls(agent, controlsPage.querySelector('.board-launch-slot'))
     controlsPage.querySelector('.rail-back').addEventListener('click', showStats)
     controlsPage.querySelector('[data-a="open"]').addEventListener('click', () => navigate(`#/agent/${computer.id}/${agent.id}`))
     activateRail(controlsPage)
@@ -4130,6 +6030,16 @@ export function computersView({ initialComputer = null, navigate }) {
       ${railTitleRow({ title: 'Runtime Statistics' })}
       <div class="projection-unavailable" data-live-mode="live" data-projection-state="${loading ? 'loading' : 'unavailable'}">${loading ? 'Reading your fleet…' : `The live fleet data could not be read · ${escapeMarkup(reason)}`}</div>
       ${loading ? '' : `<div class="rail-scroll rail-org-only">${orgSourceMarkup()}<div class="board-org-slot"></div></div>`}`
+    /* DISPOSE BEFORE THE WIPE. The rule is stated where railChat is declared
+       -- never innerHTML over a mounted chat -- and only showTreeNodeControls
+       obeyed it. After any of the other three rebuilds, railChat survived
+       pointing at a DETACHED root whose sessionId still matched, so the event
+       listener kept opening streams and pushing every delta into a chat log
+       that was no longer in the document: the answer was recorded and never
+       seen (owner, 2026-08-18, "the messages in history disappear"). It also
+       leaked that chat's observers, frames and timers. */
+    disposeRailSaid()
+    disposeRailChat()
     controlsPage.innerHTML = ''
     activateRail(statsPage)
     if (!loading) mountOrgLibrary(statsPage.querySelector('.board-org-slot'))
@@ -4146,7 +6056,30 @@ export function computersView({ initialComputer = null, navigate }) {
         ${hostAbsentMarkup(`The live fleet data could not be read · ${reason}`, { reasonClass: 'graph-empty-reason' })}
         ${emptyStateExample()}
       </div>`)
-    graphWrap.insertBefore(emptyPanel, graphTitle)
+    /* THE SLOT, NOT THE WRAP — and this line THREW for as long as the graph bar
+       has existed.
+     *
+     * What stood here was `graphWrap.insertBefore(emptyPanel, graphTitle)`, and
+     * `.graph-title` has not been a child of `.graph-wrap` since the title, the
+     * tree switcher and the tool buttons were gathered into `.graph-bar` (see
+     * the markup above). It is a GRANDCHILD, so the browser answered
+     * `NotFoundError: Failed to execute 'insertBefore' on 'Node': The node
+     * before which the new node is to be inserted is not a child of this node.`
+     *
+     * MEASURED, 2026-08-18, on a staged packaged build: the throw is raised
+     * inside loadProjection()'s `.then`, which sends it to the `.catch` beside
+     * it, which calls this same function again, which throws again — an
+     * unhandled rejection and NOT ONE WORD PAINTED. This is the branch a fresh
+     * customer install reaches every time (public/data/fleet.json ships
+     * `ok:false`), so the person whose fleet could not be read was shown a blank
+     * area where the sentence explaining that was supposed to be, plus the
+     * example that tells them what the page is for.
+     *
+     * The canvas slot is where the CANVAS goes (mountProjection, above), which
+     * is exactly what the declaration of `emptyPanel` promises: "It occupies the
+     * same slot the graph canvas does, so the two can never be on screen
+     * together." Same slot, same prepend, one rule. */
+    graphWrap.querySelector('.graph-canvas-slot').prepend(emptyPanel)
   }
 
   function mountProjection(data, { preferComputerId = null, declaredReason = declaredOnlyReason } = {}) {
@@ -4192,7 +6125,7 @@ export function computersView({ initialComputer = null, navigate }) {
          is no organisation to draw: a plain browser, or a store that refused. */
       if (result.ok) mountProjection(result.data.data, { declaredReason: null })
       else {
-        const declared = orgReady() ? declaredFleetData(orgAvailability.org) : null
+        const declared = orgReady() ? declaredFleetData(orgAvailability.org, readLiveSession()) : null
         if (declared) mountProjection(declared, { declaredReason: result.reason })
         else showProjectionUnavailable(result.reason)
       }
@@ -4210,6 +6143,30 @@ export function computersView({ initialComputer = null, navigate }) {
   }
   window.addEventListener(LIVE_FLAGS_EVENT, onLiveFlag)
   unsubs.push(() => window.removeEventListener(LIVE_FLAGS_EVENT, onLiveFlag))
+
+  /* A SESSION THAT STARTS WHILE THIS PAGE IS OPEN IS DRAWN WITHOUT A RELOAD.
+   *
+   * Reading readLiveSession() at the two projection sites is enough for the
+   * ordinary journey -- start on the agent page, navigate back, loadProjection()
+   * reads the record fresh. It is NOT enough for a session that begins or ends
+   * while the fleet page is on screen, and that case is real: the rail's own
+   * chat and the compose panel both live here, and the agent page can be open in
+   * a second window against the same renderer registry.
+   *
+   * IT REDRAWS ON THE SET, NOT ON THE PHASE. The registry publishes on every
+   * transition (starting -> open -> working -> stopping), and reprojecting on
+   * each of those would rebuild the canvas four times for one start -- the node
+   * reshuffle src/declared-fleet.js keeps declared order to avoid, done to the
+   * whole graph. The only thing that changes what is DRAWN is which agent has a
+   * session, so that is what is compared. */
+  let lastStartedAgentId = readLiveSession()?.agentId ?? null
+  unsubs.push(onLiveSession(record => {
+    const agentId = record?.agentId ?? null
+    if (agentId === lastStartedAgentId) return
+    lastStartedAgentId = agentId
+    if (destroyed || !liveMode || !declaredOnlyReason || !orgReady()) return
+    reprojectFromOrg()
+  }))
 
   loadRailRuns()
   /* THE COMPACT CARD'S SEND. Busy agent: the words join the queue and the
@@ -4256,9 +6213,149 @@ export function computersView({ initialComputer = null, navigate }) {
         if (out) out.textContent = APPROVAL_PANEL.failed
         return
       }
+      /* Answered means no longer pending: forgotten here so a later rail open
+         cannot offer an Approve button for a decision already made. */
+      sessionPendingApprovals.delete(sessionId)
       card.remove()
       setOrgStatus(APPROVAL_PANEL.answered, 'ok')
     })
+  }
+
+  /* ---- STANDING REQUESTS FROM THE CHAT BOX (the /Request family) ----
+   *
+   * THE PRODUCT FILES THE PERSON'S WORDS; the agent needs no tool for it and
+   * is never sent the command — both dispatch seams route kind:'request'
+   * before anything queues or sends, so "/RequestThread ..." can never reach
+   * a model as a message. The engine's r-ledger module holds the owner's
+   * design (four hand-editable markdown ledgers); the host appends and
+   * answers the minted id for the one-sentence confirmation.
+   *
+   * SCOPE KEYS ARE IDS THIS VIEW ALREADY HOLDS, never invented: a session
+   * rule files under the RUNNING session's id, a tree or thread rule under
+   * this node's id (the anchor). The same ids ride every start as
+   * requestKeys, so filing and boot carriage cannot disagree about what a
+   * scope is called — and because a node's id survives an app restart while
+   * a session's does not, a thread rule outlives the restart (the proof this
+   * feature is judged by) while a session rule honestly dies with its
+   * session. */
+  function treeAnchorsFor(node) {
+    const chain = []
+    const seen = new Set()
+    let current = node
+    while (current && current.id && !seen.has(current.id)) {
+      seen.add(current.id)
+      chain.unshift(current.id)
+      current = current.parentId && treeStore ? treeStore.getNode(current.parentId) : null
+    }
+    /* Bounded like the host's parse. An absurd depth keeps the NEAREST
+       anchors: a rule anchored close binds tighter than one anchored far. */
+    return chain.slice(-16)
+  }
+
+  function nodeRequestKeys(node) {
+    return { treeAnchors: treeAnchorsFor(node), threadId: node.id }
+  }
+
+  /* THE RULES THIS CIRCLE'S AGENTS CARRY, SHOWN WHERE THEY APPLY.
+   *
+   * The scopes come from src/tree-standing-requests.js, which derives them
+   * from the SAME anchors nodeRequestKeys() puts on every start — so what a
+   * person is shown here and what an agent is told at boot cannot disagree.
+   * That is the whole reason the derivation is a shared module with a test
+   * rather than a second expression written next to the panel.
+   *
+   * READ ONLY, DELIBERATELY. The ledger files carry the owner's own design in
+   * their header — "edit or delete any entry by hand ... no tool rewrites
+   * them" — so this panel names the command that writes one and says plainly
+   * that removing one is a hand edit. A Remove button here would contradict
+   * the file it edited.
+   *
+   * A REFUSAL IS NOT AN EMPTY LIST. A copy that could not read its ledgers
+   * says so in its own sentence; painting that as "no rules" would be the
+   * absence-as-zero lie this page has already fixed twice (see
+   * paintAgentsOnRecord). */
+  async function mountStandingRequests(node, slot) {
+    if (!slot) return
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    const scopes = standingRequestScopesFor(node, { anchors: treeAnchorsFor(node) })
+    /* The BOX and its heading are already on the page (see the markup): only
+       the body below them is written here, so the panel never flashes in as a
+       new box under the person's eye, and no class this function invents has
+       to be styled into looking like its siblings. */
+    const body = slot.querySelector('[data-requests-body]')
+    if (!body) return
+    if (!bridge || typeof bridge.requests !== 'function') {
+      body.innerHTML = `<p class="rail-prose is-dim">${escapeMarkup(REQUEST_PANEL.unavailable)}</p>`
+      return
+    }
+    const readings = await Promise.all(scopes.map(async ({ scope, key }) => {
+      const answer = await bridge.requests({ scope, ...(key ? { key } : {}) }).catch(() => null)
+      return { scope, answer }
+    }))
+    if (destroyed || !slot.isConnected) return
+    const refused = readings.some(({ answer }) => !answer || answer.ok !== true)
+    const groups = readings
+      .filter(({ answer }) => answer && answer.ok === true && answer.entries.length > 0)
+      /* One heading per SCOPE, not per anchor: two tree anchors both read as
+         "This tree" to a person, and printing that phrase twice would look
+         like a repeat rather than like two ledgers. */
+      .reduce((into, { scope, answer }) => {
+        const found = into.find(group => group.scope === scope)
+        if (found) found.entries.push(...answer.entries)
+        else into.push({ scope, entries: [...answer.entries] })
+        return into
+      }, [])
+    const total = groups.reduce((count, group) => count + group.entries.length, 0)
+    const written = total === 0
+      ? `<p class="rail-prose is-dim">${escapeMarkup(REQUEST_PANEL.empty)}</p>`
+      : `${groups.map(group => `
+          <div class="rail-sec">${escapeMarkup(REQUEST_PANEL.scopeLabel[group.scope] || group.scope)}</div>
+          ${group.entries.map(entry => `
+            <p class="rail-prose request-words">${escapeMarkup(entry.words)}</p>
+            <p class="rail-prose is-dim request-id">${escapeMarkup(REQUEST_PANEL.entryHint(entry.id))}</p>`).join('')}`).join('')}
+        <p class="rail-prose is-dim">${escapeMarkup(REQUEST_PANEL.precedence)}</p>`
+    /* The refusal rides WITH whatever was read rather than replacing it: some
+       ledgers answering and one refusing is a real state, and hiding the rules
+       that did arrive would be worse than saying both things. */
+    body.innerHTML = `${written}
+      ${refused ? `<p class="rail-prose is-dim">${escapeMarkup(REQUEST_PANEL.unavailable)}</p>` : ''}
+      <p class="rail-prose is-dim">${escapeMarkup(REQUEST_PANEL.howToAdd)}</p>
+      <p class="rail-prose is-dim">${escapeMarkup(REQUEST_PANEL.howToRemove)}</p>`
+  }
+
+  const REQUEST_FILE_FAILED = 'That rule was not filed. Try it once more; if it keeps happening, the ledger file could not be written.'
+
+  async function fileStandingRequestFor(node, slash) {
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    if (!bridge || typeof bridge.request !== 'function') {
+      return { ok: false, sentence: START_NEEDS_APP_TEXT }
+    }
+    if (slash.scope === 'session' && !node.sessionId) {
+      return { ok: false, sentence: 'This circle has no running session yet, so a session rule has nowhere to apply. Start the agent first, or use /RequestTree to cover this circle and everything under it.' }
+    }
+    const key = slash.scope === 'global' ? null
+      : slash.scope === 'session' ? node.sessionId
+        : node.id
+    let filed = null
+    try {
+      filed = await bridge.request({ scope: slash.scope, ...(key ? { key } : {}), words: slash.rest })
+    } catch (error) {
+      const code = refusalCode(error)
+      if (code === 'AGENT_REQUEST_UNAVAILABLE') {
+        return { ok: false, sentence: 'This build cannot file standing requests yet — update ToolsEnabled and try again.' }
+      }
+      if (code === 'AGENT_REQUEST_WORDS_TOO_LONG') {
+        return { ok: false, sentence: 'That rule is too long to file — shorten it and try again.' }
+      }
+      if (code === 'AGENT_REQUEST_WORDS_HEADING') {
+        return { ok: false, sentence: 'A line starting with "## " would read as a new ledger entry — reword the rule and try again.' }
+      }
+      return { ok: false, sentence: REQUEST_FILE_FAILED }
+    }
+    if (!filed || filed.ok !== true || typeof filed.id !== 'string' || filed.id.length === 0) {
+      return { ok: false, sentence: REQUEST_FILE_FAILED }
+    }
+    return { ok: true, sentence: requestConfirmationSentence(slash.scope, filed.id) }
   }
 
   function treeCardSend(node, text, { reply, fail }) {
@@ -4267,6 +6364,16 @@ export function computersView({ initialComputer = null, navigate }) {
     const slash = parseSlashCommand(text)
     if (slash) {
       if (slash.kind === 'help' || slash.kind === 'unknown') { reply(slash.sentence); return }
+      if (slash.kind === 'request') {
+        /* Both outcomes paint through `fail`, and that is a choice about
+           HONESTY, not an error path: `fail` renders the product's own note
+           kind, and a filing confirmation is not the agent speaking any more
+           than a refusal is — the same reasoning src/components.js gives for
+           keeping refusals out of the agent's bubble. */
+        if (!slash.rest) { fail(requestUsageSentence(slash.scope)); return }
+        void fileStandingRequestFor(node, slash).then(result => fail(result.sentence))
+        return
+      }
       if (slash.action === 'queue') {
         if (!slash.rest) { fail(QUEUE_PANEL.emptyQueueCommand); return }
         const queued = outboxEnqueue(node.sessionId, slash.rest)
@@ -4293,7 +6400,7 @@ export function computersView({ initialComputer = null, navigate }) {
     }
     const bridge = typeof window === 'undefined' ? null : window.mcAgent
     if (!bridge || typeof bridge.send !== 'function') { fail(START_NEEDS_APP_TEXT); return }
-    cardReplies.set(node.sessionId, reply)
+    awaitTurnReply(node.sessionId, reply)
     transcriptAppend(node.sessionId, { who: 'you', text, at: Date.now() })
     const override = sessionModelOverride.get(node.sessionId)
     const pendingImages = sessionPendingImages.get(node.sessionId)
@@ -4311,18 +6418,71 @@ export function computersView({ initialComputer = null, navigate }) {
         refreshTree()
       }
     }, error => {
-      cardReplies.delete(node.sessionId)
+      dropTurnReply(node.sessionId, reply)
       /* A DEAD SESSION IS NOT THE PERSON'S PROBLEM (owner, iteration 6: "We
          still get this message"). The one code that means "this session is
          gone" hands the send to the recovery: a fresh agent reads the saved
          conversation and the typed words wait in the queue, visibly. Every
          other refusal keeps its sentence. */
       if (refusalCode(error) === 'MC_AGENT_UNKNOWN_SESSION') {
+        /* THE STRIP HAPPENS HERE, NOT INSIDE THE RECOVERY, AND THE PLACE IS
+         * THE WHOLE FIX. The line above appended a "you" bubble BEFORE the
+         * send; this send was refused, so that bubble is a phantom -- words on
+         * screen and in the saved record that never reached an agent. The
+         * strip used to live inside recoverDeadSessionSend, BELOW its three
+         * early returns (the start-control switch, the one-per-quarter-minute
+         * limiter, the already-recovering guard), so every refused or
+         * rate-limited recovery left the orphan standing. Paired with a window
+         * memory that had shadowed the durable record, the orphan was then the
+         * ONLY thing the panel drew -- the owner's screenshot, a chat showing
+         * one YOU bubble and nothing else.
+         *
+         * A refusal is a refusal whichever way the recovery goes, so the line
+         * comes out on all of them, before the recovery is dispatched and so
+         * before the resume reads the record it seeds a fresh agent from. */
+        stripPhantomYouLine(node, node.sessionId, text)
         void recoverDeadSessionSend(node, text, { reply, fail })
         return
       }
       fail(startRefusalSentence({ ok: false, code: refusalCode(error) }))
     })
+  }
+
+  /* TAKE BACK THE LINE THE SEND PUT THERE, from both copies -- the window
+     transcript and the durable record. Called once per refused send, from the
+     rejection branch above. */
+  function stripPhantomYouLine(node, deadSessionId, text) {
+    const held = sessionTranscripts.get(deadSessionId) || []
+    const last = held[held.length - 1]
+    if (last && last.who === 'you' && last.text === text) {
+      held.pop()
+      sessionTranscripts.set(deadSessionId, held)
+    }
+    const durable = transcriptStore ? transcriptStore.get(node.id) : null
+    if (!durable || !Array.isArray(durable.lines)) return
+    const tail = durable.lines[durable.lines.length - 1]
+    /* THE SAME LINE, NOT MERELY A LINE THIS ONE STARTS WITH.
+     *
+     * This compared the stored tail against a PREFIX of the newly typed text,
+     * and the durable store is the only reason a prefix was ever involved: it
+     * truncates a line at maxLineChars, so the words that were saved can
+     * legitimately be the first 600 characters of what was typed. But
+     * `text.slice(0, tail.text.length)` matches ANY shorter earlier line that
+     * happens to start the same way -- type "ok" after a turn that began
+     * "okay, next" and the branch below deleted the node's whole saved
+     * conversation. So the prefix is admitted only where it is explained: a
+     * tail of exactly the cap, over text longer than the cap. */
+    const wasTruncated = tail
+      && tail.text.length === TRANSCRIPT_LIMITS.maxLineChars
+      && text.length > TRANSCRIPT_LIMITS.maxLineChars
+      && tail.text === text.slice(0, TRANSCRIPT_LIMITS.maxLineChars)
+    if (!tail || tail.who !== 'you' || !(tail.text === text || wasTruncated)) return
+    const trimmed = durable.lines.slice(0, -1)
+    if (trimmed.length > 0) {
+      transcriptStore.save(node.id, { lines: trimmed, threadId: durable.threadId, effort: durable.effort })
+    } else {
+      transcriptStore.remove(node.id)
+    }
   }
 
   /* THE RECOVERY: reached exactly once per dead session per send, from the
@@ -4339,6 +6499,10 @@ export function computersView({ initialComputer = null, navigate }) {
        session that dies instantly would bounce send → unknown-session →
        recover → send forever; after one bounded attempt the honest dead
        end speaks. */
+    /* The recovery brings the agent back by STARTING one, so a computer where
+       that is switched off is told which switch it was -- not "the session is
+       gone", which is true and useless here. */
+    if (!isWriteEnabled(START_CONTROL_FLAG)) { fail(startControlOffReason()); return }
     const lastAt = recentRecoveries.get(node.id) || 0
     if (Date.now() - lastAt < 15_000) { fail(START_REFUSAL.sessionGone); return }
     if (recoveringNodes.has(node.id)) {
@@ -4356,29 +6520,14 @@ export function computersView({ initialComputer = null, navigate }) {
     recoveringNodes.add(node.id)
     recentRecoveries.set(node.id, Date.now())
     try {
-      const deadSessionId = node.sessionId
-      /* Strip the phantom you-line from both copies. */
-      const held = sessionTranscripts.get(deadSessionId) || []
-      const last = held[held.length - 1]
-      if (last && last.who === 'you' && last.text === text) {
-        held.pop()
-        sessionTranscripts.set(deadSessionId, held)
-      }
-      const durable = transcriptStore ? transcriptStore.get(node.id) : null
-      if (durable && Array.isArray(durable.lines)) {
-        const tail = durable.lines[durable.lines.length - 1]
-        if (tail && tail.who === 'you' && tail.text === text.slice(0, tail.text.length) && durable.lines.length > 0) {
-          const trimmed = durable.lines.slice(0, -1)
-          if (trimmed.length > 0) {
-            transcriptStore.save(node.id, { lines: trimmed, threadId: durable.threadId, effort: durable.effort })
-          } else {
-            transcriptStore.remove(node.id)
-          }
-        }
-      }
+      /* The phantom you-line is ALREADY GONE: the rejection branch that
+         dispatched this recovery strips it, above its own early returns, so
+         that a refused or rate-limited recovery leaves nothing orphaned
+         either. Doing it again here would take a legitimate line the moment
+         somebody typed the same words twice. */
       const seeded = Boolean(transcriptStore && transcriptStore.has(node.id))
       reply(seeded ? RECOVERED_SESSION.reconnecting : RECOVERED_SESSION.bare)
-      const ok = await resumeNodeSession(node, {})
+      const ok = await resumeNodeSession(node, { deliverQueued: false })
       if (!ok) { fail(START_REFUSAL.sessionGone); return }
       /* The cost sentence is said only where a cost was really paid: the
          engine usually still holds the thread and brings the same agent back
@@ -4437,8 +6586,11 @@ export function computersView({ initialComputer = null, navigate }) {
         return
       }
       setOrgStatus(QUEUE_PANEL.notSent, 'refuse', { sticky: true, code: refusalCode(error) })
+      /* In place, never a rebuild: the person may be typing in the actions
+         popup's filter, and the queue strip already repaints itself through
+         SESSION_OUTBOX_EVENT. See repaintRailStatus. */
       if (currentRailTreeNode && currentRailTreeNode.id === nodeId && controlsPage.classList.contains('is-active')) {
-        showTreeNodeControls(currentRailTreeNode)
+        repaintRailStatus(currentRailTreeNode)
       }
       return
     }
@@ -4454,7 +6606,7 @@ export function computersView({ initialComputer = null, navigate }) {
     }
     setOrgStatus(QUEUE_PANEL.sentNext, 'ok')
     if (currentRailTreeNode && currentRailTreeNode.id === nodeId && controlsPage.classList.contains('is-active')) {
-      showTreeNodeControls({ ...currentRailTreeNode, status: 'running' })
+      repaintRailStatus({ ...currentRailTreeNode, status: 'running' })
     }
   }
 
@@ -4472,6 +6624,13 @@ export function computersView({ initialComputer = null, navigate }) {
       if (!sessionId || !sessionNodeIds.has(sessionId)) return
       const text = sessionEventText(packet, sessionId)
       if (text) {
+        /* WHERE ONE TURN ENDS AND THE NEXT BEGINS, taken from the engine's own
+           naming of the turn rather than inferred from a completion packet
+           that may never come. Without this the accumulator and the open
+           bubble both survived a turn that ended any other way, and the next
+           turn's first word was appended to the last turn's answer inside the
+           same bubble -- the owner's "combine into each other". */
+        settleTurnBoundary(sessionId, sessionEventTurnId(packet, sessionId))
         sessionTurnText.set(sessionId, (sessionTurnText.get(sessionId) || '') + text)
         /* The open rail streams the same delta it buffers. The waiting line
            leaves on the first word -- "no answer yet" beside an answer is the
@@ -4510,11 +6669,39 @@ export function computersView({ initialComputer = null, navigate }) {
       if (activity) {
         const nodeId = sessionNodeIds.get(sessionId)
         if (activity.kind === 'approval' && activity.approvalId) {
+          /* REMEMBERED FIRST, whoever is looking -- see sessionPendingApprovals.
+             The render below is the same-moment case; the rail-open path reads
+             the map for everyone who arrives later. */
+          sessionPendingApprovals.set(sessionId, activity)
           /* EVENT-DRIVEN: the card exists only while a request is pending.
              Buttons offer exactly the decisions the request itself named. */
           if (currentRailTreeNode && currentRailTreeNode.id === nodeId) {
             renderApprovalCard(sessionId, activity)
           }
+        }
+        /* THE ACTION GOES INTO THE CONVERSATION, and everything this branch
+           already did still happens below. The one-line Details string, the
+           canvas chip and the approval card were never wrong -- they were
+           simply all there was, and each one is overwritten by the next event.
+           A row in the chat log is the part that STAYS.
+           The turn is named so a busy turn's rows fold under their own count
+           rather than under the whole session's. */
+        const openTurn = sessionOpenTurns.get(sessionId) || null
+        const filed = actionBufferFor(sessionId).add(activity, { turnId: openTurn, at: Date.now() })
+        if (filed.row) {
+          broadcastAction(sessionId, actionChatRow(filed.row))
+        } else if (filed.change === 'folded') {
+          /* THE CAP SAYS SO OUT LOUD. One row, repainted with its own count,
+             rather than two hundred rows and a silence about the rest. */
+          broadcastAction(sessionId, {
+            id: `action:more:${openTurn || 'turn'}`,
+            tool: '',
+            detail: foldedActionsLine(filed.folded),
+            state: '',
+            stateKey: '',
+            body: '',
+            at: Date.now(),
+          })
         }
         const line = activityLine(activity)
         if (!line) return
@@ -4532,41 +6719,103 @@ export function computersView({ initialComputer = null, navigate }) {
       const status = sessionTurnStatus(packet, sessionId)
       if (!status) return
       const nodeId = sessionNodeIds.get(sessionId)
+      /* WHOSE WORDS THIS COMPLETION MAY TAKE, ASKED BEFORE IT TAKES THEM.
+       *
+       * THE DEFECT (owner: "combine into each other"). This branch read the
+       * status, which does not carry a turn id, and filed whatever was in the
+       * accumulator as this completion's answer. Order two turns
+       *     delta(turn-a) -> delta(turn-b) -> completed(turn-a)
+       * and turn B's partial words were recorded as turn A's answer -- on the
+       * node, in the durable record, and in every surface waiting on A -- and
+       * B's accumulator was emptied under it, so B then answered with the
+       * fragment it had left. settleTurnBoundary guards the opposite order
+       * only.
+       *
+       * A completion for a turn that is no longer the open one therefore ends
+       * HERE. Its own words were already filed when the next turn's first
+       * delta arrived (settleTurnBoundary does exactly that, closes its bubble
+       * and answers everything waiting), so there is nothing of A's left to
+       * record and nothing of B's this may touch -- not the accumulator, not
+       * the open-turn mark, not the node's status, and not the queue, which
+       * drains on the engine saying it is free and it is not free.
+       *
+       * completionSettlesOpenTurn answers TRUE whenever it cannot tell -- a
+       * nameless completion, or nothing else in flight -- so an engine that
+       * does not name its turns behaves exactly as it did before. */
+      if (!completionSettlesOpenTurn(packet, sessionId, sessionOpenTurns.get(sessionId))) return
       const spoken = (sessionTurnText.get(sessionId) || '').trim()
+      /* THE ENGINE'S OWN SENTENCE, WHEN THE TURN FAILED. Measured on the
+         2026-08-18 walkthrough: a failed Fable turn ended is_error:true with
+         "You're out of usage credits · resets Aug 25, 12am" as its result —
+         the only human sentence the turn produced — and this branch printed
+         "finished without any words back" because the completion event did not
+         carry it. The engine now puts a failed result's sentence on the
+         completion's `text` field (engine claude-cli-adapter.js), the shell
+         forwards packets verbatim, and this is the read. Success completions
+         carry no text by design, so this cannot double-print an answer. */
+      const succeeded = sessionTurnSucceeded(status)
+      const engineSentence = sessionTurnFailureText(packet, sessionId)
+      const said = turnCompletionWords({ succeeded, spoken, engineSentence })
       sessionTurnText.delete(sessionId)
+      /* Nothing is in flight for this session any more, so the next delta
+         opens a fresh bubble rather than reopening this one. */
+      sessionOpenTurns.delete(sessionId)
       nodeActivity.delete(nodeId)
+      /* A dead turn's approval is not a pending question: answered or not, the
+         work it guarded is over. Forgotten here, and any painted card goes with
+         it, so an interrupted agent cannot leave a ghost Approve button behind. */
+      sessionPendingApprovals.delete(sessionId)
+      if (currentRailTreeNode && currentRailTreeNode.id === nodeId) {
+        controlsPage.querySelector('[data-tree-approval]')?.remove()
+      }
       if (railSaid && railSaid.nodeId === nodeId) {
         railSaid.appender.flushNow()
         disposeRailSaid()
       }
       /* A turn that ends having said nothing is a real outcome and must read
-         as one; silence in this box would read as the product hanging. */
-      nodeReplies.set(nodeId, spoken || SAID_PANEL.emptyTurn)
-      transcriptAppend(sessionId, { who: 'agent', text: spoken || SAID_PANEL.emptyTurn, at: Date.now() })
-      const cardReply = cardReplies.get(sessionId)
-      if (cardReply) {
-        cardReplies.delete(sessionId)
-        cardReply(spoken || SAID_PANEL.emptyTurn)
-      }
-      /* A rail-chat stream still open here means the compact card, not the
-         rail, claimed this turn's reply slot (or the turn arrived with no
-         claimant at all). The bubble still has to end. After, not before,
-         cardReply: when the rail IS the claimant its wrapped reply closes the
-         stream itself, and closing twice would print the reply twice. */
+         as one; silence in this box would read as the product hanging. `said`
+         is turnCompletionWords' answer: the streamed words, the engine's
+         failure sentence, or the honest empty-turn line — never silence. */
+      nodeReplies.set(nodeId, said)
+      /* What it DID is filed before what it SAID, in that order, because that
+         is the order a person watched it happen in. */
+      recordTurnActions(sessionId)
+      transcriptAppend(sessionId, { who: 'agent', text: said, at: Date.now() })
+      deliverTurnReply(sessionId, said)
+      /* A rail-chat stream still open here means the rail was not one of the
+         surfaces waiting on this turn (or the turn arrived with no claimant at
+         all). The bubble still has to end. After, not before, the delivery
+         above: when the rail IS waiting, its wrapped reply closes the stream
+         itself, and closing twice would print the reply twice. */
       if (railChat && railChat.sessionId === sessionId && railChat.stream) {
-        railChat.stream.close(spoken || SAID_PANEL.emptyTurn)
+        railChat.stream.close(said)
         railChat.stream = null
       }
-      const finished = status === 'completed' ? 'finished' : 'failed'
+      /* 'turn-failed', NEVER 'failed': 'failed' is the start-failure status
+         and its chip word is "did not start" — writing it here un-said a start
+         the signed spawn record shows (measured 2026-08-18). The note carries
+         the engine's sentence so the rail and tooltip explain the failure.
+         And a not-successful completion the PERSON asked for — the recorded
+         interrupt, consumed here per turn — is 'interrupted', "stopped by
+         you": calling a deliberate stop a failure was measured 2026-08-19
+         beside a transcript honestly saying "Interrupted." */
+      const userStopped = sessionsInterrupted.delete(sessionId)
+      const outcome = sessionTurnSucceeded(status) ? 'finished' : userStopped ? 'interrupted' : 'turn-failed'
       if (treeStore) {
         /* The reply outlives this view: the store keeps it on the node, and the
            in-memory map above becomes a cache in front of it. */
-        treeStore.setNodeReply(nodeId, spoken || SAID_PANEL.emptyTurn)
-        treeStore.setNodeStatus(nodeId, finished, { note: '' })
+        treeStore.setNodeReply(nodeId, said)
+        treeStore.setNodeStatus(nodeId, outcome, {
+          note: outcome === 'finished' ? ''
+            : outcome === 'interrupted' ? statusNote('Stopped by you.')
+            : statusNote(engineSentence ? TURN_FAILED.reply(engineSentence) : TURN_FAILED.word),
+        })
         refreshTree()
       }
+      /* In place, never a rebuild -- the person may be mid-word in the actions
+         popup's filter when this lands. See repaintRailStatus. */
       if (currentRailTreeNode && currentRailTreeNode.id === nodeId && controlsPage.classList.contains('is-active')) {
-        showTreeNodeControls({ ...currentRailTreeNode, status: finished })
+        repaintRailStatus({ ...currentRailTreeNode, status: outcome })
       }
       /* The queue drains here because this is the engine's only "I am free"
          signal. Exactly one message — the next turn's completion drains the
@@ -4578,6 +6827,13 @@ export function computersView({ initialComputer = null, navigate }) {
 
   if (liveMode) loadProjection()
   else mountSimulation()
+
+  /* Asked once, here, and deliberately NOT awaited. The tree must draw whether
+     or not the shell ever answers; a panel opened before the reply lands shows
+     the pessimistic default, which is what every build could always start. The
+     promise is allowed to settle after the view is gone -- startableTiersNow()
+     checks `destroyed` before it writes. */
+  void startableTiersNow()
 
   return {
     el: root,
@@ -4591,6 +6847,10 @@ export function computersView({ initialComputer = null, navigate }) {
       clearBoard()
       clearSourceUnsubs()
       clearMountedGraph()
+      /* The action buffers and the chats they were broadcast to. Holding a
+         detached chat root holds its whole log, and this view with it. */
+      sessionActions.clear()
+      chatSurfaces.clear()
       /* The panel holds a submit that can still be in flight, and the store
          holds a listener that would paint into a rail this view no longer owns.
          A start already sent is NOT cancelled by any of this — it is a real

@@ -45,6 +45,7 @@ const orgControls = readFileSync(join(SRC, 'org-controls.js'), 'utf8')
 const HOOK_ONLY_ELEMENTS = new Set([
   'board-org-slot',    // org library mount, filled by mountOrgLibrary
   'board-launch-slot', // launch panel mount
+  'board-start-work-slot', // Launch/Team/Loop/Cloud mount on the tree-node rail
   'board-role-slot',   // role panel mount
   'board-chart-slot',  // echarts host; the chart engine owns its pixels
   'bc-canvas',         // echarts canvas host, sized by its plot parent
@@ -140,11 +141,24 @@ test('the rail chat streams once and closes once', () => {
   // The delta branch pushes the ACCUMULATED text -- push replaces, so a
   // missed frame can never double words.
   assert.match(view, /railChat\.stream\?\.push\(sessionTurnText\.get\(sessionId\)\)/, 'the delta branch no longer pushes the accumulated turn text')
-  // The completion's safety close comes AFTER the cardReply call, or a
-  // rail-claimed turn prints its reply twice.
-  const completionAt = view.indexOf('cardReplies.delete(sessionId)\n        cardReply(')
-  const safetyCloseAt = view.indexOf('railChat.sessionId === sessionId && railChat.stream')
-  assert.ok(completionAt !== -1 && safetyCloseAt > completionAt, 'the stream safety-close must follow the cardReply call')
+  // The completion's safety close comes AFTER every waiting surface is
+  // answered, or a rail-claimed turn prints its reply twice.
+  /* Read inside the turn-completed branch, not across the whole file: the
+     turn-BOUNDARY settler closes a stream the same way, earlier in the
+     module, and a whole-file indexOf would measure that one instead. */
+  const completion = view.slice(view.indexOf('const status = sessionTurnStatus(packet, sessionId)'))
+  /* `said` is turnCompletionWords' answer -- the streamed words, a failed
+     turn's engine sentence, or the honest empty-turn line. Same delivery,
+     richer words. */
+  const completionAt = completion.indexOf('deliverTurnReply(sessionId, said)')
+  const safetyCloseAt = completion.indexOf('railChat.sessionId === sessionId && railChat.stream')
+  assert.ok(completionAt !== -1 && safetyCloseAt > completionAt, 'the stream safety-close must follow the reply delivery')
+  /* EVERY surface waiting on the turn is answered, not the last one to send.
+     Both the compact card and the rail's Chat tab can send since 5f394a4, and
+     one slot per session meant the first sender's bubble was never answered --
+     half of the owner's "the messages in history disappear". */
+  assert.doesNotMatch(view, /cardReplies/, 'the single-slot reply map is back; one surface will be starved again')
+  assert.match(view, /for \(const reply of waiting\)/, 'the turn reply no longer fans out to every waiting surface')
   // A controlsPage rebuild disposes the mounted chat FIRST -- never
   // innerHTML='' over a live chat.
   const disposeAt = view.indexOf('disposeRailChat()\n    controlsPage.innerHTML')
@@ -171,24 +185,21 @@ test('two rail tabs, chat first — the Actions page stays retired', () => {
   }
 })
 
-test('the split view is off by default, and the second pane is a full tree', () => {
+test('the split view is gone, and cannot come back through a saved preference', () => {
+  /* Owner, 2026-08-16: "lets throw it away for now" -- his read of the split
+     pane was that a page ends up with two views nobody keeps straight. So the
+     button, the pane, its switcher and the preference read are all absent from
+     the view, and this pins that absence: a stored 'mc.page2.split' key must
+     find nothing that reads it. The page is single-pane, the shape every
+     harness has always measured it in. */
   const view = readFileSync(join(SRC, 'views', 'computers.js'), 'utf8')
-  // Absence of the preference is single-pane -- the state every harness
-  // contract runs in. Only the literal 'on' enables it.
-  assert.match(view, /localStorage\.getItem\(SPLIT_PREF_KEY\) === 'on'/, 'the split default is no longer off-unless-chosen')
-  /* Iteration 5 reversed the view-only contract on the owner's explicit
-     instruction ("split node should use the exact same tree as the first
-     ones setup"): the second pane carries slots, drags, drops and the
-     compose flow. The ONE thing that stays with pane one is the chip
-     overlay -- window.__mcGraph and the screen-chip harness contracts are
-     singletons. page2-qa green with split OFF remains the acceptance bar. */
-  const enable = view.slice(view.indexOf('function enableSplit'), view.indexOf('function disableSplit'))
-  assert.match(enable, /screenChips: false/, 'the split pane grew chips; the probe and overlay contracts belong to pane one')
-  assert.match(enable, /emptySlots: liveMode === true/, 'the split pane lost its slots; it is a viewing pane again, against the owner instruction')
-  assert.match(enable, /onReparent: liveMode \? handleReparent : null/, 'the split pane lost drag-reparenting')
-  assert.match(enable, /buildPaneSwitch\(splitPane, splitGraph\)/, 'the split pane lost its own tree switcher')
-  // Teardown kills the pane with the graph.
-  assert.match(view, /function clearMountedGraph\(\) \{\n    disableSplit\(\)/, 'clearMountedGraph no longer tears the split pane down first')
+  for (const gone of ['graph-split-btn', 'mc.page2.split', 'function enableSplit', 'function disableSplit', 'splitGraph', 'splitPane', 'buildPaneSwitch']) {
+    assert.equal(view.includes(gone), false, `${gone} is back in the computers view; the split pane was removed on the owner's instruction`)
+  }
+  const css = readFileSync(join(SRC, 'board.css'), 'utf8') + readFileSync(join(SRC, 'tree-graph.css'), 'utf8')
+  for (const gone of ['.comp-body.is-split', '.graph-pane-2', '.graph-split-btn']) {
+    assert.equal(css.includes(gone), false, `${gone} still has a rule; the split pane it styled is gone`)
+  }
 })
 
 test('the topbar holds one position on every route', () => {
@@ -226,7 +237,11 @@ test('the pane bar scrolls its trees slot and nowhere else', () => {
   assert.match(trees, /scrollbar-width: none/, 'the trees slot shows a raw scrollbar inside the 46px bar')
   const view = readFileSync(join(SRC, 'views', 'computers.js'), 'utf8')
   assert.match(view, /<div class="graph-bar">/, 'the main pane lost its bar')
-  assert.ok(/graph-pane-2">\s*<div class="graph-bar">/.test(view), 'the split pane lost its own bar — one nice bar PER SPLIT was the ask')
+  /* "One nice bar PER SPLIT" was iteration 6's ask, and its second half was
+     pinned here until 2026-08-16, when the owner threw the split pane away
+     ("lets throw it away for now"). A contract on a pane that no longer
+     exists can only fail, so that one clause retired with the pane; every
+     other rule in this test is about the bar that remains and still holds. */
   /* The switcher must build AT MOUNT: every other caller is a change
      handler, and a quietly-loaded page with saved trees stood bare until
      the first store write — found driving the installed build. */

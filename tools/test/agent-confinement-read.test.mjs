@@ -221,6 +221,29 @@ test('a confining level never claims full local access, and unrestricted never c
   assert.match(open, /delete any file/i)
 })
 
+test('the credential fact is on the glass at every level, in the tier\'s own direction', () => {
+  /* THE FIRST OUTSIDE USER'S CASE. Their agents "weren't able to use
+     credential manager or vault" at the recommended level, and no surface had
+     said that the read-only level withholds credential requests BY DESIGN. The
+     person deciding to press Start is owed that sentence at the moment of
+     deciding, not after the agent reports a mystery refusal. */
+  const guided = confinementNote({ ok: true, tier: 'guided', sandbox: 'read-only', failedClosed: false }).sentences.join(' ')
+  assert.match(guided, /cannot ask you for credentials/i,
+    'the Guided start control does not say that credential requests are withheld at this level')
+  assert.match(guided, /Standard/,
+    'the Guided start control does not say where credential requests start')
+
+  const standard = confinementNote({ ok: true, tier: 'standard', sandbox: 'workspace-write', failedClosed: false }).sentences.join(' ')
+  assert.match(standard, /guarded form/i,
+    'the Standard start control does not say how the assistant asks for a credential')
+  assert.match(standard, /never shown/i,
+    'the Standard start control does not say the value never reaches the assistant')
+
+  const open = confinementNote({ ok: true, tier: 'unrestricted', sandbox: 'danger-full-access', failedClosed: false }).sentences.join(' ')
+  assert.match(open, /guarded form/i,
+    'the Unrestricted start control lost the credential sentence')
+})
+
 test('every reading keeps the one clause that is still true', () => {
   for (const reading of [
     null,

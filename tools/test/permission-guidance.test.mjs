@@ -184,7 +184,14 @@ test('every settings-page row states what it grants and what it risks', () => {
      from each setting of ours". Not the write flags. Each. */
   const catalogue = settingsCatalogue()
   assert.deepEqual(unexplainedSettingIds(catalogue), [])
-  assert.ok(catalogue.length >= 90, `only ${catalogue.length} rows were walked; the extraction broke and this test is checking nothing`)
+  /* THE FLOOR WAS 90 UNTIL 2026-08-20 AND IS NOW 22, WHICH IS THE WHOLE
+     CATALOGUE, NOT A LOWERED BAR. It exists to catch the extraction silently
+     returning nothing, so it has to track the real count; 74 rows that wrote a
+     key nothing read were removed, leaving 8 declared rows plus 7 live-view and
+     7 write-action flags. Pinning it AT the total rather than below it means
+     this fails on the next removal too, which is correct -- a floor that drifts
+     under the truth is how "the extraction broke" stops being detectable. */
+  assert.equal(catalogue.length, 22, `${catalogue.length} rows were walked, not the 22 this page declares; either the extraction broke or the catalogue changed and this number must be re-derived, not nudged`)
 
   let checked = 0
   for (const setting of catalogue) {
@@ -217,7 +224,11 @@ test('every write flag and every live flag has its own statement', () => {
 test('every section named by the settings page resolves to a statement', () => {
   const catalogue = settingsCatalogue()
   const sections = new Set(catalogue.map(setting => setting.section))
-  assert.ok(sections.size >= 10, `only ${sections.size} sections were found; the extraction broke`)
+  /* Was 10; the six sections that were inert top to bottom are gone, leaving
+     the five that carry rows in SETTINGS -- Data & Privacy, Appearance, Text &
+     Reading, Motion & Effects, Ledger, Data & Sim and Write. Pinned exactly,
+     for the reason given at the row floor above. */
+  assert.equal(sections.size, 7, `${sections.size} sections were found, not the 7 this catalogue declares; re-derive this, do not nudge it`)
   for (const section of sections) {
     const covered = catalogue
       .filter(setting => setting.section === section)
@@ -290,14 +301,19 @@ const PINNED_ABSOLUTE_CLAIMS = Object.freeze([
     match: /^None worth the word\. Turning animation down hides no information/,
     pinnedBy: 'the motion rows change transition timing and the glow custom property; every value they animate is also rendered as text, and reduce-motion is a class on the body rather than a data filter',
   },
-  {
-    match: /^None worth the word\. It rearranges what is on screen and adds or removes nothing\.$/,
-    pinnedBy: 'the layout rows change grouping, ordering and spacing of already-rendered records; none of them is a live-view flag, so none of them decides which records are read',
-  },
-  {
-    match: /^None to your files or your privacy\. At the cheaper settings screens update more slowly/,
-    pinnedBy: 'the performance rows change frame caps, sample retention and debounce timings inside this window; none reaches the disk or the network, and none is a write-action flag',
-  },
+  /* THREE PINS WERE REMOVED HERE ON 2026-08-20, and the reason is the point of
+     this registry rather than an exception to it.
+     They pinned the risk statements of the `layout`, `performance` and
+     `developer` families -- "It rearranges what is on screen and adds or removes
+     nothing", "None to your files or your privacy", "None to what this program
+     may do". Each reason given was a claim about what those ROWS do. Not one of
+     those rows was read by anything: they wrote a key nothing consumed. So the
+     pins were true sentences about behaviour that did not exist, which is the
+     failure mode this file is supposed to catch and could not, because a pin
+     justifies a claim and nothing was checking that the claim had a subject.
+     The rows, the sections and the three profiles are gone; the pins go with
+     them. The wording is kept in docs/design/UNBUILT-SETTINGS-ROWS-2026-08-20.md.
+     A profile restored with a built feature brings its pin back. */
   {
     /* The comma splice became three sentences -- "The example is invented data.
        Every screen that shows it says so. None of it is ever sent anywhere..."
@@ -305,10 +321,6 @@ const PINNED_ABSOLUTE_CLAIMS = Object.freeze([
        punctuation that carried it. The promise being pinned is identical. */
     match: /^None\. The example is invented data\./,
     pinnedBy: 'the demonstration rows drive src/sim.js, whose data is generated in this window and never sent; every screen showing it renders its own sample banner, which the setup lane pins with "None of it is your data and each screen says so"',
-  },
-  {
-    match: /^None to what this program may do\. The extra detail is on your screen only/,
-    pinnedBy: 'the developer rows change diagnostic rendering; the only one that changes behaviour is mock_failures, which has its own statement and is not covered by this one',
   },
   {
     match: /^None to your computer\. The only cost is confusion, and the product spends it for you/,

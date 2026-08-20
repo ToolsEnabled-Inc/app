@@ -20,6 +20,12 @@ import {
 const ACTION_ROUTES = Object.freeze({
   dispatch: '/v1/actions/dispatch',
   'report-read': '/v1/actions/report-read',
+  /* Read-only: what became of a launch this app already handed over. Behind no
+     write flag of its own — it is the second half of the dispatch the person
+     already made, and gating it separately would leave anyone with dispatch on
+     and this off staring at "starting on it now" for ever, which is the exact
+     defect it exists to end. */
+  'launch-status': '/v1/actions/launch-status',
   queue: '/v1/actions/queue',
   'thread-reply': '/v1/actions/thread-reply',
   decision: '/v1/actions/decision',
@@ -39,6 +45,19 @@ const ACTION_ROUTES = Object.freeze({
   'task-get': '/v1/actions/task-get',
   'task-list': '/v1/actions/task-list',
   'role-complete': '/v1/actions/role-complete',
+  /* The research project family: durable projects, experiments, runs, results,
+     findings and session assignment. Four reads, six writes; the server keeps
+     the read/write distinction at the provider behind each action. */
+  'research-snapshot': '/v1/actions/research-snapshot',
+  'research-runs': '/v1/actions/research-runs',
+  'research-results': '/v1/actions/research-results',
+  'research-findings': '/v1/actions/research-findings',
+  'research-project-save': '/v1/actions/research-project-save',
+  'research-experiment-save': '/v1/actions/research-experiment-save',
+  'research-run-submit': '/v1/actions/research-run-submit',
+  'research-session-assign': '/v1/actions/research-session-assign',
+  'research-finding-save': '/v1/actions/research-finding-save',
+  'research-lifecycle': '/v1/actions/research-lifecycle',
 })
 
 let bootstrapPromise = null
@@ -420,6 +439,10 @@ const ACTION_TIMEOUT_MS = Object.freeze({
      and is slow rather than stuck — the judge gets minutes, not seconds. */
   'task-submit': 30_000, 'task-claim': 30_000, 'task-get': 30_000, 'task-list': 30_000,
   'role-complete': 300_000,
+  /* The research lifecycle spawns or exactly stops a worker process under a
+     cross-process lock; every other research action is a bounded durable
+     read/write on the default budget. */
+  'research-lifecycle': 60_000,
 })
 
 export function postBridgeAction(action, body) {
@@ -891,6 +914,15 @@ export function createTerminateController({
     destroy() { destroyed = true },
     getState() { return state },
   })
+}
+
+/**
+ * The research page-open read: projects with their experiments, session
+ * assignments, the settings-gate decisions and worker lifecycle in one call.
+ * Same {ok,reason,code} refusal shape as every action here.
+ */
+export function researchSnapshot() {
+  return postBridgeAction('research-snapshot', {})
 }
 
 export function resetBridgeSession() {

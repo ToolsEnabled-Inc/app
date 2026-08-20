@@ -403,18 +403,31 @@ async function main() {
         return true
       })()`)
       await delay(1500)
+      /* The groups ship collapsed (settings-ia); open them the way a person
+         does, so the sweep and the shots below see the rows on the glass. */
+      await evaluate(`(() => { for (const head of document.querySelectorAll('.settings-group-head[aria-expanded="false"]')) head.click(); return true })()`)
+      await delay(600)
       const coverage = await evaluate(`(() => {
         const rows = [...document.querySelectorAll('.settings-row[data-setting-id]')]
         const notes = rows.map(row => row.querySelector('[data-guided-for]'))
         return {
           rows: rows.length,
           withNote: notes.filter(Boolean).length,
-          undeclared: notes.filter(note => note && note.dataset.guidedDeclared === 'false').map(note => note.dataset.guidedFor),
+          /* The guarantee is about rows OFFERING A CONTROL: a switch may not
+             sit beside an empty disclosure. A row the register does not cover
+             renders NO control and says the register says nothing -- that is
+             the designed mismatch surface (a registry id newer than this
+             copy's payload), an honest absence rather than an undeclared
+             switch, so it is not counted against the guarantee. */
+          undeclared: notes.filter((note, index) => note
+            && note.dataset.guidedDeclared === 'false'
+            && rows[index].querySelector('.settings-control input, .settings-control button, .settings-control select')
+          ).map(note => note.dataset.guidedFor),
         }
       })()`)
       check('every settings row on screen carries a capabilities-and-risks disclosure',
         coverage.rows > 0 && coverage.rows === coverage.withNote, `${coverage.withNote}/${coverage.rows} rows`)
-      check('no row on screen is undeclared', coverage.undeclared.length === 0, coverage.undeclared.join(', ') || 'none')
+      check('no row with a control on screen is undeclared', coverage.undeclared.length === 0, coverage.undeclared.join(', ') || 'none')
       await evaluate(`(() => {
         for (const note of document.querySelectorAll('.settings-row[data-setting-id="theme"] [data-guided-for], .settings-row[data-setting-id="uninstall_data"] [data-guided-for]')) note.open = true
         return true

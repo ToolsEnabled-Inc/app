@@ -285,9 +285,38 @@ test('a refused account read leaves the environment list unloaded rather than em
   const state = controller.getState()
   assert.equal(state.environmentsLoaded, false)
   assert.deepEqual([...state.environments], [])
-  assert.match(state.environmentsMessage, /Environments unavailable/)
+  assert.match(state.environmentsMessage, /Your Codex accounts could not be read/)
+  assert.equal(state.accountsPhase, 'refused')
+  /* ONE CONDITION, ONE PARAGRAPH. This refusal used to be published into the
+     task-list line AS WELL, in near-identical words, and the panel drew both --
+     the two 47-word paragraphs the owner could make no meaning of. The task
+     list line is now SILENT, because the line above has already said it. */
+  assert.equal(state.listMessage, '')
+  assert.equal(state.listCode, null)
   controller.arm({ environment: ENVIRONMENT, branch: 'main', prompt: 'read the readme' })
   assert.equal(controller.isArmed(), false)
+})
+
+test('nobody signed in is an empty state with one next action, not a refusal', async () => {
+  const io = recorder({
+    'cloud-accounts': { ok: true, receipt: { accounts: [], defaultAccount: null, signedIn: false, environments: [], environmentsComplete: true, environmentsReadAt: '2026-08-18T00:00:00.000Z' } },
+    'cloud-tasks': { ok: true, receipt: { tasks: [], account: null } },
+  })
+  const controller = createCloudTaskController({ postAction: io.postAction, availability: READY })
+  await controller.refresh()
+  const state = controller.getState()
+  assert.equal(state.signedIn, false)
+  assert.equal(state.accountsPhase, 'none')
+  assert.equal(state.environmentsTone, 'note', 'a first run is not a failure and must not be painted as one')
+  assert.match(state.environmentsMessage, /No Codex account is signed in on this computer/)
+  assert.match(state.environmentsMessage, /Sign in to Codex Cloud on this computer/)
+  /* Said once. Every other slot on the panel is silent about it. */
+  assert.equal(state.listMessage, '')
+  assert.equal(state.launchMessage, '')
+  assert.equal(state.watchMessage, '')
+  /* And the task read is never even sent: there is no account to read as, and
+     asking anyway is how the second paragraph got there. */
+  assert.equal(io.calls.filter(call => call.action === 'cloud-tasks').length, 0)
 })
 
 test('the terminal set is exactly the three states that end a task', () => {

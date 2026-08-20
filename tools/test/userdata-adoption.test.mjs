@@ -467,6 +467,7 @@ test('an existing file is never replaced by the one being adopted', () => {
    ================================================================== */
 
 const { createSpawnRecorder } = require('../../shell/spawn-record.cjs')
+const { createUsageRecorder, turnUsageFrom } = require('../../shell/usage-record.cjs')
 const {
   KEYSTORE_SEALED_ENTRY,
   ENTRIES_BOUND_TO_SEALED_KEY,
@@ -504,10 +505,24 @@ function seedLegacyWithRealSignedHistory(legacy, profile = 'mission-control') {
      hash-chained ledger -- the thing whose portability is under test. */
   fs.rmSync(path.join(legacy, 'agent-spawn-key.enc'), { force: true })
   fs.rmSync(path.join(legacy, 'agent-spawn-records.jsonl'), { force: true })
+  fs.rmSync(path.join(legacy, 'agent-turn-usage-records.jsonl'), { force: true })
   const old = profileBoundKeystore(profile)
   const recorder = createSpawnRecorder({ safeStorage: old, directory: legacy })
   recorder.record({ action: 'agent_session_start', sessionId: 'legacy-1', details: {} })
   assert.equal(recorder.verify().ok, true, 'the seeded legacy history must verify under its own key')
+  /* THE SECOND CHAIN, SEALED BY THE SAME KEY. What each turn cost is kept in its
+     own file beside the run record (shell/usage-record.cjs) and signed with the
+     same key, so it is bound to that key in exactly the way the runs are -- and
+     the tests below sweep ENTRIES_BOUND_TO_SEALED_KEY rather than a hand-written
+     pair, so a legacy install that did not have one would be a fixture claiming
+     the product keeps less than it does. */
+  const usage = createUsageRecorder({ safeStorage: old, directory: legacy })
+  usage.recordTurn({
+    sessionId: 'legacy-1',
+    turnId: 'legacy-turn-1',
+    usage: turnUsageFrom({ last: { inputTokens: 10, outputTokens: 2, totalTokens: 12 } }),
+  })
+  assert.equal(usage.verify().ok, true, 'the seeded legacy usage record must verify under its own key')
 }
 
 /* What the product asks before it offers a Start control. */

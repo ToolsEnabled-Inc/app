@@ -26,8 +26,50 @@ export const SLASH_COMMANDS = Object.freeze([
 
 const BY_NAME = new Map(SLASH_COMMANDS.map(command => [command.name, command]))
 
+/* THE /REQUEST FAMILY — the owner's standing rules, typed where the person is
+ * already talking. These are NOT palette actions: nothing on the Actions page
+ * files a rule, so they carry a scope instead of an action id and the view
+ * routes kind:'request' to the product's own filing seam. The engine's
+ * r-ledger module (owner design 2026-08-15) is the ground truth for the four
+ * scopes; the words after the command are the rule, verbatim.
+ *
+ * `word` is what the parser's lowercasing produces; `spoken` is how the
+ * command is written everywhere a person reads it. */
+export const REQUEST_COMMANDS = Object.freeze([
+  Object.freeze({ word: 'request', spoken: '/Request', scope: 'global' }),
+  Object.freeze({ word: 'requestsession', spoken: '/RequestSession', scope: 'session' }),
+  Object.freeze({ word: 'requesttree', spoken: '/RequestTree', scope: 'tree' }),
+  Object.freeze({ word: 'requestthread', spoken: '/RequestThread', scope: 'thread' }),
+])
+
+const REQUEST_BY_WORD = new Map(REQUEST_COMMANDS.map(command => [command.word, command]))
+const REQUEST_BY_SCOPE = new Map(REQUEST_COMMANDS.map(command => [command.scope, command]))
+
+/* WHO A FILED RULE REACHES, said the same way everywhere. The four scopes are
+ * the thing a person will get wrong, so every sentence about a filed rule
+ * must state its reach — a confirmation that just says "filed" teaches
+ * nothing and lets a thread rule be mistaken for a global one. */
+const REQUEST_SCOPE_REACH = Object.freeze({
+  global: 'every agent on this computer, until you edit or delete it',
+  session: 'this working session and every agent it starts',
+  tree: 'this agent and every agent working under it',
+  thread: 'this conversation only — every future session of it starts knowing the rule',
+})
+
+/** One sentence: nothing was filed, and how to say it so something is. */
+export function requestUsageSentence(scope) {
+  const command = REQUEST_BY_SCOPE.get(scope)
+  const spoken = command ? command.spoken : '/Request'
+  return `Nothing was filed — say the rule after the command, like ${spoken} <your words>.`
+}
+
+/** The one-sentence confirmation the chat shows after the product files a rule. */
+export function requestConfirmationSentence(scope, id) {
+  return `Filed ${id} — a standing rule for ${REQUEST_SCOPE_REACH[scope] || scope}.`
+}
+
 export function slashHelpSentence() {
-  return `Commands here: ${SLASH_COMMANDS.map(command => `/${command.name}`).join(', ')} and /help. Everything else sends as a message.`
+  return `Commands here: ${SLASH_COMMANDS.map(command => `/${command.name}`).join(', ')} and /help. File a standing rule with /Request, /RequestSession, /RequestTree, or /RequestThread. Everything else sends as a message.`
 }
 
 /**
@@ -48,6 +90,8 @@ export function parseSlashCommand(text) {
   if (word === 'help') return { kind: 'help', sentence: slashHelpSentence() }
   const command = BY_NAME.get(word)
   if (command) return { kind: 'action', action: command.action, rest }
+  const request = REQUEST_BY_WORD.get(word)
+  if (request) return { kind: 'request', scope: request.scope, rest }
   /* Path-shaped input ("/usr/bin/thing" fails the regex on the second slash
      already); a lone unknown word is most likely a typo of a command. */
   return {

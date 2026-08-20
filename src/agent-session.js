@@ -13,10 +13,10 @@ import { el } from './components.js'
 import { refusalCode, unavailableReason } from './agent-availability-copy.js'
 import { confinementNote } from './agent-confinement-copy.js'
 import { isWriteEnabled, setWriteEnabled } from './write-flags.js'
-import { sessionEventText, sessionTurnStatus } from './agent-session-events.js'
+import { sessionEventText, sessionTurnStatus, sessionTurnSucceeded } from './agent-session-events.js'
 import { createTranscriptAppender } from './agent-session-transcript.js'
 import { publishLiveSession } from './agent-session-registry.js'
-import { autonomyChoice, readStoredProfile } from './setup-profile.js'
+import { START_CONTROL_ON, startControlOffBecause } from './setup-profile.js'
 /* What turning this on would grant and what it would risk, from the one place
    those statements live (owner, R1529). */
 import { withheldMarkup } from './guided-step.js'
@@ -143,12 +143,12 @@ export function mountAgentSessionSurface(root, options = {}) {
  * form, because there is nothing to submit. */
 function mountSessionSwitchedOff(root, remount) {
   const surface = el(`<section class="write-surface agent-session-surface" data-session-off aria-label="Agent session">
-    <header><strong>Agent session</strong><span data-session-status role="status">off · this computer cannot start an assistant</span></header>
+    <header><strong>Agent session</strong><span data-session-status role="status">Off</span></header>
     <div class="write-surface-grid">
       <div class="write-form">
         <span class="write-form-title">Running agents is switched off</span>
         <output data-action-output role="status"></output>
-        <button type="button" data-session-enable>Turn on running agents</button>
+        <button type="button" data-session-enable>${START_CONTROL_ON.label}</button>
         ${/* WHAT IT WOULD GIVE AND WHAT IT WOULD COST, beside the button that
               gives it (owner, R1529). This surface already said what is off and
               where the switch is; a person deciding whether to press it was
@@ -196,17 +196,21 @@ function mountSessionSwitchedOff(root, remount) {
  * product misdescribing its own state, which is the failure this repair is
  * about. */
 function switchedOffReason() {
-  let stored = null
-  try { stored = readStoredProfile() } catch { stored = null }
-  const chosen = stored ? autonomyChoice(stored.answers?.autonomy) : null
-  const because = chosen && chosen.consequence
-    ? `Setup recorded “${chosen.label}”, and that answer switches off starting an assistant.`
-    : 'Starting an assistant is switched off for this computer.'
+  /* The first sentence is startControlOffBecause()'s, shared with the fleet
+     page's start panel, which says the same thing about the same switch. */
+  const because = startControlOffBecause()
   /* THREE SENTENCES, NOT ONE. This was a single thirty-word run-on carrying
      three separate facts: that nothing runs yet, that the switch starts nothing
      by itself, and where the switch is. One idea per sentence is the whole of
-     the change; not a word of meaning was dropped. */
-  return `${because} Nothing runs on this computer until you turn it on. Turning it on starts nothing by itself: it puts the Start control here, and you decide what to run. The same switch is in Settings → Write → Run an agent session.`
+     the change; not a word of meaning was dropped.
+
+     THEN ONE OF THE THREE WENT, on the owner's "open agent detail is a mess".
+     "Nothing runs on this computer until you turn it on" is the first sentence
+     said twice: `because` has already stated that the answer he recorded
+     switches starting off. The Settings route stays HERE, unlike on the fleet
+     page's panel, because this surface is also where somebody comes to turn the
+     thing back off again and that lives in Settings. */
+  return `${because} Turning it on starts nothing by itself, it just puts the Start control here and you decide what to run. The same switch is in Settings, under Write.`
 }
 
 function mountSessionControls(root, {
@@ -276,8 +280,21 @@ function mountSessionControls(root, {
       <form class="write-form" data-session-form>
         <span class="write-form-title">Start an agent</span>
         <label class="write-wide">Prompt<textarea name="text" maxlength="16000" rows="2" required></textarea></label>
-        <button type="submit" data-session-start aria-describedby="${statusId}" disabled>Start</button>
-        <button type="button" data-session-stop aria-describedby="${statusId}" disabled>Stop</button>
+        <!-- THE WORD ON THE BUTTON IS NOT THE NAME OF THE ACTION.
+             Measured by tools/a11y-keyboard-qa on the packaged build: the
+             accessible name Chromium handed the platform was exactly "Start" --
+             five characters that name no object. A screen-reader user landing
+             here in scan mode is told "Start, button" and has to go looking for
+             what it starts; a person reading the visible layout has the form
+             title "Start an agent" six pixels above it and never notices the
+             gap. aria-label supplies the object the visible word borrows from
+             its surroundings, and it is the SAME object -- an agent session
+             from the prompt in this form -- so nothing is announced that the
+             screen does not also show. The visible word stays "Start", because
+             a button that reads "Start an agent session using the prompt above"
+             on the glass would not fit the control it labels. -->
+        <button type="submit" data-session-start aria-label="Start an agent session using the prompt above" aria-describedby="${statusId}" disabled>Start</button>
+        <button type="button" data-session-stop aria-label="Stop the agent session started here" aria-describedby="${statusId}" disabled>Stop</button>
         <!-- THE SIGN-IN PRECONDITION IS NOT RESTATED HERE, and that is a
              decision rather than an omission. This lane built a second notice
              for it, and while it was being built a peer lane repaired the
@@ -471,7 +488,7 @@ function mountSessionControls(root, {
       appender.flushNow()
       working = false
       publish()
-      actionState(status, turnStatus === 'completed' ? 'confirmed' : 'refused', `turn ${turnStatus} · session still open`)
+      actionState(status, sessionTurnSucceeded(turnStatus) ? 'confirmed' : 'refused', `turn ${turnStatus} · session still open`)
     }
   })
 

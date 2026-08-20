@@ -53,11 +53,38 @@ const PERSON = Object.freeze({
 const PLANTED = Object.freeze([
   ['capability/vault/secrets.json', '{"openai_api_key":"REDACTED-NOT-A-REAL-VALUE"}'],
   ['capability/vault/secrets.json.access.log', 'read 2026-08-11\n'],
-  ['capability/state/audit.sqlite3', 'not-a-real-database'.padEnd(4096, 'x')],
   ['capability/logs/actions.jsonl', '{"action":"pretend"}\n'],
   ['capability/config/accounts.json', '[]'],
   ['agent-spawn-records.jsonl', '{"sequence":1}\n'],
   ['purchase-catalog.json', '{"items":[]}'],
+])
+
+/* THE SIGNED LEDGER IS NOT PLANTED, AND THAT IS THE POINT OF THIS NOTE.
+ *
+ * It used to be, as `capability/state/audit.sqlite3` written to the literal
+ * string "not-a-real-database..." padded to 4KB. Measured 2026-08-18 on a
+ * staged packaged build: making an account was then refused, in the product's
+ * own words on the glass -- "That did not work. This action was not recorded in
+ * the signed ledger, so it was not carried out." The product opens that ledger
+ * before it will perform ANY audited write, could not, and refused, which is
+ * exactly right and is the behaviour this project has already paid to learn to
+ * trust. So the harness was corrupting the ledger and then asking the product to
+ * write to it, and reporting the correct refusal as "an account was created and
+ * signed in: FAIL" -- the one failing check this file carried.
+ *
+ * Planting it AFTER the account is made does not work either, and the second
+ * measurement is why this is a list rather than a moved line: the running app
+ * holds that file and the vault open, so the removal cannot delete what was
+ * written over them and three files survive a sweep that is working correctly.
+ *
+ * So the ledger is left to the PRODUCT to create, which it does the moment the
+ * account is made -- a real one, with real content, at the real path. It still
+ * has to be gone afterwards, and MUST_BE_GONE is what says so. That is a
+ * stronger assertion than the planted string ever was: it is the file the
+ * product itself wrote about this person's actions. */
+const MUST_BE_GONE = Object.freeze([
+  ...PLANTED.map(([relative]) => relative),
+  'capability/state/audit.sqlite3',
 ])
 
 function plant(profile) {
@@ -136,7 +163,19 @@ async function keptOnScreen(window) {
 async function answerOr(label, promise, ms = 30_000) {
   let timer
   const timeout = new Promise(resolve => { timer = setTimeout(() => resolve(`__timed_out__:${label}`), ms) })
-  try { return await Promise.race([promise, timeout]) } finally { clearTimeout(timer) }
+  try {
+    /* AND THE OTHER WAY A WINDOW FAILS TO ANSWER, which did not exist when the
+       comment above was written. The harness used to leave a call to a dead
+       debugger pending forever; since 2026-08-18 it REJECTS every pending call
+       when the socket closes, which is the right behaviour and is what turned a
+       silent hang into a loud failure everywhere else. Here the socket closing
+       is the SUBJECT: this driver's last control quits the application. So a
+       rejection is the same fact as a timeout -- the window did not answer --
+       and it is recorded as that rather than thrown, with its own marker so the
+       report never calls a dead socket a slow one. */
+    return await Promise.race([promise, timeout])
+      .catch(error => `__unanswered__:${label}:${error && error.message ? error.message : error}`)
+  } finally { clearTimeout(timer) }
 }
 
 async function finish(window) {
@@ -145,7 +184,19 @@ async function finish(window) {
     try { window.session?.close() } catch { /* already gone */ }
     return window.timeline
   }
-  return closeWindow(window)
+  /* The application may quit between the exit-code read above and the question
+     closeWindow asks -- this driver's whole subject is a control that quits it.
+     Since the harness began rejecting calls to a closed socket, that race
+     throws out of the `finally` that calls this, which killed the run AFTER
+     every check had passed and BEFORE ledger.finish() could write the verdict
+     line the suite reads. Measured 2026-08-18: 22 checks ok, no summary,
+     exit 1. Teardown may not decide the verdict, so the expected race is
+     absorbed here and nowhere wider. */
+  try {
+    return await closeWindow(window)
+  } catch (error) {
+    return { ...(window.timeline || {}), closeNote: String(error && error.message ? error.message : error) }
+  }
 }
 
 async function main() {
@@ -166,7 +217,7 @@ async function main() {
   mkdirSync(workspace, { recursive: true })
   writeFileSync(path.join(workspace, 'my-notes.txt'), 'work the assistant did for me\n', 'utf8')
 
-  const before = { userData: filesUnder(userData), services: filesUnder(servicesRoot), workspace: filesUnder(workspace) }
+  let before = null
 
   let window = await openWindow(staged.executable, profile)
   try {
@@ -187,6 +238,15 @@ async function main() {
     const state = await accountState(window)
     ledger.check('an account was created and signed in', created === 'submitted' && state?.current?.signedIn === true,
       `${created}; signedIn=${state?.current?.signedIn}`)
+
+    /* The snapshot is taken HERE rather than before the launch, because the
+       product's own ledger only exists once an account has been made, and the
+       assertion below is about the files that were really on the disk when the
+       removal ran. */
+    before = { userData: filesUnder(userData), services: filesUnder(servicesRoot), workspace: filesUnder(workspace) }
+    ledger.check('the signed ledger the product wrote is on the disk before the removal',
+      before.userData.includes('capability/state/audit.sqlite3'),
+      before.userData.filter(relative => relative.startsWith('capability/state/')).join(', ') || 'nothing under capability/state/')
 
     const reached = await gotoAccount(window)
     ledger.check('the sign-in screen is reachable by clicking', reached === 'clicked' || reached === 'already-there', reached)
@@ -256,7 +316,12 @@ async function main() {
 
     // ---- 6. THE CENTRAL ASSERTION: the screen and the disk agree ----
     const after = { userData: filesUnder(userData), services: filesUnder(servicesRoot), workspace: filesUnder(workspace) }
-    const survivingProduct = PLANTED.map(([relative]) => relative).filter(relative => after.userData.includes(relative))
+    /* Only what was actually there is required to be gone. A file that never
+       existed cannot be evidence of a sweep, and counting it as one would be
+       this check passing on an absence it did not cause. */
+    const survivingProduct = MUST_BE_GONE
+      .filter(relative => before.userData.includes(relative))
+      .filter(relative => after.userData.includes(relative))
     ledger.check('every planted file of the person’s data is gone', survivingProduct.length === 0,
       survivingProduct.length === 0 ? 'vault, ledger, action log, linked accounts, run records, purchase list' : `still there: ${survivingProduct.join(', ')}`)
     ledger.check('the installation’s own record is gone', after.services.length === 0, `${after.services.length} files under ${servicesRoot}`)
@@ -319,7 +384,8 @@ async function main() {
        window as unresponsive, which is the same class of mistake as the one the
        marker exists to catch: a check that is about the harness rather than the
        product. */
-    const timedOut = [state, landed, text].filter(value => typeof value === 'string' && value.startsWith('__timed_out__'))
+    const timedOut = [state, landed, text].filter(value => typeof value === 'string'
+      && (value.startsWith('__timed_out__') || value.startsWith('__unanswered__')))
     if (timedOut.length > 0) {
       ledger.check('the relaunched window answered its own debugger', false,
         `${timedOut.join(', ')}; exit=${window.child.exitCode} stderr=${(window.timeline.stderr || '').slice(-400)}`)

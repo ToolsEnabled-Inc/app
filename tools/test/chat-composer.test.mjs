@@ -89,3 +89,77 @@ test('the effort stage cannot restart without the token-cost sentence', () => {
   const restartAt = effortStage.indexOf('resumeNodeSession')
   assert.ok(warnAt !== -1 && restartAt > warnAt, 'the restart comes before the warning — the pick restarts silently')
 })
+
+/* ==================================================================
+   THE ACTIONS POPUP IS A COMMAND PALETTE, which is the substance of the
+   owner's "this menu needs to be more like vscode, much more intuitive".
+
+   Measured before this: the popup's entire keyboard handler was one line for
+   Escape; rows were plain buttons reachable only by Tab or mouse; the filter
+   carried no aria-controls, no aria-activedescendant and no arrow keys. What
+   VS Code's quick pick has is not a look. It is that the whole thing is
+   driven from the filter box and the row under the cursor is announced.
+
+   Source pins, like the rest of this file: buildChat needs a DOM to run.
+   tools/palette-keyboard-qa.mjs drives the real thing with real keys.
+   ================================================================== */
+const pop = chat.slice(chat.indexOf('THE ACTIONS POPUP'), chat.indexOf("Object.defineProperty(root, 'openActions'"))
+
+test('the popup is driven from the filter: arrows move, Enter runs, Escape closes', () => {
+  assert.ok(pop.length > 2000, 'the popup block could not be found')
+  const keys = pop.slice(pop.indexOf('const onPopKeys'), pop.indexOf('const renderPopStage'))
+  assert.ok(keys.length > 100, 'the keyboard model left the popup; only Escape is handled again')
+  for (const key of ['ArrowDown', 'ArrowUp', 'Enter', 'Home', 'End']) {
+    assert.ok(keys.includes(`event.key === '${key}'`), `${key} no longer does anything in the popup`)
+  }
+  assert.match(keys, /movePopActive\(1\)/, 'ArrowDown no longer moves the cursor down')
+  assert.match(keys, /movePopActive\(-1\)/, 'ArrowUp no longer moves the cursor up')
+  assert.match(keys, /runPopRow\(entry\)/, 'Enter no longer runs the active row')
+  /* Escape stays at the document, in capture, so it works from wherever focus
+     has wandered -- the row model is a superset of it, not a replacement. */
+  assert.match(pop, /const onPopKeydown = \(event\) => \{ if \(event\.key === 'Escape'\) closeActionsPop\(\) \}/,
+    'the document-level Escape handler was removed; a person whose focus left the filter cannot close the popup')
+  assert.match(pop, /popEl\.addEventListener\('keydown', onPopKeys\)/, 'the keyboard model is not bound to the popup')
+})
+
+test('the active row is announced: combobox over listbox with aria-activedescendant', () => {
+  const template = pop.slice(pop.indexOf('popEl = el('), pop.indexOf('root.appendChild(popEl)'))
+  assert.match(template, /role="combobox"/, 'the filter is not a combobox; assistive tech hears a plain text box')
+  assert.match(template, /aria-controls="\$\{listId\}"/, 'the filter does not name the list it controls')
+  assert.match(template, /role="listbox"/, 'the list is not a listbox')
+  assert.match(pop, /setAttribute\('role', 'option'\)/, 'rows are not options; the active one cannot be announced')
+  assert.match(pop, /setAttribute\('aria-activedescendant', activeId\)/, 'the active row is never named to assistive tech')
+  assert.match(pop, /setAttribute\('aria-selected', on \? 'true' : 'false'\)/, 'the active row does not carry aria-selected')
+  /* Stable ids for one opening, so a second chat's popup cannot collide. */
+  assert.match(pop, /popSerial \+= 1/, 'ids are no longer per-opening')
+  assert.match(pop, /chat-actions-opt-\$\{popSerial\}-\$\{index\}/, 'the option ids lost their per-opening family')
+  assert.match(pop, /scrollIntoView\?\.\(\{ block: 'nearest' \}\)/, 'the cursor can leave the visible rows')
+})
+
+test('rows are grouped, and headings are never options', () => {
+  assert.match(pop, /row\.group/, 'the row shape lost its group field; the list is flat again')
+  const heading = pop.slice(pop.indexOf("heading.className = 'chat-actions-group'"), pop.indexOf("heading.className = 'chat-actions-group'") + 300)
+  assert.match(heading, /setAttribute\('role', 'presentation'\)/, 'a group heading is counted as an option')
+  assert.match(pop, /group !== lastGroup/, 'a heading is emitted for every row rather than at each change of group')
+  /* Arrow keys walk the row ARRAY, so a heading is skipped by construction. */
+  assert.match(pop, /popRendered\.push\(entry\)/, 'rows are no longer collected into the walk order')
+  assert.doesNotMatch(pop, /popRendered\.push\(\{ button: heading/, 'a heading was pushed into the walk order')
+})
+
+test('a disabled row shows why, and Enter on it speaks the reason', () => {
+  assert.match(pop, /const why = disabled && typeof row\.disabledHint === 'string' \? row\.disabledHint : ''/,
+    'a disabled row no longer reads its own reason')
+  assert.match(pop, /hint\.textContent = why \|\| row\.hint/, 'the reason is not shown in place of the hint')
+  assert.match(pop, /'chat-actions-hint chat-actions-why'/, 'the reason has no class of its own; the eye cannot tell it from a hint')
+  const run = pop.slice(pop.indexOf('const runPopRow'), pop.indexOf('const paintPopActive'))
+  assert.match(run, /if \(out && entry\.disabledHint\) out\.textContent = entry\.disabledHint/,
+    'Enter on a disabled row is silent again')
+})
+
+test('the popup closes when focus leaves it, and only then', () => {
+  assert.match(pop, /popEl\.addEventListener\('focusout', onPopFocusOut\)/, 'the popup no longer closes on focus loss')
+  const out = pop.slice(pop.indexOf('const onPopFocusOut'), pop.indexOf('function closeActionsPop'))
+  assert.match(out, /setTimeout\(/, 'the focus-out check is not deferred; hiding the filter on a sub-stage closes the whole popup')
+  assert.match(out, /if \(popEl\.contains\(active\)\) return/, 'moving focus within the popup closes it')
+  assert.match(out, /actionsButton\.contains\(active\)/, 'pressing the actions button to close it closes twice')
+})

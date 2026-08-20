@@ -22,12 +22,18 @@ import { readFileSync } from 'node:fs'
 
 import {
   COPY,
+  ENGINE_REASON,
   HOME_MODES,
+  RUN_BRIEF_CHARS,
+  RUN_SAID_CHARS,
   describeHome,
+  describeRun,
   readAgentEngine,
   readLocalSessions,
+  summariseRunWork,
   whenWords,
 } from '../../src/local-activity.js'
+import { providerSignInReading } from '../../src/agent-availability-copy.js'
 
 const NOW = Date.parse('2026-08-11T12:00:00.000Z')
 const minutes = (n) => n * 60_000
@@ -410,9 +416,40 @@ test('no reachable home screen punctuates like a README', () => {
    sentences a person reads, so they take the same rules. Functions are called
    with a sample argument so the interpolated whole is checked, not just its
    fixed half. */
+/* ONE SAMPLE ARGUMENT PER FUNCTION, DECLARED, and the walk refuses to run
+ * without one.
+ *
+ * The walk used to pass the string 'coordinator' to every function it found,
+ * which was right while every one of them interpolated a name. It stopped being
+ * right the moment a copy function took a READING -- COPY.runDid() is handed
+ * what the per-turn record says a run cost, and handed a name it correctly
+ * answers with nothing at all, so the walk reported the sentence as empty and
+ * said nothing whatever about the sentence a person really sees.
+ *
+ * Declaring the samples fixes both halves of that. Every function is checked on
+ * an argument of the shape it is actually called with, so the rules below apply
+ * to real sentences; and a new copy function with no sample listed fails this
+ * suite rather than being waved through on a name it never wanted. */
+const COPY_SAMPLES = new Map([
+  ['COPY.runLabel', [7]],
+  ['COPY.runResult', ['started']],
+  ['COPY.runReason', ['AGENT_TIER_NO_LAUNCHER']],
+  ['COPY.runAsked', ['Read the build log and tell me what broke.']],
+  ['COPY.runSaid', ['The build failed on the second step.']],
+  ['COPY.runDid', [{ turns: 4, model: 'Sonnet', tokens: 18412, unfinished: 1 }]],
+  ['COPY.runOutcomes', [2, 1, 3]],
+  ['COPY.chatboxAgentsHeld', [2]],
+  ['COPY.composerSample', ['coordinator']],
+  ['COPY.composerLive', ['coordinator']],
+])
+
 function everyCopyString(value, path = 'COPY') {
   if (typeof value === 'string') return [[path, value]]
-  if (typeof value === 'function') return [[`${path}()`, value('coordinator')]]
+  if (typeof value === 'function') {
+    assert.ok(COPY_SAMPLES.has(path),
+      `${path} is a copy function with no sample argument declared in COPY_SAMPLES, so nothing checks the sentence it really produces`)
+    return [[`${path}()`, value(...COPY_SAMPLES.get(path))]]
+  }
   if (value && typeof value === 'object') {
     return Object.entries(value).flatMap(([key, child]) => everyCopyString(child, `${path}.${key}`))
   }
@@ -430,7 +467,285 @@ function everyCopyString(value, path = 'COPY') {
  * calls every function with one sample argument, which for this function
  * necessarily lands on exactly that branch, so it is named here and checked
  * properly by the test underneath instead. */
-const DELIBERATELY_SILENT = new Set(['COPY.runResult()'])
+/* COPY.runReason() joins it for the same reason, one step further on. It turns
+   the bare code the record kept into ENGINE_REASON's sentence, and answers the
+   EMPTY STRING for a code nobody wrote one for -- and for the sample argument
+   the walk below happens to pass, which is not a code at all. A non-empty
+   fallback here would be this screen explaining a refusal it was never told the
+   reason for, which is the same invention in the opposite direction. The
+   behaviour is checked properly by the test underneath. */
+/* Both are now walked on an argument they were designed for -- a recorded
+   outcome and a code the tree really refuses with -- so neither is silent here
+   any more. The silence each one keeps for an input nobody wrote a sentence for
+   is the point of both, and it is checked by name in the tests below rather
+   than by a hole in this walk. */
+const DELIBERATELY_SILENT = new Set()
+
+/* WHY A REFUSED RUN NOW SAYS WHY, AND WHY IT SOMETIMES STILL DOES NOT.
+ *
+ * The owner's report: "Activity on this computer" showed "Agent run 37 -
+ * started" or "did not start" and a relative time, and nothing else. The record
+ * held more than that the whole time -- the shell writes a bare refusal code
+ * beside every refused outcome and readLocalSessions dropped it on the floor.
+ * So a person whose every start was refused read "did not start" nine times
+ * over a file that knew the answer.
+ *
+ * The silence that remains is deliberate and is the same rule as runResult's:
+ * a code with no sentence, or a run recorded before reasons were kept, gets no
+ * line. The row then says exactly what it always said. */
+test('a refused run says why when the record knows, and nothing when it does not', () => {
+  const known = COPY.runReason('AGENT_TIER_NO_LAUNCHER')
+  assert.ok(known.length > 0, 'the code the tree really refuses with has no sentence on this screen')
+  assert.equal(known, ENGINE_REASON.AGENT_TIER_NO_LAUNCHER,
+    'the runs list words a refusal differently from the engine line above it; one machine, two explanations')
+  for (const nothing of [null, undefined, '', 'NOT_A_CODE_ANYONE_WROTE', 42, {}]) {
+    assert.equal(COPY.runReason(nothing), '',
+      `a run whose reason is ${JSON.stringify(nothing)} was given an explanation nobody recorded`)
+  }
+})
+
+/* THE JOIN, AND THE ABSENCE IT MUST SURVIVE. describeRun answers with what the
+ * signed record holds plus what this computer saved about that session. A run
+ * with no saved conversation -- another surface, another machine's record, a
+ * build from before session ids crossed -- must lose the two extra lines and
+ * keep everything else, or this feature costs people the history they had. */
+test('a run names its agent and its brief when they were saved, and degrades to what it always showed', () => {
+  const now = Date.UTC(2026, 7, 17, 12, 0, 0)
+  const conversations = new Map([['chat-a', { role: 'Coordinator', asked: '  Read the build\n  log   and say what broke. ' }]])
+  const matched = describeRun(
+    { sequence: 12, atMs: now - 3_600_000, result: 'refused', reason: 'AGENT_TIER_NO_LAUNCHER', sessionId: 'chat-a' },
+    conversations, now,
+  )
+  assert.equal(matched.agent, 'Coordinator')
+  assert.equal(matched.asked, 'Read the build log and say what broke.', 'the brief was not collapsed to one line')
+  assert.ok(matched.why.length > 0, 'a refusal with a known code said nothing')
+  assert.equal(matched.resultWord, 'did not start')
+  assert.equal(matched.when, 'an hour ago')
+
+  const unmatched = describeRun(
+    { sequence: 13, atMs: now - 60_000, result: 'started', reason: null, sessionId: 'chat-nobody-saved' },
+    conversations, now,
+  )
+  assert.equal(unmatched.agent, '', 'a run with no saved conversation invented an agent')
+  assert.equal(unmatched.asked, '', 'a run with no saved conversation invented a brief')
+  assert.equal(unmatched.why, '', 'a run that started was given a refusal reason')
+  assert.equal(unmatched.resultWord, 'started')
+
+  /* No conversations at all is the ordinary state of a computer whose agents
+     were started from another surface. It must not throw and must not blank
+     the row. */
+  const alone = describeRun({ sequence: 1, atMs: now, result: null, reason: null, sessionId: null }, null, now)
+  assert.equal(alone.agent, '')
+  assert.equal(alone.asked, '')
+  assert.equal(alone.resultWord, '', 'a run with no recorded outcome was labelled')
+  assert.equal(alone.when, 'just now')
+
+  /* A brief longer than the column is clipped, not wrapped into the page. */
+  const long = describeRun(
+    { sequence: 2, atMs: now, result: 'started', reason: null, sessionId: 'chat-a' },
+    new Map([['chat-a', { role: 'Worker', asked: 'x'.repeat(400) }]]), now,
+  )
+  assert.ok(long.asked.length <= RUN_BRIEF_CHARS, `a ${long.asked.length}-character brief reached the row`)
+  assert.ok(long.asked.endsWith('…'), 'a clipped brief does not say it was clipped')
+})
+
+/* ==================================================================
+   THE CONTEXT FLOW. The owner, on the installed build: "on page 1 this is
+   supposed to be a context flow of all the agents and such we want to see their
+   outputs cleanly." What he was shown was a row per run carrying a number, a
+   verb and a relative time.
+
+   It could not have shown an output however long he waited. The join read
+   `role` and `message` off the saved node and stopped, and `reply` -- the field
+   that exists on that node so a screen can show what the agent answered -- was
+   never read by either of the two readers of that record. These tests are what
+   stop the row losing any of its four answers again.
+   ================================================================== */
+
+const RUN = (over = {}) => ({ sequence: 3, atMs: NOW - minutes(9), result: 'started', reason: null, sessionId: 'chat-a', ...over })
+/* One saved node, in the shape src/session-roles.js really hands over. */
+const SAVED = (over = {}) => new Map([['chat-a', {
+  role: 'helper',
+  asked: 'Assist the coordinator and check in first.',
+  reply: '',
+  said: '',
+  status: 'finished',
+  statusNote: '',
+  tier: 'claude-sonnet',
+  nodeId: 'node-a',
+  computerId: 'pc-1',
+  ...over,
+}]])
+
+test('a run shows what the agent said back, from the field the answer was kept on', () => {
+  const said = describeRun(RUN(), SAVED({ reply: 'Checked in with the coordinator and started on the log.' }), NOW)
+  assert.equal(said.said, 'Checked in with the coordinator and started on the log.',
+    'the answer the node kept is not on the row; this is the owner’s report, unfixed')
+  assert.equal(said.asked, 'Assist the coordinator and check in first.')
+  assert.equal(said.agent, 'helper')
+  assert.equal(said.gap, '', 'a run that answered was told it had not')
+  assert.ok(COPY.runSaid(said.said).startsWith('Said back'), 'the answer reaches the glass unlabelled')
+})
+
+test('the saved conversation answers when the node kept no reply of its own', () => {
+  const said = describeRun(RUN(), SAVED({ reply: '', said: 'The build failed on the second step.' }), NOW)
+  assert.equal(said.said, 'The build failed on the second step.',
+    'a node whose reply was cleared loses an answer the saved conversation still holds')
+})
+
+test('a live turn outranks both, so the row shows the words as they arrive', () => {
+  const said = describeRun(RUN(), SAVED({ reply: 'An older answer.' }), NOW, { live: { working: true, text: 'Reading the log' } })
+  assert.equal(said.said, 'Reading the log', 'the row shows a stale answer while a newer one is being typed')
+  assert.equal(said.working, true, 'a run this window is watching does not say so')
+  assert.equal(said.gap, '', 'a run that is talking right now was reported as silent')
+})
+
+test('a long answer is clipped rather than pouring the whole conversation onto the screen', () => {
+  const said = describeRun(RUN(), SAVED({ reply: 'x'.repeat(4000) }), NOW)
+  assert.ok(said.said.length <= RUN_SAID_CHARS, `a ${said.said.length}-character answer reached the row`)
+  assert.ok(said.said.endsWith('…'), 'a clipped answer does not say it was clipped')
+})
+
+/* THE RUN THAT STRUCTURALLY CANNOT JOIN TO ANYTHING. A run started from the
+   agent page mints a session, is written to the signed record, and creates NO
+   node -- so there is no role, no brief and no reply anywhere to find. The row
+   must say that in words. A blank reads as a screen that is broken, and an
+   invented ask would be this screen making one up. */
+test('a run with nothing saved about it says so, and never invents an ask', () => {
+  const said = describeRun(RUN({ sessionId: 'chat-nowhere' }), SAVED(), NOW)
+  assert.equal(said.asked, '', 'a brief appeared for a run that never had one')
+  assert.equal(said.said, '', 'an answer appeared for a run that never had one')
+  assert.equal(said.gap, COPY.runNothingSaved, 'a run with nothing saved shows a blank instead of a sentence')
+  assert.ok(said.gap.length > 0)
+})
+
+/* THE PAIR THAT ACTUALLY APPEARED ON THE GLASS, and it is the same shape as the
+ * pair this whole screen was rewritten to make unreachable.
+ *
+ * MEASURED, on a packaged build, with a real Claude agent
+ * (tools/home-activity-substance-qa.mjs part B): the run reached the signed
+ * record the instant it started, the tree's NODE reached saved storage a beat
+ * later, and in that gap the row showed
+ *
+ *     Said back: Cormorant.
+ *     No brief and no answer were saved here for this one.
+ *
+ * Both sentences were true of different sources. Together they were nonsense,
+ * printed by the screen whose one job is that no two of its sentences can
+ * contradict. An answer therefore outranks every absence, whichever source it
+ * came from. */
+test('a row never shows an answer and a sentence saying nothing was saved', () => {
+  const live = describeRun(RUN({ sessionId: 'chat-brandnew' }), SAVED(), NOW, { live: { working: true, text: 'Cormorant.' } })
+  assert.equal(live.said, 'Cormorant.')
+  assert.equal(live.gap, '',
+    'the row prints the agent’s own words above a sentence saying no answer was saved for it')
+
+  /* And the absence is still said when there really is nothing: the repair must
+     not be "never say it". */
+  const empty = describeRun(RUN({ sessionId: 'chat-brandnew' }), SAVED(), NOW)
+  assert.equal(empty.gap, COPY.runNothingSaved, 'the sentence was removed rather than ordered')
+})
+
+test('a started run that has said nothing yet is told apart from one that said nothing at all', () => {
+  const running = describeRun(RUN(), SAVED({ status: 'running' }), NOW)
+  assert.equal(running.gap, COPY.runNoAnswerYet, 'a working agent is reported as having finished silently')
+  const done = describeRun(RUN(), SAVED({ status: 'finished' }), NOW)
+  assert.equal(done.gap, COPY.runNoAnswerSaved, 'a finished run with no answer says nothing about it')
+  assert.notEqual(COPY.runNoAnswerYet, COPY.runNoAnswerSaved, 'the two absences say the same thing')
+})
+
+test('a refused run is not asked why it never answered', () => {
+  const said = describeRun(RUN({ result: 'refused', reason: 'AGENT_TIER_NO_LAUNCHER' }), SAVED(), NOW)
+  assert.equal(said.gap, '', 'a run that never started was reported as one that answered nothing')
+  assert.equal(said.noWork, '', 'a run that never started was told it recorded no turns')
+  assert.ok(said.why.length > 0, 'the refusal lost its reason')
+})
+
+/* ---- what it did, out of the per-turn record ---- */
+
+const TURN = (over = {}) => ({ sessionId: 'chat-a', basis: 'turn', tier: 'claude-sonnet', status: 'success', totalTokens: 1000, ...over })
+
+test('what a run did is counted off the turn record and named in words', () => {
+  const work = summariseRunWork([TURN(), TURN({ totalTokens: 2500 })])
+  assert.deepEqual({ ...work }, { turns: 2, model: 'Sonnet', tokens: 3500, unfinished: 0 })
+  const said = describeRun(RUN(), SAVED(), NOW, { work })
+  assert.match(said.did, /2 turns on Sonnet/, 'the row does not say what the run did')
+  assert.match(said.did, /3,500 tokens/, 'the figures the record holds are not on the row')
+  assert.equal(said.noWork, '', 'a run with turns was told it had none')
+})
+
+/* THE ARITHMETIC THAT WOULD MULTIPLY A SESSION'S SPEND BY ITS NUMBER OF TURNS.
+   A `session-total` row is the engine's RUNNING total, and codex emits one
+   several times a turn. Summing them is how a page prints a confident,
+   enormous, wrong number. */
+test('a running total is taken at its largest and never added up', () => {
+  const work = summariseRunWork([
+    TURN({ basis: 'session-total', totalTokens: 900 }),
+    TURN({ basis: 'session-total', totalTokens: 2400 }),
+  ])
+  assert.equal(work.tokens, 2400, 'a running total was summed, so the row reports spend that never happened')
+  assert.equal(work.turns, 2)
+})
+
+/* THE ALLOWLIST THAT KEEPS A GOOD CLAUDE TURN FROM READING AS A FAILURE. The
+   two engines do not use the same word: codex says "completed", the Claude CLI
+   says "success". Both are successes and neither is a failure. */
+test('each engine’s own word for a turn that went well is read as one', () => {
+  assert.equal(summariseRunWork([TURN({ status: 'completed' }), TURN({ status: 'success' })]).unfinished, 0,
+    'one of the two engines has its successful turns counted as failures')
+  assert.equal(summariseRunWork([TURN({ status: 'error' })]).unfinished, 1, 'a failed turn was counted as a good one')
+})
+
+/* A turn nobody wrote an ending for is not a turn that failed. That direction
+   is the one that lies to a person about their own agent. */
+test('a turn with no recorded ending is not counted as a turn that failed', () => {
+  assert.equal(summariseRunWork([TURN({ status: null }), TURN({ status: '' })]).unfinished, 0,
+    'turns whose ending was never recorded were reported as turns that did not finish')
+})
+
+/* MEASURED ON THE GLASS with a real Claude agent: a row carried "Working now"
+   in green and, one line below, "No turns were recorded for it." The turn
+   record is written when a turn ENDS, so both sentences were true, and together
+   they read as the screen arguing with itself about an agent the person could
+   watch typing. */
+test('a run that is working right now is not told its turns were never recorded', () => {
+  const said = describeRun(RUN(), SAVED(), NOW, { work: null, live: { working: true, text: 'Counting' } })
+  assert.equal(said.working, true)
+  assert.equal(said.noWork, '', 'a turn in progress is reported as a turn nobody recorded')
+  /* And the sentence is still there for a run that really finished with none. */
+  assert.equal(describeRun(RUN(), SAVED(), NOW, { work: null }).noWork, COPY.runNoTurns,
+    'the sentence was removed rather than gated on the one state it is wrong in')
+})
+
+test('a run whose turns were never recorded says that, rather than leaving the line blank', () => {
+  assert.equal(summariseRunWork([]), null)
+  const said = describeRun(RUN(), SAVED(), NOW, { work: null })
+  assert.equal(said.did, '')
+  assert.equal(said.noWork, COPY.runNoTurns, 'a started run with no turn record shows nothing at all there')
+})
+
+/* ---- the thing this screen refuses to show, and says it refuses ---- */
+
+/* THE RECORD HOLDS TWO LINES PER RUN: the intent before the process exists, and
+ * started-or-refused the instant the start resolved. There is no ending
+ * anywhere in the chain, so a duration on these rows could only be this window
+ * subtracting one clock from another and calling it a measurement. It is not
+ * shown, and the list says once that it is not shown. */
+test('no run claims a duration or a finished state, because no ending is recorded', () => {
+  const said = describeRun(RUN(), SAVED({ reply: 'Done.' }), NOW, { work: summariseRunWork([TURN()]) })
+  const everything = [said.did, said.said, said.gap, said.noWork, said.resultWord, said.when].join(' ')
+  for (const pattern of [/\bran for\b/i, /\btook \d/i, /\blasted\b/i, /\bfinished in\b/i, /\bduration\b/i]) {
+    assert.doesNotMatch(everything, pattern, `a run claimed a length nothing recorded: ${JSON.stringify(everything)}`)
+  }
+  const view = describeHome({
+    fleetConfigured: false,
+    sessions: readLocalSessions(historyReplyWithOutcomes(['started'])),
+    engine: readAgentEngine({ ok: true }),
+    nowMs: NOW,
+  })
+  assert.ok(view.panel.footer.includes(COPY.runEndingsNotKept),
+    'the list never tells a person that no ending is written down, so the missing duration reads as an omission')
+})
 
 test('the copy that does not come from the decision follows the same rules', () => {
   const strings = everyCopyString(COPY)
@@ -677,6 +992,127 @@ function code(source) {
  * the real end-to-end coverage lives in tools/home-screen-qa.cjs, which reads
  * the rendered DOM of the installed application and is what actually catches a
  * renderer that has stopped rendering the decision. */
+/* ==================================================================
+   THE FLOW IS LIVE, AND IT IS LIVE THE WAY THE PERFORMANCE MEASUREMENT SAYS IT
+   HAS TO BE.
+
+   The refresh on window focus was REMOVED, deliberately, for a measured reason:
+   reading the signed record verifies a hash chain on the same process that
+   forwards output for every live agent session, and the performance lane put
+   the cost of asking carelessly at ~0.9s of whole-app stall on a ledger with
+   ten thousand records. So "make the list live" has exactly one safe shape --
+   subscribe to the stream the window is already told everything on, and touch a
+   record only when that stream says a record just changed.
+
+   These pin that shape. They read source text, so they cannot prove the words
+   reach the screen; tools/home-activity-substance-qa.mjs drives the packaged
+   build for that. What they can prove is that nobody has quietly put a timer
+   back.
+   ================================================================== */
+
+test('the runs list is fed by the agent event stream, not by a poll', () => {
+  const body = code(HOME_JS)
+  assert.match(body, /window\.mcAgent\.onEvent\(onAgentPacket\)/,
+    'the home screen no longer listens to the session stream, so the list is a photograph again')
+  assert.match(body, /detachAgentEvents\?\.\(\)/,
+    'the stream listener is never detached, so a retired home view is kept alive by every agent that keeps talking')
+  /* The three shared readers, and no fourth opinion about a packet this view
+     does not own. */
+  for (const reader of ['sessionEventText', 'sessionEventTurnId', 'sessionTurnStatus']) {
+    assert.ok(body.includes(reader), `the view stopped reading packets through ${reader}`)
+  }
+  /* And no fourth opinion of its own: the session id is the one field this view
+     reads off a packet, because the readers above need to be told which session
+     to check the packet against. Everything else about the packet's shape
+     belongs to src/agent-session-events.js. */
+  assert.doesNotMatch(body, /packet\.event/,
+    'the view reads the raw packet shape again, so it holds a second opinion about a wire it does not own')
+})
+
+test('nothing in the view polls either signed record', () => {
+  const body = code(HOME_JS)
+  /* EVERY PLACE EITHER READ IS CALLED FROM, listed. A first version of this
+     scanned setInterval() bodies for the two names, and a mutation that put
+     both reads inside the health poll left it GREEN: the pattern stopped at the
+     arrow's own bracket and never saw the body. So the check is the other way
+     round -- the call sites are enumerated, and a seventh one anywhere in the
+     file fails this suite whatever it is wrapped in. */
+  const callSites = body.split('\n')
+    .map(line => line.trim())
+    .filter(line => /\bload(Sessions|Usage)\s*\(/.test(line))
+  assert.deepEqual(callSites.sort(), [
+    'async function loadSessions(first = false) {',
+    'async function loadUsage() {',
+    'if (runsWanted) void loadSessions()',
+    'if (usageWanted) void loadUsage()',
+    'void loadSessions(true)',
+    'void loadUsage()',
+  ], 'a signed record is read from somewhere new; the only allowed callers are the mount and the coalescing gate')
+  assert.doesNotMatch(body, /addEventListener\(\s*'focus'/,
+    'the refresh on window focus is back; it was removed for a measured ~0.9s whole-app stall')
+  assert.doesNotMatch(body, /visibilitychange/,
+    'a visibility refresh is the focus refresh under another name')
+  assert.match(body, /LEDGER_REREAD_FLOOR_MS/,
+    'the gate that keeps a burst of turn endings from becoming a burst of chain checks is gone')
+})
+
+test('a record is re-read only when the stream says that record changed', () => {
+  const body = code(HOME_JS)
+  const ear = body.slice(body.indexOf('const onAgentPacket'), body.indexOf('const detachAgentEvents'))
+  assert.ok(ear.length > 200, 'the stream listener could not be found to check what it asks for')
+  assert.match(ear, /askForLedger\(\{ runs: true \}\)/,
+    'a session this list has never seen no longer asks for the run record, so a new run never appears')
+  assert.match(ear, /askForLedger\(\{ usage: true \}\)/,
+    'a turn that ended no longer asks for the turn record, so what a run did never updates')
+  assert.doesNotMatch(ear, /loadSessions\(|loadUsage\(/,
+    'the listener reads a record directly, so a busy agent verifies a hash chain per packet')
+
+  /* AND THE SAVED CONVERSATIONS MOVE WITH THE READ, which is a defect measured
+     on a real run rather than a tidiness rule. A tree-started run reaches the
+     signed record a beat before its NODE reaches saved storage, so the read that
+     picks the run up is usually too early for the brief, and the only later read
+     was the one following a turn ending. The row kept the answer and never
+     gained the question. */
+  const gate = body.slice(body.indexOf('function askForLedger'), body.indexOf('const onAgentPacket'))
+  assert.ok(gate.length > 200, 'the coalescing gate could not be found to check what it refreshes')
+  assert.match(gate, /readConversations\(\)/,
+    'a ledger read no longer re-reads the saved conversations, so a run started on the tree never gains its brief')
+})
+
+/* THE SECOND READER OF ONE RECORD, WHICH IS THE DEFECT UNDERNEATH THIS FEATURE.
+ *
+ * src/session-roles.js was extracted from this view's own savedConversations()
+ * for the metrics page, nine hours after this screen shipped its own. The two
+ * were byte-identical and this screen was never switched over, so a widening of
+ * either one silently missed the other -- and the widening the owner asked for
+ * is exactly this one. */
+test('the view reads the shared conversation reader and keeps no private copy', () => {
+  const body = code(HOME_JS)
+  assert.match(body, /import \{ readSessionRoles \} from '\.\.\/session-roles\.js'/,
+    'the home view no longer uses the shared reader')
+  assert.doesNotMatch(body, /function savedConversations/,
+    'the private second reader is back; a widening of one will silently miss the other')
+  assert.doesNotMatch(body, /parseFleetTrees/,
+    'the view parses the saved record itself again rather than asking the module that owns it')
+  assert.match(body, /readSessionRoles\([^)]*\{ transcripts: true \}\)/,
+    'the view stopped asking for the saved conversations, so a node whose reply was cleared shows no answer')
+})
+
+test('what an agent said reaches the glass through the copy module like every other sentence', () => {
+  const body = code(HOME_JS)
+  for (const [call, why] of [
+    [/COPY\.runSaid\(/, 'what the agent said is no longer labelled by the copy module'],
+    [/COPY\.runAsked\(/, 'the brief is no longer labelled by the copy module'],
+    [/COPY\.runWorkingNow/, 'the live line no longer takes its words from the copy module'],
+  ]) assert.match(body, call, why)
+  /* The lines that must exist in the markup so a live word lands on a span
+     rather than rebuilding the list under a reader. */
+  for (const cls of ['run-said', 'run-did', 'run-gap', 'run-live']) {
+    assert.ok(HOME_JS.includes(cls), `the row lost its ${cls} line`)
+    assert.ok(HOME_CSS.includes(cls), `${cls} reaches the screen with no style of its own`)
+  }
+})
+
 test('the home view renders the decision rather than composing its own copy', () => {
   assert.match(HOME_JS, /from '\.\.\/local-activity\.js'/, 'the view imports the decision')
   assert.match(
@@ -778,7 +1214,11 @@ test('a screen that cannot run agents offers a way to find out what it needs', (
     engine: readAgentEngine({ ok: true }, false),
     nowMs: NOW,
   })
-  assert.equal(readySwitchOff.panel.empty.action?.href, '#/settings')
+  /* THE ADDRESS CARRIES THE SWITCH'S ID, and that is the assertion rather than
+     the bare route. A link that only says "#/settings" is satisfied by dropping
+     somebody at the top of a 219-control page with the row they want 10170px
+     below them, inside a collapsed tier -- measured on the packaged build. */
+  assert.equal(readySwitchOff.panel.empty.action?.href, '#/settings?setting=write_agent-session')
   const readySwitchOn = describeHome({
     fleetConfigured: false,
     sessions: readLocalSessions({ ok: true, total: 0, verified: true, entries: [] }),
@@ -807,4 +1247,94 @@ test('the sentence about other computers is a link, in every state where it is a
   /* A loop that matched nothing would pass silently, which is the same as not
      having written it. */
   assert.ok(checked > 0, 'the matrix never reached the state this test is about')
+})
+
+/* ---- "AGENTS CAN RUN ON THIS COMPUTER" IS A CLAIM ABOUT THE COMPUTER --------
+ *
+ * It was rendered from mcAgent.availability(), which answers a question about
+ * the INSTALLATION: shell/agent-host.cjs opens it when a Claude start is
+ * genuinely possible -- the payload carrying the engine plus the `claude`
+ * program resolving -- and never on any sign-in, because Claude's sign-in file
+ * is presence-only and can never be a proof. That decision is right and is not
+ * being changed: it stops the product calling itself broken on a machine that is
+ * correctly set up for Claude.
+ *
+ * DRIVEN ON THE PACKAGED BUILD, cold install, three arms:
+ *   codex signed out, claude installed       availability ok  -> "Agents can run on this computer"
+ *   codex signed out, claude SIGNED IN       availability ok  -> identical, and TRUE: one can
+ *   codex signed out, claude NOT INSTALLED   availability no  -> "Not ready yet", correct
+ *
+ * The middle arm is why this is a third state and not an inversion. The first is
+ * the defect: nothing signed in to either provider and a green tick, while the
+ * setup review one screen earlier says an agent cannot yet run and the press
+ * then refuses for that exact reason.
+ *
+ * The rule this broke is already written down in this codebase -- 'unknown' IS A
+ * REAL ANSWER AND IS NEVER ROUNDED UP. engineAvailability() honours it in the
+ * refusal direction; home took the resulting non-refusal and rounded it up.
+ * ------------------------------------------------------------------------- */
+
+const engineFact = input => describeHome({ fleetConfigured: false, nowMs: NOW, ...input })
+  .facts.find(fact => fact.id === 'engine')
+
+const presence = rows => providerSignInReading({ ok: true, providers: rows })
+const CODEX_OUT = { id: 'codex', installed: 'yes', signedIn: 'no' }
+const CLAUDE_THERE = { id: 'claude', installed: 'yes', signedIn: 'unknown' }
+const CLAUDE_IN = { id: 'claude', installed: 'yes', signedIn: 'yes' }
+
+test('nothing signed in anywhere is not "agents can run on this computer"', () => {
+  const fact = engineFact({ engine: readAgentEngine({ ok: true }), providers: presence([CODEX_OUT, CLAUDE_THERE]) })
+  assert.notEqual(fact.text, 'Agents can run on this computer',
+    'a green tick on a computer where nothing is signed in to either provider')
+  assert.equal(fact.tone, 'warn')
+  /* It must still say what IS true -- the installation can start one -- or this
+     trades a false green for a false red. */
+  assert.match(fact.text, /can start an agent/i)
+  assert.match(fact.text, /nobody is signed in to Codex/i)
+  assert.match(fact.text, /codex login/i, 'a state with something to do must say what to do')
+})
+
+test('a signed-in Claude keeps the green, because that computer really can run one', () => {
+  /* THE ARM THAT MUST NOT MOVE. Without it, the test above also passes on a
+     screen that simply stopped saying anything good -- which would tell the
+     Claude user their working machine is broken, the same defect wearing the
+     other sign. */
+  const fact = engineFact({ engine: readAgentEngine({ ok: true }), providers: presence([CODEX_OUT, CLAUDE_IN]) })
+  assert.equal(fact.text, 'Agents can run on this computer')
+  assert.equal(fact.tone, 'good')
+})
+
+test('an engine that refuses still says so, in its own words', () => {
+  /* The third arm, and the proof this instrument can see the fact change at all:
+     it already worked, and it must keep working. */
+  const fact = engineFact({ engine: readAgentEngine({ ok: false, code: 'AGENT_CONFINEMENT_SIGNED_OUT' }), providers: presence([CODEX_OUT]) })
+  assert.equal(fact.tone, 'warn')
+  assert.equal(fact.text, ENGINE_REASON.AGENT_CONFINEMENT_SIGNED_OUT)
+})
+
+test('a caller that never asked, or asked and learned nothing, says what it always said', () => {
+  /* Every existing caller of describeHome passes no providers at all. None of
+     them may acquire a warning built out of a question nobody asked. */
+  for (const providers of [undefined, null, providerSignInReading(null), providerSignInReading({ ok: false }),
+    providerSignInReading({ ok: true }), providerSignInReading({ ok: true, providers: [] }),
+    providerSignInReading({ ok: true, providers: 'codex' })]) {
+    const fact = engineFact({ engine: readAgentEngine({ ok: true }), providers })
+    assert.equal(fact.text, 'Agents can run on this computer',
+      `an unusable presence reply changed the screen: ${JSON.stringify(providers)}`)
+    assert.equal(fact.tone, 'good')
+  }
+})
+
+test('ready, with nothing proven either way, picks neither end', () => {
+  /* Codex answering 'unknown' is not proof that nobody is signed in. Rounding it
+     up prints the green tick this repair is for; rounding it down calls a
+     working machine broken. */
+  const fact = engineFact({
+    engine: readAgentEngine({ ok: true }),
+    providers: presence([{ id: 'codex', installed: 'yes', signedIn: 'unknown' }, CLAUDE_THERE]),
+  })
+  assert.equal(fact.tone, 'neutral')
+  assert.match(fact.text, /can start an agent/i)
+  assert.match(fact.text, /could not check/i)
+  assert.doesNotMatch(fact.text, /codex login/i, 'no terminal command for somebody who may already be signed in')
 })

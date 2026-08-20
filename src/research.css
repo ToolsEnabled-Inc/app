@@ -278,6 +278,19 @@
 }
 .research-bar .spacer { flex: 1; }
 
+/* THE COMPONENTS TRAY, WHICH THIS PAGE PUTS UNDER A DIFFERENT BAR.
+   The tray belongs to the shared layout engine and carries margin-top: -20px so
+   it tucks under the METRICS filter row's hairline. That row is unpositioned,
+   so the tray still paints on top of it. This bar is position: relative -- it
+   has to be, the modules popover hangs off it -- and a positioned element
+   paints ABOVE its unpositioned siblings, so here the tuck slid the tray
+   underneath the bar. MEASURED on the shipped 1.0.20 installer: in Edit layout
+   the bar spanned 453-501 and the tray 481-517, putting Reset at 490-507 with
+   elementFromPoint returning the bar. The control was drawn, looked live, and
+   no mouse could reach it. Reset the tuck for this page only; the tray keeps
+   its own hairline above it. */
+.research-modules .m-tray { margin-top: 0; }
+
 .research-popover {
   position: absolute;
   z-index: 40;
@@ -395,6 +408,52 @@
   border-radius: 3px;
   padding: 3px 6px;
 }
+.research-designer-hint {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.research-designer-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.research-designer-rows { display: flex; flex-direction: column; gap: 6px; align-self: stretch; }
+.research-designer-rows:empty { display: none; }
+.research-designer-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.research-designer-row input[data-axis-values] { flex: 1; min-width: 180px; }
+.research-row-btn {
+  padding: 2px 10px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--ink-3);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.research-row-btn:hover { color: var(--ink); border-color: var(--ink-3); }
+.research-exp-preview {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.research-exp-preview p { margin: 0; }
+.research-designer-advanced summary {
+  cursor: pointer;
+  color: var(--ink-3);
+  font-size: 12.5px;
+}
+.research-designer-advanced summary:hover { color: var(--ink); }
+.research-designer-advanced > .research-designer-hint { margin-top: 6px; }
+.research-designer-advanced > textarea,
+.research-designer-advanced > input { width: 100%; margin-top: 6px; }
 .research-runboard-exp { padding: var(--s3) 0; border-top: 1px solid var(--line); }
 .research-runboard-exp:first-child { border-top: none; }
 .research-runboard-exp h3 { margin: 0 0 8px; color: var(--ink); font-size: 14px; font-weight: 610; }
@@ -412,6 +471,16 @@
 .research-cell.is-running { border-color: color-mix(in oklab, var(--c-coordinator) 45%, transparent); }
 .research-cell.is-finished { color: var(--ink); }
 .research-cell.is-failed { border-style: dashed; color: var(--ink-3); }
+.research-cell.is-queued { border-style: dotted; color: var(--ink-2); }
+.research-project-bar { display: inline-flex; align-items: center; gap: var(--s2); }
+.research-assign-control { display: inline-flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.research-run-drill { border: 1px solid var(--line); border-radius: 6px; padding: var(--s1) var(--s2); margin: var(--s1) 0; }
+.research-run-drill summary { cursor: pointer; color: var(--ink-2); }
+.research-run-drill-body { padding-top: var(--s1); }
+.research-run-drill-files { margin: var(--s1) 0 0; padding-left: var(--s4); color: var(--ink-2); }
+.research-chart-pick { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 0.85em; }
+.research-finding-id { font-family: var(--font-mono); font-size: 11px; opacity: 0.75; }
+.research-result-chart { height: 220px; margin-top: var(--s2); }
 .research-results-exp { padding: var(--s3) 0; border-top: 1px solid var(--line); }
 .research-results-exp:first-child { border-top: none; }
 .research-results-exp h3 { margin: 0; color: var(--ink); font-size: 14px; font-weight: 610; }
@@ -438,3 +507,30 @@
   vertical-align: top;
 }
 .research-results-table td:last-child { color: var(--ink-3); max-width: 48ch; }
+
+/* ---------- the tracking layer: gathered view, findings, status strip ---------- */
+li[data-research-experiment] h3 { cursor: pointer; }
+.research-gathered {
+  margin-top: var(--s3);
+  padding: var(--s3);
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+}
+.research-gathered h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 610;
+}
+.research-gathered-block { margin-top: var(--s3); }
+.research-gathered-block h5 {
+  margin: 0 0 6px;
+  color: var(--ink-25);
+  font-size: 10px;
+  font-weight: 640;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+.research-exp-templates { align-items: center; margin: 0 0 var(--s2); }
+.research-finding-form { margin-top: var(--s2); }
+[data-research-pulse]:empty { display: none; }

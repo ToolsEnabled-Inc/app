@@ -43,6 +43,13 @@
 
 .setup-choice[aria-current='true'] { border-left-color: var(--ink-3); }
 
+/* The card is pressable where it carries the seg's own attribute: the person
+   is reading the card when they decide, so the card takes the press. Hover
+   shows the same left-rule the chosen state uses, at rest strength. */
+.setup-choice.is-pressable { cursor: pointer; }
+.setup-choice.is-pressable:hover { border-left-color: var(--ink-25, var(--line-2)); }
+.setup-choice.is-pressable[aria-current='true']:hover { border-left-color: var(--ink-3); }
+
 /* WHAT AN OPTION COSTS, PRINTED WITH THE OPTION.
    The consequence line sits under the description of the choice it belongs to,
    at the same size, in --s-warn rather than the reading grey. It is not an
@@ -116,6 +123,11 @@ body.first-run #stage { padding-top: 0; }
   font-size: 13px;
   line-height: 1.5;
 }
+
+/* The lede's negative top margin is sized for the h1 above it. Under a
+   section subtitle it climbed into the heading -- read off the driven review
+   shot -- so the pairing gets its own sane spacing. */
+.setup-subtitle + .setup-lede { margin-top: 0; }
 
 /* Exactly .settings-section-title, which is what this is: a group heading over
    settings rows. Declared rather than reused only because the review's groups

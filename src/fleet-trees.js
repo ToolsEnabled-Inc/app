@@ -120,8 +120,30 @@ export function isTreeStoreLive(computerId) {
  * is a session id, and draft means there is not. Those two are what any screen
  * reading this state will act on, and they are checked on every write and on
  * every read of saved state. */
-export const NODE_STATUSES = Object.freeze(['draft', 'starting', 'running', 'finished', 'failed'])
+/* 'failed' is a START that never produced a session; 'turn-failed' is a TURN
+   that ended badly on a session that genuinely ran. They are separate statuses
+   because their chip words are separate facts -- "did not start" over a
+   session the signed spawn record shows was the measured 2026-08-18 defect.
+   The words live in src/fleet-tree-copy.js NODE_STATUS_WORDS, one entry per
+   status here. */
+export const NODE_STATUSES = Object.freeze(['draft', 'starting', 'running', 'finished', 'failed', 'turn-failed', 'interrupted'])
 const LIVE_STATUSES = Object.freeze(new Set(['starting', 'running']))
+
+/* WHY A NODE CANNOT BE REMOVED, in the words a person reads.
+ *
+ * EXPORTED BECAUSE TWO SURFACES SAY THEM. removeNode() below refuses with
+ * these, and the palette's "Remove this agent" row shows the same sentence on
+ * the row while it cannot be pressed (src/fleet-tree-copy.js REMOVE_PANEL
+ * re-exports them). One table, so the reason a row gives and the reason the
+ * store would give can never drift apart.
+ *
+ * The children sentence counts DIRECT reports, because those are the agents a
+ * person has to act on: the reports-to picker and the drag are the sanctioned
+ * ways to move each one out, and every one moved is one fewer in this count. */
+export const NODE_REMOVE_REFUSALS = Object.freeze({
+  running: 'Stop this agent first.',
+  children: count => `Move or remove its ${numberWord(count)} ${count === 1 ? 'agent' : 'agents'} first.`,
+})
 
 /* Bounds, so that a saved record cannot grow without limit and a damaged one
    cannot ask this module to walk a million entries before refusing it. They are
@@ -682,8 +704,10 @@ export function createFleetTreeStore({
       if (!tree) return refuse('That tree is not on this computer.')
       const clean = typeof profileId === 'string' && profileId && profileId.length <= 128 ? profileId : null
       trees.set(treeId, Object.freeze({ ...tree, profileId: clean, updatedAt: now() }))
-      persist()
-      notify()
+      /* accept() commits, which saves AND tells every listener -- see commit()
+         above. This used to call `persist()` and `notify()` first: two names
+         nothing in this file ever bound, so assigning a folder to a tree threw
+         a ReferenceError before it could return, on every press. */
       return accept({ treeId, profileId: clean })
     },
 
@@ -980,16 +1004,38 @@ export function createFleetTreeStore({
       return frozenList(points)
     },
 
-    /* Removing takes the branch with it. A child whose parent is gone is the
-       state the reader refuses to load, and "move the children up" would be this
-       module inventing a structure the person did not draw. */
+    /**
+     * Remove ONE agent — never a surprise branch.
+     *
+     * The contract this replaces took everything under the node with it, on
+     * the ground that a child without a parent is the state the reader
+     * refuses. True, but it answered the wrong way round: this page has two
+     * sanctioned verbs for moving children out — the reports-to picker and
+     * the drag — so a parent is REFUSED until the person has used them, and
+     * agents they never named are never deleted on their behalf. A live agent
+     * is refused too: removing the record would leave the run behind it with
+     * nothing on any screen naming it. The sentences are NODE_REMOVE_REFUSALS
+     * above, exported so the palette row shows the same words — one truth.
+     *
+     * A tree left empty goes with its last agent, exactly as the cross-tree
+     * move and the drag-out already decide: an invisible husk would block the
+     * one-empty-tree rule with nothing on screen to act on. The removed
+     * RECORD comes back, not only its id — same reason removeTree gives —
+     * and `removedTreeId` says when the tab went with it.
+     */
     removeNode(nodeId) {
       const node = nodes.get(nodeId)
       if (!node) return refuse('That agent is not on this computer.')
-      const removedNodeIds = [nodeId, ...descendantsOf(nodeId)]
-      const removedNodes = removedNodeIds.map(id => nodes.get(id)).filter(Boolean)
-      for (const id of removedNodeIds) nodes.delete(id)
-      return accept({ removedNodeIds: Object.freeze(removedNodeIds), removedNodes: frozenList(removedNodes) })
+      if (LIVE_STATUSES.has(node.status)) return refuse(NODE_REMOVE_REFUSALS.running)
+      const children = childrenOf(nodeId)
+      if (children.length > 0) return refuse(NODE_REMOVE_REFUSALS.children(children.length))
+      nodes.delete(nodeId)
+      let removedTreeId = null
+      if (nodesOfTree(node.treeId).length === 0) {
+        trees.delete(node.treeId)
+        removedTreeId = node.treeId
+      }
+      return accept({ removedNode: node, removedNodeId: nodeId, removedTreeId })
     },
 
     /**
@@ -1165,7 +1211,7 @@ function treeNodesOf(tree) {
     if (!started && !typed) return { id: node?.id, parentId: node?.parentId ?? null, agent: null }
     const state = LIVE_STATUSES.has(node?.status)
       ? 'running'
-      : (node?.status === 'finished' || node?.status === 'failed' ? 'finished' : 'unknown')
+      : (node?.status === 'finished' || node?.status === 'failed' || node?.status === 'turn-failed' ? 'finished' : 'unknown')
     return {
       id: node?.id,
       parentId: node?.parentId ?? null,

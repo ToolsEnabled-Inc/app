@@ -146,7 +146,13 @@ export function createMetricsLayout({
       }
       const w = document.createElement('div')
       w.className = 'm-srow'
-      w.style.setProperty('--srow-cols', row.map(id => `${byId[id].weight ?? 1}fr`).join(' '))
+      /* `minmax(0, Nfr)`, NOT a bare `Nfr`. A bare fr track floors at its
+         content's min-content width, so one instrument whose contents cannot
+         shrink (an echarts host carrying zrender's inline pixel width, a long
+         unbroken sentence) widens the whole row past its container and the page
+         scrolls sideways. `.m-srow > * { min-width: 0 }` in metrics-layout.css
+         handles the ITEM; this handles the TRACK, and both are needed. */
+      w.style.setProperty('--srow-cols', row.map(id => `minmax(0, ${byId[id].weight ?? 1}fr)`).join(' '))
       for (const id of row) w.appendChild(byId[id].el)
       container.appendChild(w)
       return w

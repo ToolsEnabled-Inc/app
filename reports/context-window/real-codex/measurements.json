@@ -1,0 +1,664 @@
+{
+  "findings": [
+    {
+      "level": "info",
+      "text": "codex home: junction to the real home (no credential was read)"
+    },
+    {
+      "level": "info",
+      "text": "starting was switched off; pressed the panel’s own switch"
+    },
+    {
+      "level": "info",
+      "text": "mid-turn: 2 rows, heights 27.45–27.45px, log 493px in 364px (SCROLLS)"
+    },
+    {
+      "level": "PASS",
+      "text": "press-to-open: aimed at (1151,617) on a 27.45px row, elementFromPoint answered span.chat-action-detail (the row itself); after a real move→down→up open=true, row 27.45px → 196.36px, body 168.91px"
+    },
+    {
+      "level": "info",
+      "text": "settled: 2 rows, heights 27.45–196.36px, log 661px in 329px (SCROLLS — the container has negative free space to distribute)"
+    },
+    {
+      "level": "info",
+      "text": "outcome words: {\"refused\":2} (engine: REAL codex/luna)"
+    },
+    {
+      "level": "info",
+      "text": "  wire: {\"tool\":\"commandExecution\",\"payload\":{\"status\":\"declined\",\"aggregatedOutput\":\"`\\\"C:\\\\\\\\Windows\\\\\\\\System32\\\\\\\\WindowsPowerShell\\\\\\\\v1.0\\\\\\\\powershell.exe\\\" -Command 'node --version\\nnpm --version\\ngit rev-parse --short HEAD'` rejected: blocked by policy\",\"exitCode\":-1}}"
+    },
+    {
+      "level": "info",
+      "text": "  wire: {\"tool\":\"commandExecution\",\"payload\":{\"status\":\"declined\",\"aggregatedOutput\":\"`\\\"C:\\\\\\\\Windows\\\\\\\\System32\\\\\\\\WindowsPowerShell\\\\\\\\v1.0\\\\\\\\powershell.exe\\\" -Command 'node --version'` rejected: blocked by policy\",\"exitCode\":-1}}"
+    },
+    {
+      "level": "PASS",
+      "text": "no row claims to be running once its turn has ended"
+    },
+    {
+      "level": "PASS",
+      "text": "every action row kept its height in a scrolling log (min 27.45px)"
+    },
+    {
+      "level": "PASS",
+      "text": "no row clips its own summary"
+    },
+    {
+      "level": "info",
+      "text": "1024px: asked the app for 1024x1000, the page reports 1029x832 at dpr 1.375 (real window, no emulation)"
+    },
+    {
+      "level": "info",
+      "text": "1024px: the nearest real window this display can make is 1029px (dpr 1.375); the picture is taken there and named for 1029, not 1024"
+    },
+    {
+      "level": "PASS",
+      "text": "1024px [real window via shell-state.json at 1029px, no emulation]: no action rows; 0 rows wider than the log; log no sideways scroll; page no sideways scroll; 1 context asides"
+    },
+    {
+      "level": "info",
+      "text": "restored from the saved record: 0 of 0 rows have no captured output"
+    },
+    {
+      "level": "info",
+      "text": "the restored record still carried every output, so no bare row arose to press"
+    },
+    {
+      "level": "info",
+      "text": "1440px: asked the app for 1440x1000, the page reports 1400x832 at dpr 1.375 (real window, no emulation)"
+    },
+    {
+      "level": "info",
+      "text": "1440px: asked the app for 1480x1000, the page reports 1400x832 at dpr 1.375 (real window, no emulation)"
+    },
+    {
+      "level": "info",
+      "text": "1440px: asked the app for 1520x1000, the page reports 1400x832 at dpr 1.375 (real window, no emulation)"
+    },
+    {
+      "level": "info",
+      "text": "1440px: the real window clamped at 1400 (display ceiling, dpr 1.375), so this width is MEASURED under emulation and NOT photographed"
+    },
+    {
+      "level": "PASS",
+      "text": "1440px [EMULATED VIEWPORT — geometry only, no picture]: no action rows; 0 rows wider than the log; log no sideways scroll; page no sideways scroll; 1 context asides"
+    },
+    {
+      "level": "info",
+      "text": "1920px: asked the app for 1920x1000, the page reports 1400x832 at dpr 1.375 (real window, no emulation)"
+    },
+    {
+      "level": "info",
+      "text": "1920px: asked the app for 2440x1000, the page reports 1400x832 at dpr 1.375 (real window, no emulation)"
+    },
+    {
+      "level": "info",
+      "text": "1920px: asked the app for 2960x1000, the page reports 1400x832 at dpr 1.375 (real window, no emulation)"
+    },
+    {
+      "level": "info",
+      "text": "1920px: the real window clamped at 1400 (display ceiling, dpr 1.375), so this width is MEASURED under emulation and NOT photographed"
+    },
+    {
+      "level": "PASS",
+      "text": "1920px [EMULATED VIEWPORT — geometry only, no picture]: no action rows; 0 rows wider than the log; log no sideways scroll; page no sideways scroll; 1 context asides"
+    }
+  ],
+  "label": "real-codex",
+  "real": true,
+  "at": "2026-08-20T09:10:24.447Z",
+  "isolatedPrefs": "C:\\Users\\joshp\\AppData\\Local\\Temp\\context-window-real-codex-9kA7EC\\profile-ZN0lcA\\userdata\\renderer-prefs.json",
+  "offered": {
+    "tiers": [
+      "luna",
+      "terra",
+      "sol",
+      "claude-fable",
+      "claude-sonnet",
+      "claude-opus",
+      "local"
+    ],
+    "roles": [
+      "coordinator",
+      "helper",
+      "shadow",
+      "manager",
+      "default"
+    ]
+  },
+  "midTurn": {
+    "viewport": {
+      "w": 1400,
+      "h": 832
+    },
+    "log": {
+      "x": 1009,
+      "y": 301,
+      "w": 350.55,
+      "h": 364,
+      "clientHeight": 364,
+      "scrollHeight": 493,
+      "clientWidth": 343,
+      "scrollWidth": 343,
+      "scrolls": true,
+      "overflowsSideways": false,
+      "paddingRight": "8px"
+    },
+    "pageScrollsSideways": false,
+    "rows": [
+      {
+        "index": 0,
+        "open": false,
+        "bare": false,
+        "flexShrink": "0",
+        "flexBasis": "auto",
+        "box": {
+          "x": 1011,
+          "y": 603,
+          "w": 332.55,
+          "h": 27.45
+        },
+        "headBox": {
+          "x": 1012,
+          "y": 604,
+          "w": 330.36,
+          "h": 26
+        },
+        "headScrollHeight": 26,
+        "clipsItsOwnHead": false,
+        "markVisibility": "visible",
+        "tool": "Command",
+        "detail": "node --version\nnpm --version\ngit rev-parse --short HEAD",
+        "detailFont": "\"JetBrains Mono Variable\", ui-monospace, monospace",
+        "detailEllipsised": true,
+        "detailTitle": "\"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'node --version\nnpm --version\ngit rev-parse --short HEAD'\n\n`\"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -",
+        "bodyChars": 294,
+        "bodyText": "\"C:\\\\Window \\\\Sy tem32\\\\Window PowerShell\\\\v1.0\\\\power hell.exe\" -Command 'node --ver ion\nnpm --ver ion\ngit rev-par e -- hort HEAD'\n\n`\"C:\\\\Window \\\\Sy tem32\\\\Window PowerShell\\\\v1.0\\\\power hell.exe\" -Command 'node --ver ion\nnpm --ver ion\ngit rev-par e -- hort HEAD'` rejected: blocked by policy",
+        "bodyBox": {
+          "x": 1012,
+          "y": 630,
+          "w": 330.36,
+          "h": 168.91
+        },
+        "state": "refused",
+        "stateKey": "refused"
+      },
+      {
+        "index": 1,
+        "open": false,
+        "bare": false,
+        "flexShrink": "0",
+        "flexBasis": "auto",
+        "box": {
+          "x": 1011,
+          "y": 635,
+          "w": 332.55,
+          "h": 27.45
+        },
+        "headBox": {
+          "x": 1012,
+          "y": 635,
+          "w": 330.36,
+          "h": 26
+        },
+        "headScrollHeight": 26,
+        "clipsItsOwnHead": false,
+        "markVisibility": "visible",
+        "tool": "Command",
+        "detail": "node --version",
+        "detailFont": "\"JetBrains Mono Variable\", ui-monospace, monospace",
+        "detailEllipsised": false,
+        "detailTitle": "\"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'node --version'\n\n`\"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'node --version'` rejected: block",
+        "bodyChars": 212,
+        "bodyText": "\"C:\\\\Window \\\\Sy tem32\\\\Window PowerShell\\\\v1.0\\\\power hell.exe\" -Command 'node --ver ion'\n\n`\"C:\\\\Window \\\\Sy tem32\\\\Window PowerShell\\\\v1.0\\\\power hell.exe\" -Command 'node --ver ion'` rejected: blocked by policy",
+        "bodyBox": {
+          "x": 1012,
+          "y": 661,
+          "w": 330.36,
+          "h": 104.55
+        },
+        "state": "refused",
+        "stateKey": "refused"
+      }
+    ],
+    "msgs": [
+      {
+        "kind": "me",
+        "who": "you",
+        "chars": 162,
+        "box": {
+          "x": 1051,
+          "y": 177,
+          "w": 292.64,
+          "h": 111.31
+        },
+        "background": "gradient"
+      },
+      {
+        "kind": "context",
+        "who": "added by the tree",
+        "chars": 706,
+        "box": {
+          "x": 1051,
+          "y": 297,
+          "w": 292.64,
+          "h": 298.36
+        },
+        "background": "rgba(255, 255, 255, 0.34)"
+      }
+    ],
+    "contextBubbles": 1
+  },
+  "pressOpenable": {
+    "before": {
+      "index": 0,
+      "open": false,
+      "bare": false,
+      "flexShrink": "0",
+      "flexBasis": "auto",
+      "box": {
+        "x": 1011,
+        "y": 603,
+        "w": 332.55,
+        "h": 27.45
+      },
+      "headBox": {
+        "x": 1012,
+        "y": 604,
+        "w": 330.36,
+        "h": 26
+      },
+      "headScrollHeight": 26,
+      "clipsItsOwnHead": false,
+      "markVisibility": "visible",
+      "tool": "Command",
+      "detail": "node --version\nnpm --version\ngit rev-parse --short HEAD",
+      "detailFont": "\"JetBrains Mono Variable\", ui-monospace, monospace",
+      "detailEllipsised": true,
+      "detailTitle": "\"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'node --version\nnpm --version\ngit rev-parse --short HEAD'\n\n`\"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -",
+      "bodyChars": 294,
+      "bodyText": "\"C:\\\\Window \\\\Sy tem32\\\\Window PowerShell\\\\v1.0\\\\power hell.exe\" -Command 'node --ver ion\nnpm --ver ion\ngit rev-par e -- hort HEAD'\n\n`\"C:\\\\Window \\\\Sy tem32\\\\Window PowerShell\\\\v1.0\\\\power hell.exe\" -Command 'node --ver ion\nnpm --ver ion\ngit rev-par e -- hort HEAD'` rejected: blocked by policy",
+      "bodyBox": {
+        "x": 1012,
+        "y": 630,
+        "w": 330.36,
+        "h": 168.91
+      },
+      "state": "refused",
+      "stateKey": "refused"
+    },
+    "aimed": {
+      "state": "aimed",
+      "x": 1150.727294921875,
+      "y": 616.8522729873657,
+      "box": {
+        "x": 1011,
+        "y": 603,
+        "w": 333,
+        "h": 27.45
+      },
+      "hit": "span.chat-action-detail",
+      "receives": true,
+      "onTarget": true
+    },
+    "after": {
+      "open": true,
+      "h": 196.36,
+      "bodyH": 168.91
+    }
+  },
+  "settled": {
+    "viewport": {
+      "w": 1400,
+      "h": 832
+    },
+    "log": {
+      "x": 1009,
+      "y": 301,
+      "w": 350.55,
+      "h": 328.55,
+      "clientHeight": 329,
+      "scrollHeight": 661,
+      "clientWidth": 343,
+      "scrollWidth": 343,
+      "scrolls": true,
+      "overflowsSideways": false,
+      "paddingRight": "8px"
+    },
+    "pageScrollsSideways": false,
+    "rows": [
+      {
+        "index": 0,
+        "open": true,
+        "bare": false,
+        "flexShrink": "0",
+        "flexBasis": "auto",
+        "box": {
+          "x": 1011,
+          "y": 398,
+          "w": 332.55,
+          "h": 196.36
+        },
+        "headBox": {
+          "x": 1012,
+          "y": 399,
+          "w": 330.36,
+          "h": 26
+        },
+        "headScrollHeight": 26,
+        "clipsItsOwnHead": false,
+        "markVisibility": "visible",
+        "tool": "Command",
+        "detail": "node --version\nnpm --version\ngit rev-parse --short HEAD",
+        "detailFont": "\"JetBrains Mono Variable\", ui-monospace, monospace",
+        "detailEllipsised": true,
+        "detailTitle": "\"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'node --version\nnpm --version\ngit rev-parse --short HEAD'\n\n`\"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -",
+        "bodyChars": 294,
+        "bodyText": "\"C:\\\\Window \\\\Sy tem32\\\\Window PowerShell\\\\v1.0\\\\power hell.exe\" -Command 'node --ver ion\nnpm --ver ion\ngit rev-par e -- hort HEAD'\n\n`\"C:\\\\Window \\\\Sy tem32\\\\Window PowerShell\\\\v1.0\\\\power hell.exe\" -Command 'node --ver ion\nnpm --ver ion\ngit rev-par e -- hort HEAD'` rejected: blocked by policy",
+        "bodyBox": {
+          "x": 1012,
+          "y": 425,
+          "w": 330.36,
+          "h": 168.91
+        },
+        "state": "refused",
+        "stateKey": "refused"
+      },
+      {
+        "index": 1,
+        "open": false,
+        "bare": false,
+        "flexShrink": "0",
+        "flexBasis": "auto",
+        "box": {
+          "x": 1011,
+          "y": 598,
+          "w": 332.55,
+          "h": 27.45
+        },
+        "headBox": {
+          "x": 1012,
+          "y": 599,
+          "w": 330.36,
+          "h": 26
+        },
+        "headScrollHeight": 26,
+        "clipsItsOwnHead": false,
+        "markVisibility": "visible",
+        "tool": "Command",
+        "detail": "node --version",
+        "detailFont": "\"JetBrains Mono Variable\", ui-monospace, monospace",
+        "detailEllipsised": false,
+        "detailTitle": "\"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'node --version'\n\n`\"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'node --version'` rejected: block",
+        "bodyChars": 212,
+        "bodyText": "\"C:\\\\Window \\\\Sy tem32\\\\Window PowerShell\\\\v1.0\\\\power hell.exe\" -Command 'node --ver ion'\n\n`\"C:\\\\Window \\\\Sy tem32\\\\Window PowerShell\\\\v1.0\\\\power hell.exe\" -Command 'node --ver ion'` rejected: blocked by policy",
+        "bodyBox": {
+          "x": 1012,
+          "y": 625,
+          "w": 330.36,
+          "h": 104.55
+        },
+        "state": "refused",
+        "stateKey": "refused"
+      }
+    ],
+    "msgs": [
+      {
+        "kind": "me",
+        "who": "you",
+        "chars": 162,
+        "box": {
+          "x": 1051,
+          "y": -28,
+          "w": 292.64,
+          "h": 111.31
+        },
+        "background": "gradient"
+      },
+      {
+        "kind": "context",
+        "who": "added by the tree",
+        "chars": 706,
+        "box": {
+          "x": 1051,
+          "y": 92,
+          "w": 292.64,
+          "h": 298.36
+        },
+        "background": "rgba(255, 255, 255, 0.34)"
+      }
+    ],
+    "contextBubbles": 1
+  },
+  "outcomeWords": {
+    "refused": 2
+  },
+  "toolEvents": [
+    {
+      "type": "tool_call",
+      "tool": "commandExecution",
+      "toolCallId": "exec-0d05213b-aafe-4692-981f-c2ecc175322f",
+      "payload": {
+        "command": "\"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'node --version\nnpm --version\ngit rev-parse --short HEAD'",
+        "cwd": "C:\\Users\\joshp\\AppData\\Local\\Temp\\context-window-real-codex-9kA7EC\\profile-ZN0lcA\\userdata\\workspace"
+      }
+    },
+    {
+      "type": "tool_result",
+      "tool": "commandExecution",
+      "toolCallId": "exec-0d05213b-aafe-4692-981f-c2ecc175322f",
+      "payload": {
+        "status": "declined",
+        "aggregatedOutput": "`\"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'node --version\nnpm --version\ngit rev-parse --short HEAD'` rejected: blocked by policy",
+        "exitCode": -1
+      }
+    },
+    {
+      "type": "tool_call",
+      "tool": "commandExecution",
+      "toolCallId": "exec-67e55a8d-fa96-4f1a-adaf-8abfc9275e18",
+      "payload": {
+        "command": "\"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'node --version'",
+        "cwd": "C:\\Users\\joshp\\AppData\\Local\\Temp\\context-window-real-codex-9kA7EC\\profile-ZN0lcA\\userdata\\workspace"
+      }
+    },
+    {
+      "type": "tool_result",
+      "tool": "commandExecution",
+      "toolCallId": "exec-67e55a8d-fa96-4f1a-adaf-8abfc9275e18",
+      "payload": {
+        "status": "declined",
+        "aggregatedOutput": "`\"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'node --version'` rejected: blocked by policy",
+        "exitCode": -1
+      }
+    }
+  ],
+  "widths": {
+    "1024": {
+      "asked": {
+        "width": 1024,
+        "height": 1000
+      },
+      "got": {
+        "width": 1029,
+        "height": 832,
+        "dpr": 1.375
+      },
+      "mode": "real window via shell-state.json at 1029px, no emulation",
+      "viewport": {
+        "w": 1029,
+        "h": 832
+      },
+      "log": {
+        "x": 638,
+        "y": 355,
+        "w": 350.55,
+        "h": 386.73,
+        "clientHeight": 387,
+        "scrollHeight": 391,
+        "clientWidth": 343,
+        "scrollWidth": 343,
+        "scrolls": true,
+        "overflowsSideways": false,
+        "paddingRight": "8px"
+      },
+      "pageScrollsSideways": false,
+      "rows": [],
+      "msgs": [
+        {
+          "kind": "me",
+          "who": "you",
+          "chars": 162,
+          "box": {
+            "x": 680,
+            "y": 355,
+            "w": 292.64,
+            "h": 111.31
+          },
+          "background": "gradient"
+        },
+        {
+          "kind": "context",
+          "who": "added by the tree",
+          "chars": 600,
+          "box": {
+            "x": 680,
+            "y": 474,
+            "w": 292.64,
+            "h": 263.57
+          },
+          "background": "rgba(255, 255, 255, 0.34)"
+        }
+      ],
+      "contextBubbles": 1,
+      "photographedAt": "C:\\lanes\\research-app\\reports\\context-window\\real-codex\\03-chat-1029px-real-window.png"
+    },
+    "1440": {
+      "asked": {
+        "width": 1520,
+        "height": 1000
+      },
+      "got": {
+        "width": 1400,
+        "height": 832,
+        "dpr": 1.375
+      },
+      "emulated": {
+        "width": 1440,
+        "height": 900
+      },
+      "mode": "EMULATED VIEWPORT — geometry only, no picture",
+      "viewport": {
+        "w": 1440,
+        "h": 900
+      },
+      "log": {
+        "x": 1049,
+        "y": 355,
+        "w": 350.55,
+        "h": 455.09,
+        "clientHeight": 455,
+        "scrollHeight": 455,
+        "clientWidth": 351,
+        "scrollWidth": 351,
+        "scrolls": false,
+        "overflowsSideways": false,
+        "paddingRight": "8px"
+      },
+      "pageScrollsSideways": false,
+      "rows": [],
+      "msgs": [
+        {
+          "kind": "me",
+          "who": "you",
+          "chars": 162,
+          "box": {
+            "x": 1092,
+            "y": 359,
+            "w": 299.67,
+            "h": 111.31
+          },
+          "background": "gradient"
+        },
+        {
+          "kind": "context",
+          "who": "added by the tree",
+          "chars": 600,
+          "box": {
+            "x": 1092,
+            "y": 478,
+            "w": 299.67,
+            "h": 263.57
+          },
+          "background": "rgba(255, 255, 255, 0.34)"
+        }
+      ],
+      "contextBubbles": 1,
+      "photographedAt": null
+    },
+    "1920": {
+      "asked": {
+        "width": 2960,
+        "height": 1000
+      },
+      "got": {
+        "width": 1400,
+        "height": 832,
+        "dpr": 1.375
+      },
+      "emulated": {
+        "width": 1920,
+        "height": 900
+      },
+      "mode": "EMULATED VIEWPORT — geometry only, no picture",
+      "viewport": {
+        "w": 1920,
+        "h": 900
+      },
+      "log": {
+        "x": 1425,
+        "y": 355,
+        "w": 350.55,
+        "h": 455.09,
+        "clientHeight": 455,
+        "scrollHeight": 455,
+        "clientWidth": 351,
+        "scrollWidth": 351,
+        "scrolls": false,
+        "overflowsSideways": false,
+        "paddingRight": "8px"
+      },
+      "pageScrollsSideways": false,
+      "rows": [],
+      "msgs": [
+        {
+          "kind": "me",
+          "who": "you",
+          "chars": 162,
+          "box": {
+            "x": 1468,
+            "y": 359,
+            "w": 299.67,
+            "h": 111.31
+          },
+          "background": "gradient"
+        },
+        {
+          "kind": "context",
+          "who": "added by the tree",
+          "chars": 600,
+          "box": {
+            "x": 1468,
+            "y": 478,
+            "w": 299.67,
+            "h": 263.57
+          },
+          "background": "rgba(255, 255, 255, 0.34)"
+        }
+      ],
+      "contextBubbles": 1,
+      "photographedAt": null
+    }
+  }
+}

@@ -373,3 +373,40 @@
 body.reduce-motion .ledger-record,
 body.reduce-motion .ledger-root-toggle,
 body.reduce-motion .ledger-root-toggle span { transition: none !important; }
+
+/* THE SENTENCE UNDER A FIELD, WHICH THIS PANEL HAD NOWHERE TO PUT.
+ *
+ * The two forms on this page used to explain themselves inside their fields --
+ * `placeholder="its number, as shown in the list"` -- which is the worst place
+ * for an explanation: it is grey, it is gone the moment somebody types, and it
+ * was pointing at a list that in the state a first-time reader meets is empty.
+ * A hint is a sentence about the field, so it is a sentence UNDER the field,
+ * and it stays there while they type.
+ *
+ * It lives here rather than in src/styles.css because it is this page's panel.
+ * The size and colour are the label's, one step quieter, so a hint reads as
+ * subordinate to the thing it explains rather than competing with it. */
+.ledger-write-surface .write-form-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-3);
+  max-width: 62ch;
+  margin-top: calc(var(--s1) * -1);
+}
+/* A HINT THAT IS THE REASON A CONTROL IS OFF READS AS A STATE, NOT AS ADVICE.
+   Same channel the rest of this product uses for a refusal, so a person who has
+   met one anywhere else recognises it here. */
+.ledger-write-surface .write-form-hint[data-state='unavailable'] {
+  color: var(--ink-2);
+}
+
+/* [hidden] LOSES TO display:grid, AND THE SCREENSHOT IS HOW THAT WAS FOUND.
+ *
+ * The queued-work form is written `hidden` and revealed by its own button. The
+ * attribute was there, a probe that asked the DOM said "hidden: true", and the
+ * form was plainly on the screen: `.write-form` sets `display: grid`, and an
+ * author rule beats the user-agent rule that gives [hidden] display:none. So
+ * the panel opened at full complexity for everybody while every measurement of
+ * it said otherwise -- the exact shape of defect this lane exists to close, one
+ * level down. Text in the DOM is not text on the screen. */
+.ledger-write-surface .write-form[hidden] { display: none; }

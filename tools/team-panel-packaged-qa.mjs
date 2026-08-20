@@ -35,6 +35,15 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assertRendererMeasurable, assertStagedRendererConsistent } from './lib/staged-renderer.mjs'
+/* The precondition this file used to ASSUME. See tools/lib/fleet-node.mjs: the
+   board opens with an empty tree by the owner's own rule, so the node has to be
+   made the way a person makes one before a rail can be opened on it. */
+import { createPresser, startFleetNode } from './lib/fleet-node.mjs'
+/* The two tables the panel is built from, imported rather than retyped. A
+   harness carrying its own copy of "how many tiers there are" is a harness that
+   goes red the day a tier is added and green the day one is silently dropped. */
+import { LAUNCH_TIERS } from '../src/orchestration-controls.js'
+import { TIER_SEAT_POOL } from '../src/agent-teams.js'
 
 const require_ = createRequire(import.meta.url)
 const SELF = fileURLToPath(import.meta.url)
@@ -255,6 +264,16 @@ async function main() {
     await evaluate(`(() => {
       localStorage.setItem('mc.live.computers', 'live')
       localStorage.setItem('mc.write.dispatch', 'enabled')
+      /* The walk below starts an agent on this computer to get a node onto the
+         board, and this is the switch that decides whether the product will let
+         anything start (START_CONTROL_FLAG; setup writes it from the autonomy
+         answer). It is turned on here the way a person turns it on in Settings
+         -> Write -> Run an agent session, because a harness that left it off
+         would be measuring the switched-off product and calling the refusal a
+         defect. Nothing is spent: CODEX_HOME below is an empty scratch
+         directory, so the start itself is refused with the engine's own
+         signed-out sentence and no child process is ever created. */
+      localStorage.setItem('mc.write.agent-session', 'enabled')
       location.reload()
       return true
     })()`)
@@ -269,10 +288,23 @@ async function main() {
     const route = await evaluate('document.body.dataset.route')
     check('the forward control reaches page 2 by clicking', toPage2 === 'clicked' && route === 'computers', `${toPage2} route=${route}`)
 
-    /* Open the rail board the way a person does: click an agent in the graph. */
-    const opened = await clickVisible('.static-tree-node')
-    await delay(700)
-    check('clicking an agent opens the rail board', opened === 'clicked', opened)
+    /* Open the rail board the way a person does: start an agent on this
+       computer, then click the circle it drew.
+     *
+     * THIS USED TO BE ONE clickVisible('.static-tree-node') AND IT COULD NEVER
+     * HAVE PASSED. A sterile profile has started nothing, and an empty tree is
+     * this product's stated behaviour for that ("the node tree should be empty
+     * unless a user has started a session"), so the selector was absent, this
+     * check failed, and the four checks reading fields off the panel failed
+     * with it -- the last of them crashing the run on `Cannot read properties
+     * of undefined`. Nothing about the Team panel was broken; the harness was
+     * asking a page with no agents to show it one. */
+    const reached = await startFleetNode({ session, evaluate, delay })
+    check('an agent started on this computer opens its rail board',
+      reached.ok, reached.ok ? '' : `stopped at ${reached.at}: ${reached.detail}`)
+    if (!reached.ok) {
+      throw new Error(`the rail never opened (${reached.at}: ${reached.detail}), so the panel below was NOT measured`)
+    }
 
     const teamBox = await evaluate(`(${VISIBLE})('.board-team-box')`)
     check('the Team panel is on the glass, not merely in the DOM', teamBox.state === 'visible', teamBox.state)
@@ -282,59 +314,109 @@ async function main() {
       if (!box) return null
       return {
         members: [...box.querySelectorAll('[data-team-member]')].map(input => input.getAttribute('data-team-member')),
-        identities: [...box.querySelectorAll('.team-member code')].map(code => code.textContent.trim()),
+        seatNotes: [...box.querySelectorAll('.team-member code')].map(code => code.textContent.trim()),
         leadOptions: [...box.querySelectorAll('[data-team="lead"] option')].map(option => option.value),
         buttonDisabled: box.querySelector('[data-team="go"]').disabled,
         plan: box.querySelector('[data-team="plan"]').textContent.trim(),
       }
     })()`)
 
-    check('every dispatchable tier is offered as a team member', inventory && inventory.members.length === 6, JSON.stringify(inventory?.members))
-    check('each member shows the declared agent it becomes',
-      inventory && inventory.identities.filter(identity => identity === 'claude').length === 3,
-      JSON.stringify(inventory?.identities))
+    const tierIds = LAUNCH_TIERS.map(tier => tier.id)
+    check('every dispatchable tier is offered as a team member',
+      inventory && JSON.stringify(inventory.members) === JSON.stringify(tierIds),
+      `panel=${JSON.stringify(inventory?.members)} table=${JSON.stringify(tierIds)}`)
+    check('every dispatchable tier can also lead',
+      inventory && JSON.stringify(inventory.leadOptions) === JSON.stringify(tierIds),
+      JSON.stringify(inventory?.leadOptions))
+
+    /* WHAT THIS CHECK USED TO SAY, AND WHY IT IS WRONG NOW. It read "each
+       member shows the declared agent it becomes" and required exactly three
+       members to print the identity `claude`. That was true when all three
+       Claude tiers mapped onto ONE declared seat -- and that mapping was the
+       defect: the presence registry refuses a second live lane per identity, so
+       a single `claude` seat capped this product at ONE concurrent Claude agent
+       whatever tier was asked for. src/agent-teams.js now gives the Claude tiers
+       a pool of four seats (and `local` four of its own), and its header says so
+       in as many words: "This file used to refuse that." A tier with a pool has
+       no answer to "which lane do you become" until it is dispatched, so the
+       panel prints the pool SIZE, which is the honest one. The rule is checked
+       against the pool table rather than against a number typed here. */
+    const expectedSeatNotes = tierIds.map(id => {
+      const seats = TIER_SEAT_POOL[id] || []
+      return `${seats.length} seat${seats.length === 1 ? '' : 's'}`
+    })
+    check('each member states how many seats its tier can run on',
+      inventory && JSON.stringify(inventory.seatNotes) === JSON.stringify(expectedSeatNotes),
+      `panel=${JSON.stringify(inventory?.seatNotes)} pools=${JSON.stringify(expectedSeatNotes)}`)
     check('with nothing selected the team cannot be dispatched, and says why',
       inventory && inventory.buttonDisabled === true && inventory.plan.length > 20,
       inventory?.plan)
 
-    /* THE REFUSAL, ON THE GLASS. Two Claude tiers are one declared agent. */
-    const conflict = await evaluate(`(() => {
-      const box = document.querySelector('.board-team-box')
-      box.querySelector('[data-team="lead"]').value = 'sol'
-      box.querySelector('[data-team="lead"]').dispatchEvent(new Event('change', { bubbles: true }))
-      for (const id of ['claude-opus', 'claude-sonnet']) {
-        const input = box.querySelector('[data-team-member="' + id + '"]')
-        input.checked = true
-        input.dispatchEvent(new Event('change', { bubbles: true }))
+    /* THE PRESSES BELOW ARE REAL. This block used to set `input.checked = true`
+       and dispatch a synthetic `change`, which is a state a person cannot
+       produce and which cannot tell a reachable control from a covered one. */
+    const { press } = createPresser({ session, evaluate, delay })
+    const sendKey = async (code, vk) => {
+      for (const type of ['rawKeyDown', 'keyUp']) {
+        await session.send('Input.dispatchKeyEvent', { type, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, code, key: code })
       }
+      await delay(200)
+    }
+    const pickLead = async (tierId) => {
+      const already = await evaluate(`document.querySelector('[data-team="lead"]')?.value || ''`)
+      if (already === tierId) return 'already'
+      const pressed = await press('[data-team="lead"]')
+      if (pressed !== 'clicked') return pressed
+      await sendKey('Escape', 27)
+      for (let attempt = 0; attempt < tierIds.length + 2; attempt += 1) {
+        const now = await evaluate(`document.querySelector('[data-team="lead"]')?.value || ''`)
+        if (now === tierId) return 'chosen'
+        await sendKey('ArrowDown', 40)
+      }
+      return `never-reached-${tierId}`
+    }
+    const toggleMember = async (tierId) => press(`[data-team-member="${tierId}"]`)
+    const readTeam = async () => evaluate(`(() => {
+      const box = document.querySelector('.board-team-box')
       return {
         disabled: box.querySelector('[data-team="go"]').disabled,
         plan: box.querySelector('[data-team="plan"]').textContent.trim(),
         title: box.querySelector('[data-team="go"]').title,
+        checked: [...box.querySelectorAll('[data-team-member]')].filter(input => input.checked).map(input => input.getAttribute('data-team-member')),
       }
     })()`)
-    check('picking two Claude tiers is refused before anything is dispatched', conflict.disabled === true, String(conflict.disabled))
-    check('the refusal names both tiers that collide',
-      /claude-opus/.test(conflict.plan) && /claude-sonnet/.test(conflict.plan), conflict.plan)
+    const clearMembers = async () => {
+      for (const id of (await readTeam()).checked) await toggleMember(id)
+    }
+
+    /* THE REFUSAL THAT IS STILL REAL: a pool drawn harder than it is deep.
+       Every single-seat tier is one lane, so asking a tier to both lead and
+       serve as a member is two lanes on one seat -- the 409 the picker exists
+       to refuse before anything is dispatched. */
+    const lead = await pickLead('sol')
+    check('a lead can be chosen from the keyboard', lead === 'chosen' || lead === 'already', String(lead))
+    const selfCollision = await toggleMember('sol')
+    const conflict = await readTeam()
+    check('drawing one seat twice is refused before anything is dispatched',
+      selfCollision === 'clicked' && conflict.disabled === true,
+      `${selfCollision} disabled=${conflict.disabled} plan=${conflict.plan}`)
+    check('the refusal names the tier whose seat ran out', /sol/.test(conflict.plan), conflict.plan)
     check('the disabled control carries a reason longer than a shrug', conflict.title.length > 20, conflict.title)
 
-    /* And a legal team enables it, so the refusal above is not just "always off". */
-    const legal = await evaluate(`(() => {
-      const box = document.querySelector('.board-team-box')
-      for (const input of box.querySelectorAll('[data-team-member]')) {
-        input.checked = false
-        input.dispatchEvent(new Event('change', { bubbles: true }))
-      }
-      for (const id of ['luna', 'terra']) {
-        const input = box.querySelector('[data-team-member="' + id + '"]')
-        input.checked = true
-        input.dispatchEvent(new Event('change', { bubbles: true }))
-      }
-      return {
-        disabled: box.querySelector('[data-team="go"]').disabled,
-        plan: box.querySelector('[data-team="plan"]').textContent.trim(),
-      }
-    })()`)
+    /* AND THE COMBINATION THAT USED TO BE REFUSED IS NOW OFFERED, which is the
+       positive control for the rewrite above: without it "refused" could simply
+       be this panel's answer to everything. */
+    await clearMembers()
+    for (const id of ['claude-sonnet', 'claude-opus']) await toggleMember(id)
+    const twoClaude = await readTeam()
+    check('two Claude tiers at once are allowed, because their pool holds four seats',
+      twoClaude.disabled === false, `disabled=${twoClaude.disabled} plan=${twoClaude.plan}`)
+
+    /* And a legal team of distinct identities, so the refusal above is not just
+       "always off". */
+    await clearMembers()
+    for (const id of ['luna', 'terra']) await toggleMember(id)
+    const legal = await readTeam()
     check('a team of distinct identities is dispatchable', legal.disabled === false, legal.plan)
     check('the ready message states how many lanes will start', /3 lanes total/.test(legal.plan), legal.plan)
 

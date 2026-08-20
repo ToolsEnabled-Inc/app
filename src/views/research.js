@@ -24,12 +24,45 @@ import { createResearchRegistry } from '../research-modules.js'
    this module with every `^import` LINE stripped, so a wrapped import would
    leave its tail behind as garbage. */
 import { RESEARCH_QUEUE_ROW_KEY, advanceItem, buildOwnItem, mergeQueueForRender, nextStatus, parseQueueRow, removeOwnItem } from '../research-queue-store.js'
-import { RESEARCH_EXPERIMENTS_EVENT, RESEARCH_EXPERIMENTS_ROW_KEY, buildExperiment, dispatchExperiment, experimentsSnapshot, parseExperimentsRow, removeExperiment, seedExperiments } from '../research-experiments.js'
-import { localTiersStatus } from '../mission-bridge.js'
+import { RESEARCH_EXPERIMENTS_EVENT, RESEARCH_EXPERIMENTS_ROW_KEY, buildExperiment, cellsAwaitingService, cellsWithServiceStatus, decideDispatch, dispatchExperiment, experimentsSnapshot, parseExperimentsRow, removeExperiment, seedExperiments, submitExperimentRuns } from '../research-experiments.js'
+import { localTiersStatus, postBridgeAction } from '../mission-bridge.js'
 import { TIER_CHOICES, DEFAULT_TIER } from '../fleet-tree-copy.js'
 import { startAgentForNode } from './computers.js'
 import { isLiveView } from '../live-flags.js'
+import { PROJECT_ALL, PROJECT_UNFILED, filesUnder, readProjectSelection, readResearchSnapshot, saveProject, writeProjectSelection } from '../research-projects.js'
+import { createAssignmentStore } from '../research-assignments.js'
+import { axisRowsToObject, columnRowsToSchema, gridRunPreview, parseAxes, parseResultSchema, parseRunner } from '../research-grid.js'
+import { chartableColumn, chartableColumns, readResults, readRun, readRuns, resultTableModel, resultsExport, runDrillModel, runIsTerminal, runStateWord, runTaskIsStalled, runTaskStateWord } from '../research-runs.js'
+import { findingStateWord, readFindings, saveFinding } from '../research-findings.js'
+import { createResultChart } from '../research-result-charts.js'
+import { readLiveSession } from '../agent-session-registry.js'
+import { RESEARCH_MASTER_ID } from '../research-settings.js'
 import '../research.css'
+
+/* WHERE THE SWITCH IS, derived from the section that draws it rather than
+   spelled out here. The settings page opens the section a named row lives in
+   and scrolls to that row, so this link lands on the control itself instead of
+   on a page of two hundred others. The id comes from the section's own list, so
+   a rename cannot leave this link pointing at nothing.
+
+   IT IS A FUNCTION, AND THAT IS NOT A STYLE CHOICE.
+   tools/test/research-queue-degradation.test.mjs re-evaluates this module with
+   every `^import` LINE stripped, to prove the page still says something honest
+   when a source it depends on is missing. A module-scope constant that reads an
+   imported binding throws while that file is being evaluated, so the whole page
+   becomes a blank screen instead of a degraded one -- which is the exact defect
+   that test exists to catch. Read inside the function, the reference is only
+   made when the page is genuinely rendering. */
+function pipelineSettingHref() {
+  /* THE MASTER SWITCH BY NAME, NOT BY POSITION. This read
+     `RESEARCH_SETTING_IDS[0]` until 2026-08-20, which was the master only while
+     that list held research rows and nothing else. It now also holds the agent
+     tool-note row, so index 0 became a coincidence the order happens to
+     preserve -- and a reordering would have sent a person following "the
+     research pipeline is switched off in settings" to a different switch
+     entirely, with every test still green. */
+  return `#/settings?setting=${encodeURIComponent(RESEARCH_MASTER_ID)}`
+}
 
 const RESEARCH_QUEUE_URL = '/data/research-queue.json'
 const RESEARCH_QUEUE_STATUSES = new Set(['queued', 'in-progress', 'complete'])
@@ -285,17 +318,92 @@ const SAMPLE_PROJECTION = Object.freeze({
 
 const SAMPLE_EXPERIMENT = Object.freeze({
   id: 'sample-experiment',
-  name: 'Example sweep — two tiers, two runs',
-  promptTemplate: 'Summarize the dataset at {dataset} in three sentences.',
+  name: 'Example sweep — two tiers, two repeats',
+  axes: [{ id: 'tier', values: ['luna', 'terra'] }],
+  runner: { kind: 'agent', briefTemplate: 'Summarize the dataset at {dataset} in three sentences.' },
+  resultSchema: { fields: { answer: 'string' }, required: [] },
+  runsPerCell: 2,
   datasetPath: 'C:\\examples\\dataset.jsonl',
+  projectId: null,
+  serviceExperimentId: null,
   createdAtMs: 0,
   treeId: null,
   cells: [
-    { tier: 'luna', run: 1, status: 'finished', sessionId: null, nodeId: null, startedAtMs: 0, endedAtMs: 41000, replyExcerpt: 'The example dataset holds 200 rows of paired prompts and answers.' },
-    { tier: 'luna', run: 2, status: 'finished', sessionId: null, nodeId: null, startedAtMs: 0, endedAtMs: 38000, replyExcerpt: 'A second pass reads the same 200 rows and agrees with the first.' },
-    { tier: 'terra', run: 1, status: 'failed', sessionId: null, nodeId: null, startedAtMs: 0, endedAtMs: 12000, replyExcerpt: 'This example cell shows what a refused start looks like.' },
-    { tier: 'terra', run: 2, status: 'running', sessionId: null, nodeId: null, startedAtMs: 0, endedAtMs: null, replyExcerpt: '' },
+    { params: { tier: 'luna', replicate: 1 }, status: 'finished', sessionId: null, nodeId: null, runId: null, startedAtMs: 0, endedAtMs: 41000, replyExcerpt: 'The example dataset holds 200 rows of paired prompts and answers.' },
+    { params: { tier: 'luna', replicate: 2 }, status: 'finished', sessionId: null, nodeId: null, runId: null, startedAtMs: 0, endedAtMs: 38000, replyExcerpt: 'A second pass reads the same 200 rows and agrees with the first.' },
+    { params: { tier: 'terra', replicate: 1 }, status: 'failed', sessionId: null, nodeId: null, runId: null, startedAtMs: 0, endedAtMs: 12000, replyExcerpt: 'This example cell shows what a refused start looks like.' },
+    { params: { tier: 'terra', replicate: 2 }, status: 'running', sessionId: null, nodeId: null, runId: null, startedAtMs: 0, endedAtMs: null, replyExcerpt: '' },
   ],
+})
+
+/* ---------- the designer's builder copy ----------
+   One meaning per runner kind, spelled out where the person types. The select
+   swaps this copy in place; the field itself never changes name, so the
+   submit handler goes on reading form.elements.runnerDetail. */
+
+const RUNNER_DETAIL_COPY = Object.freeze({
+  agent: 'The task each session runs. Write {axis} tokens and {dataset} where values belong.',
+  process: 'The command, then each argument on its own line.',
+  http: 'The https address; {axis} tokens are filled per run.',
+})
+
+/* One axis the person is adding: its name, its comma-separated values, and
+   the way out. The inputs carry data hooks, not names — duplicate names would
+   turn form.elements lookups into lists under the submit handler's feet. */
+function axisRowMarkup() {
+  return `
+    <div class="research-designer-row" data-axis-row>
+      <input data-axis-name maxlength="32" placeholder="Axis name, like prompt_style." aria-label="Axis name"/>
+      <input data-axis-values maxlength="800" placeholder="Values, separated by commas." aria-label="Axis values"/>
+      <button type="button" class="research-row-btn" data-axis-remove>Remove</button>
+    </div>`
+}
+
+/* One result column: its name, what it holds in a person's words (the stored
+   kind rides on the option value where only the program reads it), and
+   whether every run must report it. */
+function columnRowMarkup() {
+  return `
+    <div class="research-designer-row" data-col-row>
+      <input data-col-name maxlength="32" placeholder="Column name, like score." aria-label="Column name"/>
+      <select data-col-kind aria-label="What the column holds">
+        <option value="string">words</option>
+        <option value="number">a number</option>
+        <option value="boolean">yes or no</option>
+      </select>
+      <label class="research-popover-row"><input type="checkbox" data-col-required/><span>Required</span></label>
+      <button type="button" class="research-row-btn" data-col-remove>Remove</button>
+    </div>`
+}
+
+/* ---------- the starter templates ----------
+   Two worked examples a person can start from instead of a blank form. Each
+   only PREFILLS the designer — the sentence on every one says so, and nothing
+   is saved until the person reads the form and presses Save. */
+
+const DESIGNER_TEMPLATES = Object.freeze({
+  command: Object.freeze({
+    name: 'Compare a command across settings',
+    runnerKind: 'process',
+    runnerDetail: 'cmd.exe\n/c\necho {setting}',
+    datasetPath: '',
+    runsPerCell: 1,
+    tiers: null,
+    axisRows: Object.freeze([Object.freeze({ name: 'setting', values: 'first, second' })]),
+    columnRows: Object.freeze([Object.freeze({ name: 'score', kind: 'number', required: false })]),
+    sentence: 'An example is filled in. Change it to your command, then press Save the experiment — nothing is saved yet.',
+  }),
+  tiers: Object.freeze({
+    name: 'Ask sessions across tiers',
+    runnerKind: 'agent',
+    runnerDetail: 'Answer in two sentences: what would you check first when a benchmark score drops?',
+    datasetPath: '',
+    runsPerCell: 1,
+    tiers: null,
+    axisRows: Object.freeze([]),
+    columnRows: Object.freeze([]),
+    sentence: 'An example is filled in. Change the question, then press Save the experiment — nothing is saved yet.',
+  }),
 })
 
 /* ---------- the workbench ---------- */
@@ -395,6 +503,16 @@ export function researchView() {
             </div>
           </section>
 
+          <section class="research-section" aria-labelledby="research-sessions-title" data-mc="sessions">
+            <div class="research-section-head">
+              <h2 id="research-sessions-title">Assigned sessions</h2>
+              <p>The sessions filed under the selected project — one, many, or every session on this computer through the assign-all rule. The sessions themselves run on the computers page.</p>
+            </div>
+            <div data-research-sessions aria-live="polite">
+              <p class="research-observed-empty">Reading the session assignments.</p>
+            </div>
+          </section>
+
           <p class="research-observed-empty research-none-enabled" data-research-none hidden>
             Every module is switched off. Press Modules and switch one on.
           </p>
@@ -412,6 +530,14 @@ export function researchView() {
   const bar = el(`
     <div class="research-bar" data-research-bar>
       <button type="button" class="m-edit-btn" data-modules-btn aria-expanded="false" aria-haspopup="true">Modules</button>
+      <span class="research-project-bar" data-project-bar>
+        <label class="research-popover-row">Project
+          <select data-project-select aria-label="Project" disabled><option value="all">All projects</option></select>
+        </label>
+        <span class="research-queue-form-status" data-research-pulse role="status"></span>
+        <button type="button" class="m-edit-btn" data-project-new hidden>New project</button>
+        <span class="research-queue-form-status" data-project-status role="status"></span>
+      </span>
       <span class="spacer"></span>
       <button type="button" class="m-edit-btn" data-research-edit>Edit layout</button>
     </div>`)
@@ -443,8 +569,9 @@ export function researchView() {
     { id: 'library', title: 'Report library', size: 'full', el: root.querySelector('[data-mc="library"]') },
     { id: 'methods', title: 'Method notes', size: 'full', el: root.querySelector('[data-mc="methods"]') },
     { id: 'worklists', title: 'Working lists', size: 'full', el: root.querySelector('[data-mc="worklists"]') },
+    { id: 'sessions', title: 'Assigned sessions', size: 'full', el: root.querySelector('[data-mc="sessions"]') },
   ]
-  const STANDARD = [['designer'], ['runboard'], ['results'], ['tiers'], ['queue'], ['library'], ['methods'], ['worklists']]
+  const STANDARD = [['designer'], ['runboard'], ['results'], ['sessions'], ['tiers'], ['queue'], ['library'], ['methods'], ['worklists']]
   const moduleEl = id => MODULES.find(module => module.id === id).el
 
   const registry = createResearchRegistry({
@@ -698,16 +825,66 @@ export function researchView() {
         <h3>Open questions</h3>
         <div>${observationMarkup(data.openQuestions, { label: 'The open-question list', emptyLabel: 'open questions', itemMarkup: questionMarkup })}</div>
       </div>`
+    /* The project-findings block survives this rewrite: it is one element,
+       re-appended with whatever the findings read last said. */
+    if (liveMode) host.appendChild(findingsBlock)
   }
+
+  /* WHAT THE THREE CATALOG MODULES SAY ON A COPY THAT HAS NO CATALOG.
+   *
+   * THE DEFECT, and it is the metrics page's defect wearing a different hat. The
+   * banner said "The report catalog could not be read", and under it quoted the
+   * envelope's own reason -- which on every installed copy is "No local agent
+   * fleet host detected on this machine." The owner read that beside an empty
+   * library and asked whether something was broken.
+   *
+   * NOTHING IS BROKEN, AND NOTHING WILL EVER FILL IT. tools/gen-research.mjs
+   * builds this catalog from a directory of curated documents on the builder's
+   * own machine (MC_RESEARCH_ROOT). Those documents are deliberately NOT
+   * shipped -- a previous release carried their titles and absolute paths into
+   * the installer, and T4c replaced every projection with an honest empty
+   * envelope for exactly that reason. So a customer's copy has no catalog by
+   * design, no setting creates one, and "could not be read" describes a failure
+   * that did not happen.
+   *
+   * SO THE WORDS CHANGE AND THE STRUCTURE DOES NOT. Every repair already made
+   * here stays: the mast names what is absent rather than saying the page is
+   * broken, the three seeded "Reading …" lines are still settled so none of them
+   * says "Reading" for ever, the working-lists line still distinguishes the
+   * catalog's registers from the project findings read live below it, and the
+   * banner still sits directly under the mast where its "below" points at
+   * something. What is gone is the claim of failure and the quoted reason. */
+  const CATALOG_ABSENT = Object.freeze({
+    mast: 'no report library on this computer',
+    library: 'A report library is a set of documents kept for research, and this copy was not shipped with one. Nothing on this computer is missing or broken.',
+    methods: 'The method notes are written alongside those documents, so there are none here either.',
+    worklists: 'The catalog’s own registers come with those documents. The project findings below are read live from this computer.',
+    title: 'There is no report library in this copy',
+    bench: 'Everything below is read live from this computer and is not affected.',
+  })
 
   function renderUnavailable(reason) {
     root.setAttribute('aria-busy', 'false')
     root.dataset.projectionState = 'unavailable'
-    root.querySelector('[data-research-source]').textContent = 'could not be read'
-    shell.insertAdjacentHTML('beforeend', `
+    root.querySelector('[data-research-source]').textContent = CATALOG_ABSENT.mast
+    const settle = (selector, sentence) => {
+      const loading = root.querySelector(`${selector} p.research-observed-empty`)
+      if (loading && /^Reading /.test(loading.textContent || '')) loading.textContent = sentence
+    }
+    settle('[data-research-library]', CATALOG_ABSENT.library)
+    settle('[data-research-methods]', CATALOG_ABSENT.methods)
+    settle('[data-research-worklists]', CATALOG_ABSENT.worklists)
+    /* `reason` is still taken and still deliberately NOT printed. It is the
+       envelope's internal account of a file written on somebody else's machine;
+       it named a mechanism this reader has never heard of and pointed at nothing
+       they could do. The parameter stays so the caller's shape is unchanged and
+       a future envelope that fails for a reason a person CAN act on has a place
+       to arrive. */
+    root.querySelector('.research-mast').insertAdjacentHTML('afterend', `
       <section class="research-envelope-unavailable projection-state projection-unavailable" data-research-unavailable role="status">
-        <strong>Your research could not be loaded</strong>
-        <span>${esc(reason || 'The app was not told why.')}</span>
+        <strong>${esc(CATALOG_ABSENT.title)}</strong>
+        <span>${esc(CATALOG_ABSENT.library)}</span>
+        <span>${esc(CATALOG_ABSENT.bench)}</span>
         <a class="host-absent-action" href="${esc(GUIDE_ACTION.href)}">${esc(GUIDE_ACTION.label)}</a>
       </section>`)
   }
@@ -753,7 +930,12 @@ export function researchView() {
     return { ok: true }
   }
 
-  const CELL_WORD = Object.freeze({ designed: 'designed', starting: 'starting', running: 'running', finished: 'finished', failed: 'failed' })
+  const CELL_WORD = Object.freeze({
+    designed: 'designed', starting: 'starting', running: 'running', finished: 'finished',
+    failed: 'failed', queued: 'queued', unread: 'with the run service',
+    claimed: 'claimed', retrying: 'waiting to retry', cancelled: 'cancelled',
+    uncertain: 'uncertain', stalled: 'stalled',
+  })
 
   function cellDuration(cell) {
     if (!Number.isFinite(cell.startedAtMs) || !Number.isFinite(cell.endedAtMs)) return ''
@@ -765,6 +947,181 @@ export function researchView() {
     return TIER_CHOICES.find(choice => choice.id === id)?.label || id
   }
 
+  /* cellLabel with the tier value spelled as its human word. */
+  function cellWords(experiment, cell) {
+    const parts = experiment.axes.map(axis => axis.id === 'tier' ? tierWord(cell.params[axis.id]) : String(cell.params[axis.id]))
+    if (Object.hasOwn(cell.params, 'replicate')) parts.push(`#${cell.params.replicate}`)
+    return parts.join(' · ')
+  }
+
+  function runControlWord(experiment) {
+    return decideDispatch(experiment).mode === 'local' ? 'Run here as sessions' : 'Send to the run queue'
+  }
+
+  /* ---------- the gathered view ----------
+     One experiment, one place: its local cells, its queued service runs with
+     their drill rows, its results table with chart and exports — inline under
+     the card, so a person tracks a run without touring four modules. The
+     panel reuses the boards' own markup builders; nothing is duplicated and
+     nothing is removed from the boards themselves. */
+
+  let gatheredExperimentId = null
+  let lastKnownPulse = null          // the last counts read whole; see renderStatusPulse
+  let workerPending = null           // 'start' | 'stop' while a lifecycle call is in flight
+  /* The column a person chose to chart, per service experiment. The results
+     block re-renders on every run poll (~5s), and each re-render used to
+     rebuild the picker at its default: pick sd_of_mean, and it snapped back
+     to mean before the sentence explaining it was finished (installed
+     1.0.15, 3.7s). The choice outlives the markup now. */
+  const chartChoice = new Map()      // serviceExperimentId -> column name
+  const chosenColumn = (experimentId, model, resultSchema) => {
+    const columns = chartableColumns(model, resultSchema)
+    const wanted = chartChoice.get(experimentId)
+    return columns.find(candidate => candidate.name === wanted) || chartableColumn(model, resultSchema)
+  }
+  const gatheredCharts = new Map()   // experimentId -> { resize, destroy }
+
+  function localCellsMarkup(experiment, cells = experiment.cells) {
+    return cells.map(cell => `
+      <span class="research-cell is-${esc(cell.status)}">${esc(cellWords(experiment, cell))} · ${esc(CELL_WORD[cell.status] || cell.status)}${cellDuration(cell) ? ` · ${cellDuration(cell)}` : ''}</span>`).join('')
+  }
+
+  function localCopyControlsMarkup(experiment) {
+    return `
+          <div class="research-queue-controls">
+            <button type="button" data-results-csv="${esc(experiment.id)}">Copy as CSV</button>
+            <button type="button" data-results-json="${esc(experiment.id)}">Copy as JSON</button>
+          </div>`
+  }
+
+  function localResultsTableMarkup(experiment) {
+    return `
+        <div class="research-results-scroll"><table class="research-results-table">
+          <thead><tr>${experiment.axes.map(axis => `<th>${esc(axis.id)}</th>`).join('')}<th>repeat</th><th>state</th><th>took</th><th>answer</th></tr></thead>
+          <tbody>
+            ${experiment.cells.map(cell => `
+              <tr>${experiment.axes.map(axis => `<td>${esc(cell.params[axis.id] ?? '—')}</td>`).join('')}<td>${cell.params.replicate ?? 1}</td><td>${esc(cell.status)}</td><td>${esc(cellDuration(cell) || '—')}</td><td>${esc(cell.replyExcerpt || '—')}</td></tr>`).join('')}
+          </tbody>
+        </table></div>`
+  }
+
+  function gatheredServicePlaceholder(experiment) {
+    if (experiment.serviceExperimentId) {
+      return '<p class="research-observed-empty">Reading its queued runs.</p>'
+    }
+    if (decideDispatch(experiment).mode === 'local') {
+      return '<p class="research-observed-empty">Its workers run here as sessions; nothing waits in the run queue.</p>'
+    }
+    return '<p class="research-observed-empty">Nothing has been sent to the run queue yet. Press its run control to queue it.</p>'
+  }
+
+  function gatheredPanelMarkup(experiment) {
+    const hasLocalResults = experiment.cells.some(cell => cell.status === 'finished' || cell.status === 'failed')
+    return `
+      <div class="research-gathered" data-exp-gathered="${esc(experiment.id)}">
+        <div class="research-report-head">
+          <h4>Everything about this experiment</h4>
+          <div class="research-queue-controls">
+            <button type="button" data-exp-close="${esc(experiment.id)}">Close</button>
+          </div>
+        </div>
+        <div class="research-gathered-block">
+          <h5>Cells on this computer</h5>
+          <div class="research-runboard-cells" data-gathered-cells="${esc(experiment.id)}">${localCellsMarkup(experiment, experiment.serviceExperimentId ? cellsAwaitingService(experiment) : experiment.cells)}</div>
+        </div>
+        ${hasLocalResults ? `
+        <div class="research-gathered-block">
+          <h5>Results from here</h5>
+          <div class="research-results-exp">
+            ${localCopyControlsMarkup(experiment)}
+            ${localResultsTableMarkup(experiment)}
+            <p class="research-queue-form-status" data-results-status="${esc(experiment.id)}" role="status"></p>
+          </div>
+        </div>` : ''}
+        <div class="research-gathered-block">
+          <h5>Queued through the service</h5>
+          <div data-gathered-service="${esc(experiment.id)}">${gatheredServicePlaceholder(experiment)}</div>
+        </div>
+      </div>`
+  }
+
+  function toggleGathered(id) {
+    gatheredExperimentId = gatheredExperimentId === id ? null : id
+    renderDesigner()
+  }
+
+  /* ---------- duplicate and prefill ----------
+     Duplicate copies an experiment INTO the form — axis rows, column rows,
+     tiers, runner text — and stops there. The person reviews and presses
+     Save; nothing writes until they do. The starter templates ride the same
+     prefill path with worked example values. */
+
+  function duplicateSpec(experiment) {
+    const tierAxis = experiment.axes.find(axis => axis.id === 'tier')
+    const axisRows = experiment.axes.filter(axis => axis.id !== 'tier')
+      .map(axis => ({ name: axis.id, values: axis.values.join(', ') }))
+    const fields = experiment.resultSchema?.fields || {}
+    const required = new Set(experiment.resultSchema?.required || [])
+    const fieldNames = Object.keys(fields)
+    const standardColumns = fieldNames.length === 1 && fields.answer === 'string' && required.size === 0
+    const columnRows = standardColumns ? [] : fieldNames.map(name => ({ name, kind: fields[name], required: required.has(name) }))
+    const runnerDetail = experiment.runner.kind === 'agent'
+      ? experiment.runner.briefTemplate
+      : experiment.runner.kind === 'process'
+        ? [experiment.runner.command, ...(experiment.runner.args || [])].join('\n')
+        : experiment.runner.url || ''
+    return {
+      name: experiment.name,
+      runnerKind: experiment.runner.kind,
+      runnerDetail,
+      datasetPath: experiment.datasetPath || '',
+      runsPerCell: experiment.runsPerCell,
+      tiers: tierAxis ? tierAxis.values : null,
+      axisRows,
+      columnRows,
+      sentence: 'Copied into the form. Change what you like, then press Save the experiment — nothing is saved yet.',
+    }
+  }
+
+  function setDesignerRows(form, axisRows, columnRows) {
+    const axisHost = form.querySelector('[data-axis-rows]')
+    axisHost.innerHTML = ''
+    for (const row of axisRows) {
+      axisHost.insertAdjacentHTML('beforeend', axisRowMarkup())
+      const added = axisHost.querySelector('[data-axis-row]:last-child')
+      added.querySelector('[data-axis-name]').value = row.name
+      added.querySelector('[data-axis-values]').value = row.values
+    }
+    const columnHost = form.querySelector('[data-col-rows]')
+    columnHost.innerHTML = ''
+    for (const row of columnRows) {
+      columnHost.insertAdjacentHTML('beforeend', columnRowMarkup())
+      const added = columnHost.querySelector('[data-col-row]:last-child')
+      added.querySelector('[data-col-name]').value = row.name
+      added.querySelector('[data-col-kind]').value = row.kind
+      added.querySelector('[data-col-required]').checked = row.required === true
+    }
+  }
+
+  function prefillDesigner(form, spec) {
+    form.elements.name.value = spec.name
+    form.elements.runnerKind.value = spec.runnerKind
+    form.elements.runnerDetail.value = spec.runnerDetail
+    form.elements.datasetPath.value = spec.datasetPath || ''
+    form.elements.moreAxes.value = ''
+    form.elements.resultColumns.value = ''
+    form.elements.runsPerCell.value = String(spec.runsPerCell || 1)
+    if (Array.isArray(spec.tiers)) {
+      for (const input of form.querySelectorAll('input[name="tier"]')) input.checked = spec.tiers.includes(input.value)
+    }
+    setDesignerRows(form, spec.axisRows || [], spec.columnRows || [])
+    syncRunnerDetail(form)
+    updateDesignerPreview(form)
+    const status = form.querySelector('[data-exp-form-status]')
+    if (status) status.textContent = spec.sentence
+    form.elements.name.focus()
+  }
+
   function renderDesigner() {
     const host = moduleEl('designer').querySelector('[data-research-designer]')
     if (!host) return
@@ -772,106 +1129,190 @@ export function researchView() {
       host.innerHTML = '<p class="research-observed-empty">Sign in to design experiments — they are kept with your account.</p>'
       return
     }
-    const { experiments, damaged } = experimentsSnapshot()
+    const { damaged } = experimentsSnapshot()
+    const { shown: experiments, hidden } = benchExperiments()
     const damagedNote = damaged
       ? '<p class="research-unavailable projection-unavailable">Your saved experiments could not be read. New ones will overwrite the unreadable record.</p>'
       : ''
     const list = experiments.length === 0
-      ? '<p class="research-observed-empty">No experiments are designed yet.</p>'
-      : `<ol class="research-catalog">${experiments.map(experiment => `
+      ? `<p class="research-observed-empty">No experiments are designed yet.</p>${elsewhereNote(hidden)}`
+      : `${elsewhereNote(hidden)}<ol class="research-catalog">${experiments.map(experiment => `
           <li class="research-report" data-research-experiment="${esc(experiment.id)}">
             <div class="research-report-body">
               <div class="research-report-head">
                 <h3>${esc(experiment.name)}</h3>
                 <dl class="research-report-meta">
-                  <div><dt>cells</dt><dd>${experiment.cells.length}</dd></div>
-                  <div><dt>tiers</dt><dd>${esc([...new Set(experiment.cells.map(cell => cell.tier))].join(', '))}</dd></div>
+                  <div><dt>runs</dt><dd>${experiment.cells.length}</dd></div>
+                  <div><dt>axes</dt><dd>${esc(experiment.axes.map(axis => `${axis.id} (${axis.values.length})`).join(', '))}</dd></div>
                 </dl>
               </div>
-              <div class="research-context"><p>${esc(experiment.promptTemplate.slice(0, 200))}</p></div>
+              <div class="research-context"><p>${esc(experiment.runner.kind === 'agent' ? experiment.runner.briefTemplate.slice(0, 200) : experiment.runner.kind === 'process' ? `Runs a command: ${experiment.runner.command || ''}`.slice(0, 200) : `Calls ${experiment.runner.url || 'a web address'}`.slice(0, 200))}</p></div>
               ${experiment.datasetPath ? `<p class="research-authorization"><strong>Dataset:</strong> ${esc(experiment.datasetPath)}</p>` : ''}
               <div class="research-queue-controls">
-                <button type="button" data-exp-run="${esc(experiment.id)}">Run on the tree</button>
+                <button type="button" data-exp-run="${esc(experiment.id)}">${esc(runControlWord(experiment))}</button>
+                <button type="button" data-exp-open="${esc(experiment.id)}">${experiment.id === gatheredExperimentId ? 'Close' : 'Open'}</button>
+                <button type="button" data-exp-duplicate="${esc(experiment.id)}">Duplicate</button>
                 <button type="button" data-exp-remove="${esc(experiment.id)}">Remove</button>
               </div>
+              ${experiment.id === gatheredExperimentId ? gatheredPanelMarkup(experiment) : ''}
             </div>
           </li>`).join('')}</ol>`
     host.innerHTML = `
+      <div class="research-queue-controls research-exp-templates" data-exp-templates>
+        <span class="research-designer-hint">Start from an example:</span>
+        <button type="button" data-exp-template="command">Compare a command across settings</button>
+        <button type="button" data-exp-template="tiers">Ask sessions across tiers</button>
+      </div>
       <form class="research-queue-form" data-exp-form>
         <input name="name" maxlength="120" placeholder="Name this experiment." aria-label="Experiment name"/>
-        <textarea name="promptTemplate" maxlength="2000" rows="3" placeholder="The task each worker runs. Write {dataset} where the dataset path belongs." aria-label="Task template"></textarea>
+        <label class="research-popover-row">Runner
+          <select name="runnerKind" aria-label="Runner kind">
+            <option value="agent">Sessions</option>
+            <option value="process">A command</option>
+            <option value="http">A web address</option>
+          </select>
+        </label>
+        <p class="research-designer-hint" data-runner-detail-label>${esc(RUNNER_DETAIL_COPY.agent)}</p>
+        <textarea name="runnerDetail" maxlength="2000" rows="3" placeholder="${esc(RUNNER_DETAIL_COPY.agent)}" aria-label="What runs"></textarea>
         <input name="datasetPath" maxlength="400" placeholder="Dataset path on this computer, if the task reads one. Workers read it under their own permissions." aria-label="Dataset path"/>
         <div class="research-designer-tiers" role="group" aria-label="Model tiers">
           ${TIER_CHOICES.map(choice => `
             <label class="research-popover-row"><input type="checkbox" name="tier" value="${esc(choice.id)}" ${choice.id === DEFAULT_TIER ? 'checked' : ''}/><span>${esc(choice.label)}</span></label>`).join('')}
         </div>
+        <div class="research-designer-group" role="group" aria-label="More axes">
+          <p class="research-designer-hint">Vary more than the tier: add an axis, then write its values separated by commas.</p>
+          <div class="research-designer-rows" data-axis-rows></div>
+          <button type="button" class="research-row-btn" data-axis-add>Add an axis</button>
+        </div>
+        <div class="research-exp-preview" data-exp-preview role="status"></div>
+        <div class="research-designer-group" role="group" aria-label="Result columns">
+          <p class="research-designer-hint">Each run always keeps its answer. Add a column when a run should also report a named value.</p>
+          <div class="research-designer-rows" data-col-rows></div>
+          <button type="button" class="research-row-btn" data-col-add>Add a result column</button>
+        </div>
+        <details class="research-designer-advanced" data-exp-advanced>
+          <summary>Advanced</summary>
+          <p class="research-designer-hint">Text written here replaces the axis and column rows above.</p>
+          <textarea name="moreAxes" rows="2" placeholder='More axes, optional, one object: {"prompt_style": ["terse", "full"]}' aria-label="More axes"></textarea>
+          <input name="resultColumns" placeholder='Result columns, optional: {"fields": {"score": "number"}, "required": ["score"]}' aria-label="Result columns"/>
+        </details>
         <div class="research-queue-form-row">
-          <label class="research-popover-row">Runs per tier
-            <select name="runsPerTier"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>
+          <label class="research-popover-row">Repeats
+            <select name="runsPerCell"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select>
           </label>
           <button type="submit">Save the experiment</button>
           <span class="research-queue-form-status" data-exp-form-status role="status"></span>
         </div>
       </form>
       ${damagedNote}${list}`
+    const freshForm = host.querySelector('[data-exp-form]')
+    if (freshForm) updateDesignerPreview(freshForm)
+    const opened = experiments.find(candidate => candidate.id === gatheredExperimentId)
+    if (opened?.serviceExperimentId) renderGatheredService(opened)
   }
 
   function renderRunBoard() {
     const host = moduleEl('runboard').querySelector('[data-research-runboard]')
     if (!host) return
-    const { experiments } = experimentsSnapshot()
+    /* Own one child block, as renderResults does; the service board is a
+       sibling this renderer must never be able to delete. */
+    let block = host.querySelector('[data-bench-runboard]')
+    if (!block) {
+      block = el('<div data-bench-runboard></div>')
+      claimHost(host, block)
+    }
+    const { shown: experiments, hidden } = benchExperiments()
     const active = experiments.filter(experiment => experiment.cells.some(cell => cell.status !== 'designed'))
     if (active.length === 0) {
-      host.innerHTML = '<p class="research-observed-empty">Nothing is running yet. Save an experiment above, then press its Run control.</p>'
+      /* Only claim the board is idle when the service board beside it is
+         idle too — the two blocks share a section heading and read as one. */
+      const serviceIsBusy = serviceExperiments().some(experiment => {
+        const read = runsByExperiment.get(experiment.experimentId)
+        return read?.ok === true && read.runs.some(run => run?.task && !runIsTerminal(run.task.status))
+      })
+      block.innerHTML = `${serviceIsBusy ? '' : '<p class="research-observed-empty">Nothing is running yet. Save an experiment above, then press its Run control.</p>'}${elsewhereNote(hidden)}`
+      renderServiceRunBoard()
       return
     }
-    host.innerHTML = active.map(experiment => `
+    /* The header promises "with its live state", so a queue-dispatched cell
+       must not sit here reading 'queued' while the service board below it
+       says finished — the flagship experiment showed exactly that on the
+       staged page. Same display-only translation the gathered panel uses;
+       when the service has not been read, the local word stands unchanged. */
+    const cellsFor = experiment => {
+      if (!experiment.serviceExperimentId) return localCellsMarkup(experiment)
+      const read = runsByExperiment.get(experiment.serviceExperimentId)
+      return read?.ok === true
+        ? localCellsMarkup(experiment, cellsWithServiceStatus(experiment, read.runs))
+        : localCellsMarkup(experiment, cellsAwaitingService(experiment))
+    }
+    block.innerHTML = `${elsewhereNote(hidden)}${active.map(experiment => `
       <div class="research-runboard-exp" data-runboard-exp="${esc(experiment.id)}">
         <h3>${esc(experiment.name)}</h3>
         <div class="research-runboard-cells">
-          ${experiment.cells.map(cell => `
-            <span class="research-cell is-${esc(cell.status)}">${esc(tierWord(cell.tier))} · run ${cell.run} · ${esc(CELL_WORD[cell.status] || cell.status)}${cellDuration(cell) ? ` · ${cellDuration(cell)}` : ''}</span>`).join('')}
+          ${cellsFor(experiment)}
         </div>
-        <p class="research-observed-empty">The workers are nodes on the computers page — watch them stream there.</p>
-      </div>`).join('')
+        <p class="research-observed-empty">Session workers are nodes on the computers page; queued runs report in the service board below.</p>
+      </div>`).join('')}`
+    /* The service board and the worker control are APPENDED into this same
+       host, so the assignment above deletes them. Re-render them here rather
+       than at every call site: saving an experiment used to make the service
+       board and the Start button vanish until the page was reloaded — during
+       a showing that is the finale button disappearing (measured on the
+       installed build, 2026-08-15). */
+    renderServiceRunBoard()
   }
 
   function renderResults() {
     const host = moduleEl('results').querySelector('[data-research-results]')
     if (!host) return
+    /* Two renderers share this host: the bench results (local session cells)
+       and the service results block appended by renderServiceResults. Writing
+       host.innerHTML here deleted the service block, so saving or removing an
+       experiment blanked every results table until something else happened
+       to refresh them (installed 1.0.13, measured 90s+ blank). The same
+       host-clobber had already hit the run board twice. This renderer now owns
+       ONE child block and never touches its sibling; the class of bug is gone
+       here rather than the instance. */
+    let block = host.querySelector('[data-bench-results]')
+    if (!block) {
+      block = el('<div data-bench-results></div>')
+      claimHost(host, block)
+    }
     const { experiments } = experimentsSnapshot()
     const finished = experiments.filter(experiment => experiment.cells.some(cell => cell.status === 'finished' || cell.status === 'failed'))
     if (finished.length === 0) {
-      host.innerHTML = '<p class="research-observed-empty">No results have arrived yet.</p>'
+      /* "No results have arrived yet." printed above a page of service
+         results tables (installed 1.0.13). Local cells and service runs are
+         two sources; say which one is empty, and only when the other is too. */
+      const serviceHasResults = serviceExperiments().some(experiment => {
+        const read = runsByExperiment.get(experiment.experimentId)
+        return read?.ok === true && read.runs.some(run => run?.task?.status === 'succeeded')
+      })
+      block.innerHTML = serviceHasResults ? '' : '<p class="research-observed-empty">No results have arrived yet.</p>'
       return
     }
-    host.innerHTML = finished.map(experiment => `
+    block.innerHTML = finished.map(experiment => `
       <div class="research-results-exp" data-results-exp="${esc(experiment.id)}">
         <div class="research-report-head">
           <h3>${esc(experiment.name)}</h3>
-          <div class="research-queue-controls">
-            <button type="button" data-results-csv="${esc(experiment.id)}">Copy as CSV</button>
-            <button type="button" data-results-json="${esc(experiment.id)}">Copy as JSON</button>
-          </div>
+          ${localCopyControlsMarkup(experiment)}
         </div>
-        <div class="research-results-scroll"><table class="research-results-table">
-          <thead><tr><th>tier</th><th>run</th><th>state</th><th>took</th><th>answer</th></tr></thead>
-          <tbody>
-            ${experiment.cells.map(cell => `
-              <tr><td>${esc(cell.tier)}</td><td>${cell.run}</td><td>${esc(cell.status)}</td><td>${esc(cellDuration(cell) || '—')}</td><td>${esc(cell.replyExcerpt || '—')}</td></tr>`).join('')}
-          </tbody>
-        </table></div>
+        ${localResultsTableMarkup(experiment)}
         <p class="research-queue-form-status" data-results-status="${esc(experiment.id)}" role="status"></p>
       </div>`).join('')
   }
 
   function experimentExport(experiment, format) {
+    const axisNames = experiment.axes.map(axis => axis.id)
     if (format === 'json') {
-      return JSON.stringify({ name: experiment.name, cells: experiment.cells.map(cell => ({ tier: cell.tier, run: cell.run, status: cell.status, startedAtMs: cell.startedAtMs, endedAtMs: cell.endedAtMs, reply: cell.replyExcerpt })) }, null, 2)
+      return JSON.stringify({ name: experiment.name, cells: experiment.cells.map(cell => ({ ...cell.params, status: cell.status, startedAtMs: cell.startedAtMs, endedAtMs: cell.endedAtMs, reply: cell.replyExcerpt })) }, null, 2)
     }
     const escape = value => `"${String(value ?? '').replace(/"/g, '""')}"`
-    const rows = [['tier', 'run', 'status', 'startedAtMs', 'endedAtMs', 'reply']]
-    for (const cell of experiment.cells) rows.push([cell.tier, cell.run, cell.status, cell.startedAtMs, cell.endedAtMs, cell.replyExcerpt])
+    const rows = [[...axisNames, 'replicate', 'status', 'startedAtMs', 'endedAtMs', 'reply']]
+    for (const cell of experiment.cells) {
+      rows.push([...axisNames.map(name => cell.params[name]), cell.params.replicate ?? 1, cell.status, cell.startedAtMs, cell.endedAtMs, cell.replyExcerpt])
+    }
     return rows.map(row => row.map(escape).join(',')).join('\n')
   }
 
@@ -879,6 +1320,171 @@ export function researchView() {
     renderDesigner()
     renderRunBoard()
     renderResults()
+    renderStatusPulse()
+  }
+
+  /* The run-board and results hosts are seeded in the module markup with a
+     placeholder paragraph ("Nothing is running yet." / "No results have
+     arrived yet."). When these renderers wrote host.innerHTML the seed was
+     replaced along with everything else; once they took ownership of a child
+     block instead, the seed was left standing between the bench block and
+     the service block — so "No results have arrived yet." sat above 57 rows
+     of results and "Nothing is running yet." above a run reading "running"
+     (installed 1.0.14). The first renderer to claim a host removes the seed;
+     each block speaks only for its own source from then on. */
+  function claimHost(host, block) {
+    for (const seed of Array.from(host.children)) {
+      if (seed.matches('p.research-observed-empty')) seed.remove()
+    }
+    host.prepend(block)
+  }
+
+  /* The bench belongs to the selected project too. It used to ignore the
+     selector entirely, so switching projects produced a page that blended
+     two: the service board followed the new project while these cards still
+     listed the old one's experiments (adversarial live review, 2026-08-15).
+     Nothing is taken away by filtering: an experiment filed under no project
+     stays visible under every selection — otherwise a just-designed one would
+     become unreachable the moment a project was picked — and whatever the
+     filter does leave out is counted in a sentence, with the selector right
+     there as the way back to it. */
+  function benchExperiments() {
+    const all = experimentsSnapshot().experiments
+    const shown = all.filter(experiment =>
+      filesUnder(selection, experiment.projectId) || !experiment.projectId)
+    return { shown, hidden: all.length - shown.length }
+  }
+
+  function elsewhereNote(hidden) {
+    if (hidden <= 0) return ''
+    return `<p class="research-observed-empty">${hidden} experiment${hidden === 1 ? ' is' : 's are'} filed under another project. Choose it, or All projects, above.</p>`
+  }
+
+  /* The one designer form. Tier checkboxes build the reserved-meaning 'tier'
+     axis for session runs; the axis rows add further axes; the runner select
+     decides what the detail text IS. The Advanced text, when written, replaces
+     the rows — a power user's exact object beats a builder's composition.
+     Everything parses through the grid engine before buildExperiment sees it. */
+
+  function designerAxisRows(form) {
+    return [...form.querySelectorAll('[data-axis-row]')].map(row => ({
+      name: row.querySelector('[data-axis-name]')?.value ?? '',
+      values: row.querySelector('[data-axis-values]')?.value ?? '',
+    }))
+  }
+
+  function designerColumnRows(form) {
+    return [...form.querySelectorAll('[data-col-row]')].map(row => ({
+      name: row.querySelector('[data-col-name]')?.value ?? '',
+      kind: row.querySelector('[data-col-kind]')?.value ?? 'string',
+      required: row.querySelector('[data-col-required]')?.checked === true,
+    }))
+  }
+
+  function designerExtraAxes(form) {
+    const advanced = form.elements.moreAxes.value.trim()
+    if (advanced) {
+      let extra
+      try { extra = JSON.parse(advanced) }
+      catch { return { ok: false, sentence: 'The extra axes did not read as an object. Write them like {"prompt_style": ["terse", "full"]}.' } }
+      if (!extra || typeof extra !== 'object' || Array.isArray(extra)) {
+        return { ok: false, sentence: 'The extra axes did not read as an object. Write them like {"prompt_style": ["terse", "full"]}.' }
+      }
+      if (Object.hasOwn(extra, 'tier')) {
+        return { ok: false, sentence: 'Tier values come from the checkboxes above — take "tier" out of the axes text.' }
+      }
+      return { ok: true, axesRaw: extra }
+    }
+    const composed = axisRowsToObject(designerAxisRows(form))
+    if (!composed.ok) return composed
+    if (Object.hasOwn(composed.axesRaw, 'tier')) {
+      return { ok: false, sentence: 'Tier values come from the checkboxes above — remove the axis row named tier.' }
+    }
+    return composed
+  }
+
+  function designerResultColumns(form) {
+    const advanced = form.elements.resultColumns.value.trim()
+    if (advanced) {
+      try { return { ok: true, schemaRaw: JSON.parse(advanced) } }
+      catch { return { ok: false, sentence: 'The result columns did not read as an object.' } }
+    }
+    return columnRowsToSchema(designerColumnRows(form))
+  }
+
+  /* The whole grid the form currently declares, tier axis included, shared by
+     the live preview and the submit handler so the two can never disagree. */
+  function designerGrid(form) {
+    const extra = designerExtraAxes(form)
+    if (!extra.ok) return extra
+    const checkedTiers = [...form.querySelectorAll('input[name="tier"]:checked')].map(input => input.value)
+    const kind = form.elements.runnerKind.value
+    const axesRaw = kind === 'agent' && checkedTiers.length > 0 ? { tier: checkedTiers, ...extra.axesRaw } : extra.axesRaw
+    if (Object.keys(axesRaw).length === 0) {
+      return { ok: false, sentence: kind === 'agent' ? 'Pick at least one model tier to run on.' : 'Add at least one axis row so the grid has something to vary.' }
+    }
+    return { ok: true, axesRaw }
+  }
+
+  /* The living answer under the builder: what this grid will run, before Save
+     is ever pressed. A refusal renders its sentence here instead, while the
+     field that caused it is still under the person's hands. */
+  function updateDesignerPreview(form) {
+    const preview = form.querySelector('[data-exp-preview]')
+    if (!preview) return
+    const grid = designerGrid(form)
+    if (!grid.ok) {
+      preview.innerHTML = `<p class="research-queue-form-status">${esc(grid.sentence)}</p>`
+      return
+    }
+    const model = gridRunPreview(grid.axesRaw, { replicates: Number(form.elements.runsPerCell.value) || 1 })
+    if (!model.ok) {
+      preview.innerHTML = `<p class="research-queue-form-status">${esc(model.sentence)}</p>`
+      return
+    }
+    preview.innerHTML = `
+      <p class="research-designer-hint">This grid makes ${model.runCount} ${model.runCount === 1 ? 'run' : 'runs'}:</p>
+      ${model.labels.map(label => `<span class="research-cell">${esc(label)}</span>`).join('')}
+      ${model.more > 0 ? `<span class="research-designer-hint">and ${model.more} more</span>` : ''}`
+  }
+
+  /* One meaning at a time: the detail area's label and placeholder follow the
+     runner choice. Only those two attributes re-render; the field keeps its
+     name, its text, and the submit handler that reads it. */
+  function syncRunnerDetail(form) {
+    const copy = RUNNER_DETAIL_COPY[form.elements.runnerKind.value] || RUNNER_DETAIL_COPY.agent
+    const label = form.querySelector('[data-runner-detail-label]')
+    if (label) label.textContent = copy
+    form.elements.runnerDetail.placeholder = copy
+  }
+
+  function parseDesignerForm(form) {
+    const grid = designerGrid(form)
+    if (!grid.ok) return grid
+    const kind = form.elements.runnerKind.value
+    const detail = form.elements.runnerDetail.value.trim()
+    const axes = parseAxes(grid.axesRaw)
+    if (!axes.ok) return axes
+    let runner
+    if (kind === 'agent') runner = parseRunner({ kind, briefTemplate: detail })
+    else if (kind === 'process') {
+      const [command, ...args] = detail.split('\n').map(line => line.trim()).filter(Boolean)
+      runner = parseRunner({ kind, command: command || '', args })
+    } else runner = parseRunner({ kind, url: detail })
+    if (!runner.ok) return runner
+    const columns = designerResultColumns(form)
+    if (!columns.ok) return columns
+    const resultSchema = parseResultSchema(columns.schemaRaw)
+    if (!resultSchema.ok) return resultSchema
+    return {
+      ok: true,
+      name: form.elements.name.value,
+      axes: axes.axes,
+      runner: runner.runner,
+      resultSchema: resultSchema.resultSchema,
+      runsPerCell: Number(form.elements.runsPerCell.value),
+      datasetPath: form.elements.datasetPath.value,
+    }
   }
 
   moduleEl('designer').addEventListener('submit', async event => {
@@ -886,12 +1492,16 @@ export function researchView() {
     event.preventDefault()
     const form = event.target
     const status = form.querySelector('[data-exp-form-status]')
+    const parsed = parseDesignerForm(form)
+    if (!parsed.ok) { if (status) status.textContent = parsed.sentence; return }
     const built = buildExperiment({
-      name: form.elements.name.value,
-      promptTemplate: form.elements.promptTemplate.value,
-      datasetPath: form.elements.datasetPath.value,
-      tiers: [...form.querySelectorAll('input[name="tier"]:checked')].map(input => input.value),
-      runsPerTier: Number(form.elements.runsPerTier.value),
+      name: parsed.name,
+      axes: parsed.axes,
+      runner: parsed.runner,
+      resultSchema: parsed.resultSchema,
+      runsPerCell: parsed.runsPerCell,
+      datasetPath: parsed.datasetPath,
+      projectId: selectedProject()?.projectId ?? null,
     }, experimentsSnapshot())
     if (!built.ok) { if (status) status.textContent = built.sentence; return }
     const saved = await persistExperiments(built.serialized)
@@ -904,7 +1514,51 @@ export function researchView() {
     const runId = event.target?.dataset?.expRun
     const removeId = event.target?.dataset?.expRemove
     if (runId) {
+      const experiment = experimentsSnapshot().experiments.find(candidate => candidate.id === runId)
+      if (!experiment) return
+      const decision = decideDispatch(experiment, { projectId: selectedProject()?.projectId ?? experiment.projectId })
+      if (!decision.ok) {
+        event.target.textContent = decision.sentence
+        return
+      }
       event.target.disabled = true
+      if (decision.mode === 'queue') {
+        event.target.textContent = 'Submitting to the run queue…'
+        const outcome = await submitExperimentRuns(runId, {
+          persist: serialized => account.putSetting(RESEARCH_EXPERIMENTS_ROW_KEY, serialized),
+          projectId: decision.projectId,
+        })
+        if (!outcome.ok) {
+          event.target.disabled = false
+          event.target.textContent = outcome.sentence
+          return
+        }
+        renderExperimentModules()
+        /* A refused cell stays 'designed' and the first refusal sentence rides
+           back on an ok-shaped outcome (submitExperimentRuns). Dropping it here
+           made a settings-gate hold LOOK like a successful submit: the board
+           re-rendered, nothing was queued, and no sentence said why. The
+           designer's own status line says it, after the re-render that would
+           otherwise wipe it. */
+        /* Nothing queued and nothing refused means every cell was already
+           submitted: the service replayed them by experiment and parameters.
+           That is the idempotency working, but silence made the press look
+           broken — a saved grid has no edit, so pressing it again is exactly
+           what a person does (measured on the installed build, 2026-08-15). */
+        /* The count comes from the cells, not from `replayed`: a cell that was
+           already sent is skipped before the service is asked, so `replayed`
+           stays 0 and the sentence used to carry no number at all (installed
+           1.0.11). Say how many, and say what to press next. */
+        const alreadySent = outcome.total - outcome.submitted - outcome.replayed
+        const said = outcome.sentence || (outcome.submitted === 0
+          ? (outcome.replayed > 0
+            ? `Already queued — the run service recognised all ${outcome.replayed} of these runs and made no duplicates. Duplicate this experiment to run a fresh set.`
+            : `Already sent — all ${alreadySent} cells of this experiment are with the run service. Press Duplicate to run a fresh set.`)
+          : null)
+        if (said) { const holdStatus = moduleEl('designer').querySelector('[data-exp-form-status]'); if (holdStatus) holdStatus.textContent = said }
+        refreshServiceSnapshot()
+        return
+      }
       event.target.textContent = 'Starting the workers…'
       const outcome = await dispatchExperiment(runId, {
         agent: typeof window === 'undefined' ? null : window.mcAgent,
@@ -920,6 +1574,21 @@ export function researchView() {
       return
     }
     if (removeId) {
+      /* Removal is destructive and the stage-tidy drive (2026-08-15) measured
+         it firing on a single press. Arm on the first press, act on the
+         second; a lone press disarms itself so the label never lies. */
+      const button = event.target
+      if (button.dataset.armed !== 'true') {
+        button.dataset.armed = 'true'
+        button.textContent = 'Press again to remove'
+        setTimeout(() => {
+          if (button.isConnected && button.dataset.armed === 'true') {
+            delete button.dataset.armed
+            button.textContent = 'Remove'
+          }
+        }, 4000)
+        return
+      }
       const result = removeExperiment(experimentsSnapshot(), removeId)
       if (!result.ok) { event.target.textContent = result.sentence; return }
       const saved = await persistExperiments(result.serialized)
@@ -929,21 +1598,92 @@ export function researchView() {
     }
   })
 
-  moduleEl('results').addEventListener('click', async event => {
+  /* Builder rows come and go in place — only the preview re-renders, so a
+     half-typed field never loses its focus to a repaint. */
+  moduleEl('designer').addEventListener('click', event => {
+    const form = event.target?.closest?.('[data-exp-form]')
+    if (!form) return
+    if (event.target.hasAttribute('data-axis-add')) {
+      form.querySelector('[data-axis-rows]').insertAdjacentHTML('beforeend', axisRowMarkup())
+      form.querySelector('[data-axis-rows] [data-axis-row]:last-child [data-axis-name]')?.focus()
+      updateDesignerPreview(form)
+      return
+    }
+    if (event.target.hasAttribute('data-axis-remove')) {
+      event.target.closest('[data-axis-row]')?.remove()
+      updateDesignerPreview(form)
+      return
+    }
+    if (event.target.hasAttribute('data-col-add')) {
+      form.querySelector('[data-col-rows]').insertAdjacentHTML('beforeend', columnRowMarkup())
+      form.querySelector('[data-col-rows] [data-col-row]:last-child [data-col-name]')?.focus()
+      return
+    }
+    if (event.target.hasAttribute('data-col-remove')) {
+      event.target.closest('[data-col-row]')?.remove()
+    }
+  })
+
+  /* Gathering, duplicating, and the starter examples. The card's title and
+     its Open control both toggle the same panel; Duplicate and the templates
+     only prefill the one form and leave the saving to the person. */
+  moduleEl('designer').addEventListener('click', event => {
+    const openId = event.target?.dataset?.expOpen
+    if (openId) { toggleGathered(openId); return }
+    const closeId = event.target?.dataset?.expClose
+    if (closeId) { gatheredExperimentId = null; renderDesigner(); return }
+    const title = event.target?.closest?.('li[data-research-experiment] h3')
+    if (title && !event.target.closest('[data-exp-gathered]')) {
+      toggleGathered(title.closest('li[data-research-experiment]').dataset.researchExperiment)
+      return
+    }
+    const duplicateId = event.target?.dataset?.expDuplicate
+    if (duplicateId) {
+      const experiment = experimentsSnapshot().experiments.find(candidate => candidate.id === duplicateId)
+      const form = moduleEl('designer').querySelector('[data-exp-form]')
+      if (experiment && form) prefillDesigner(form, duplicateSpec(experiment))
+      return
+    }
+    const templateId = event.target?.dataset?.expTemplate
+    if (templateId && DESIGNER_TEMPLATES[templateId]) {
+      const form = moduleEl('designer').querySelector('[data-exp-form]')
+      if (form) prefillDesigner(form, DESIGNER_TEMPLATES[templateId])
+    }
+  })
+
+  moduleEl('designer').addEventListener('input', event => {
+    const form = event.target?.closest?.('[data-exp-form]')
+    if (form) updateDesignerPreview(form)
+  })
+
+  moduleEl('designer').addEventListener('change', event => {
+    const form = event.target?.closest?.('[data-exp-form]')
+    if (!form) return
+    if (event.target.name === 'runnerKind') syncRunnerDetail(form)
+    updateDesignerPreview(form)
+  })
+
+  /* One copy handler for the local tables wherever they render — the results
+     module and the gathered panel both carry the same controls, and the
+     status line found is the one beside the button that was pressed. */
+  const onLocalCopyClick = async event => {
     const csvId = event.target?.dataset?.resultsCsv
     const jsonId = event.target?.dataset?.resultsJson
     if (!csvId && !jsonId) return
     const id = csvId || jsonId
     const experiment = experimentsSnapshot().experiments.find(candidate => candidate.id === id)
     if (!experiment) return
-    const status = moduleEl('results').querySelector(`[data-results-status="${id}"]`)
+    const status = event.target.closest('.research-results-exp')?.querySelector(`[data-results-status="${id}"]`)
+      || moduleEl('results').querySelector(`[data-results-status="${id}"]`)
     try {
       await navigator.clipboard.writeText(experimentExport(experiment, csvId ? 'csv' : 'json'))
       if (status) status.textContent = 'Copied. Paste it where you need it.'
     } catch {
       if (status) status.textContent = 'Select the table and copy it by hand — the clipboard refused this copy.'
     }
-  })
+  }
+  moduleEl('results').addEventListener('click', onLocalCopyClick)
+  moduleEl('designer').addEventListener('click', onLocalCopyClick)
 
   const onExperimentsChanged = () => { if (!destroyed) renderExperimentModules() }
   window.addEventListener(RESEARCH_EXPERIMENTS_EVENT, onExperimentsChanged)
@@ -996,6 +1736,744 @@ export function researchView() {
       ${tierRowMarkup('Strong', receipt.strong)}`
   }
 
+  /* ---------- the project layer ----------
+     Projects, durable grid experiments, queued runs, results and session
+     assignment all live behind the action bridge; this block renders what the
+     service answered and never invents an empty list from a refusal. The
+     selection (which project this page looks at) is the one local remembering. */
+
+  const assignmentStore = createAssignmentStore({ storage: typeof window === 'undefined' ? null : window.localStorage })
+  let selection = readProjectSelection(typeof window === 'undefined' ? null : window.localStorage)
+  let service = null            // the last readResearchSnapshot result, ok or not
+  const runsByExperiment = new Map()   // experimentId -> readRuns result
+  const resultsByRun = new Map()       // runId -> record list
+  let runPollTimer = null
+
+  const serviceCharts = new Map()   // experimentId -> { resize, destroy }
+  const projectBar = bar.querySelector('[data-project-bar]')
+  const projectSelect = projectBar.querySelector('[data-project-select]')
+  const projectNewBtn = projectBar.querySelector('[data-project-new]')
+  const projectStatus = projectBar.querySelector('[data-project-status]')
+
+  function selectedProject() {
+    if (!service?.ok) return null
+    return service.projects.find(project => project.projectId === selection) || null
+  }
+
+  function renderProjectBar() {
+    if (!service) return
+    if (!service.ok) {
+      projectSelect.disabled = true
+      projectNewBtn.hidden = true
+      projectStatus.textContent = `Projects could not be read — ${service.reason || 'the research service did not answer'}.`
+      return
+    }
+    const options = [
+      `<option value="${PROJECT_ALL}"${selection === PROJECT_ALL ? ' selected' : ''}>All projects</option>`,
+      ...service.projects.map(project => `
+        <option value="${esc(project.projectId)}"${selection === project.projectId ? ' selected' : ''}>${esc(project.name)}${project.enabled === false ? ' (switched off)' : ''}</option>`),
+      `<option value="${PROJECT_UNFILED}"${selection === PROJECT_UNFILED ? ' selected' : ''}>Unfiled</option>`,
+    ]
+    projectSelect.innerHTML = options.join('')
+    projectSelect.disabled = false
+    projectNewBtn.hidden = false
+    if (service.settings && service.settings.pipelineEnabled === false) {
+      /* THE SENTENCE NOW POINTS AT A SWITCH THAT EXISTS.
+         It said "switched off in settings" for months while Settings carried no
+         such switch anywhere -- the row and the refusal were real and the
+         control had never been built, so the only way to run anything was to
+         edit a file beside the program. The switch is in Settings under
+         Research now (src/research-settings.js), and this is a link straight to
+         it rather than an instruction to go looking: the row it means opens the
+         section it lives in and scrolls to itself. Text and link are set
+         separately because the reason a person is reading this can contain a
+         path and must never be built into markup. */
+      projectStatus.textContent = 'The research pipeline is switched off in settings; queued runs wait until it is on. '
+      const link = document.createElement('a')
+      link.className = 'host-absent-action'
+      link.href = pipelineSettingHref()
+      link.textContent = 'Open that switch'
+      projectStatus.append(link)
+    } else {
+      projectStatus.textContent = ''
+    }
+  }
+
+  projectSelect.addEventListener('change', () => {
+    selection = projectSelect.value
+    writeProjectSelection(typeof window === 'undefined' ? null : window.localStorage, selection)
+    /* Every module that filters by project must re-render together. The
+       adversarial live review switched projects and got a blended page: the
+       service board, results and pulse followed the new project while the
+       designer cards and the run board still listed the OTHER project's
+       experiments. A gathered panel belonging to the project just left is
+       closed rather than carried across. */
+    if (gatheredExperimentId) {
+      const stillHere = experimentsSnapshot().experiments
+        .find(experiment => experiment.id === gatheredExperimentId && filesUnder(selection, experiment.projectId))
+      if (!stillHere) gatheredExperimentId = null
+    }
+    renderExperimentModules()
+    renderServiceModules()
+    refreshFindings()
+  })
+
+  /* An inline name field, not window.prompt: Electron throws on prompt(), so
+     the packaged app's New-project click died in the handler — the walkthrough
+     harness caught it because a human's click path is exactly what it drives. */
+  const projectNewForm = el(`
+    <span class="research-project-new" data-project-new-form hidden>
+      <input type="text" maxlength="120" placeholder="Name the new project." aria-label="New project name" data-project-new-name/>
+      <button type="button" data-project-new-save>Create</button>
+      <button type="button" data-project-new-cancel>Cancel</button>
+    </span>`)
+  projectNewBtn.after(projectNewForm)
+  const projectNewName = projectNewForm.querySelector('[data-project-new-name]')
+
+  function setProjectFormOpen(open) {
+    projectNewForm.hidden = !open
+    projectNewBtn.hidden = open || !service?.ok
+    if (open) projectNewName.focus()
+  }
+
+  projectNewBtn.addEventListener('click', () => setProjectFormOpen(true))
+  projectNewForm.querySelector('[data-project-new-cancel]').addEventListener('click', () => setProjectFormOpen(false))
+
+  async function createProjectFromForm() {
+    const name = projectNewName.value
+    if (typeof name !== 'string' || name.trim().length === 0) {
+      projectStatus.textContent = 'Name the project first.'
+      return
+    }
+    const saveBtn = projectNewForm.querySelector('[data-project-new-save]')
+    saveBtn.disabled = true
+    const saved = await saveProject({ name: name.trim(), enabled: true })
+    saveBtn.disabled = false
+    if (!saved.ok) {
+      projectStatus.textContent = `The project was not created — ${saved.reason || 'the research service did not say why'}. Nothing was saved; try once more.`
+      return
+    }
+    projectNewName.value = ''
+    setProjectFormOpen(false)
+    selection = saved.project.projectId
+    writeProjectSelection(typeof window === 'undefined' ? null : window.localStorage, selection)
+    await refreshServiceSnapshot()
+  }
+
+  projectNewForm.querySelector('[data-project-new-save]').addEventListener('click', createProjectFromForm)
+  projectNewName.addEventListener('keydown', event => { if (event.key === 'Enter') createProjectFromForm() })
+
+  function allServiceExperiments() {
+    if (!service?.ok) return []
+    return Object.entries(service.experiments).flatMap(([projectId, experiments]) =>
+      experiments.map(experiment => ({ ...experiment, projectId })))
+  }
+
+  function serviceExperiments() {
+    return allServiceExperiments().filter(experiment => filesUnder(selection, experiment.projectId))
+  }
+
+  function renderSessionsModule() {
+    const host = moduleEl('sessions').querySelector('[data-research-sessions]')
+    if (!host) return
+    if (!service) return
+    if (!service.ok) {
+      host.innerHTML = unavailableMarkup('The session assignments', service.reason)
+      return
+    }
+    const rows = assignmentStore.snapshot().rows.filter(row => filesUnder(selection, row.projectId))
+    const projectName = id => service.projects.find(project => project.projectId === id)?.name || id
+    if (rows.length === 0) {
+      host.innerHTML = '<p class="research-observed-empty">No sessions are filed under this view. File one from the computers page, or assign every session with the all rule there.</p>'
+      return
+    }
+    const live = readLiveSession()
+    host.innerHTML = `
+      <ol class="research-catalog" data-research-session-list>
+        ${rows.map(row => `
+          <li class="research-report">
+            <div class="research-report-body">
+              <div class="research-report-head">
+                <h3>${esc(row.kind === 'all' ? 'Every session on this computer' : `${row.kind} · ${row.ref}`)}${live && row.kind === 'observed' && live.sessionId === row.ref ? ' <span class="research-observed-empty">— live now</span>' : ''}</h3>
+                <dl class="research-report-meta"><div><dt>project</dt><dd>${esc(projectName(row.projectId))}</dd></div></dl>
+              </div>
+              ${row.pending ? '<p class="research-authorization">Saved on this computer; the research service has not heard it yet.</p>' : ''}
+              <div class="research-queue-controls">
+                <button type="button" data-session-unassign data-project="${esc(row.projectId)}" data-kind="${esc(row.kind)}" data-ref="${esc(row.ref)}">Unassign</button>
+                <a class="host-absent-action" href="#/computers">Open the computers page</a>
+              </div>
+            </div>
+          </li>`).join('')}
+      </ol>`
+  }
+
+  moduleEl('sessions').addEventListener('click', async event => {
+    const button = event.target
+    if (!button?.hasAttribute?.('data-session-unassign')) return
+    button.disabled = true
+    const result = await assignmentStore.unassign(button.dataset.project, button.dataset.kind, button.dataset.ref)
+    button.disabled = false
+    if (!result.ok) { button.textContent = result.sentence; return }
+    renderSessionsModule()
+  })
+
+  /* ---------- the service run board and results ---------- */
+
+  async function refreshRuns() {
+    const experiments = serviceExperiments()
+    for (const experiment of experiments) {
+      runsByExperiment.set(experiment.experimentId, await readRuns(experiment.experimentId))
+    }
+    /* The bench run board reads this same cache for its cells' live state, so
+       it must repaint when the cache fills. Without this it painted once with
+       a cold cache and stayed there: every cell read "queued", including a
+       9/9-finished experiment, until an unrelated re-render happened to fix
+       it (measured on the installed build, 2026-08-15 — and it is the first
+       thing on screen). It renders the service board itself, so it comes
+       first and there is no second call. */
+    renderRunBoard()
+    /* The bench results block decides whether to print "No results have
+       arrived yet." by asking whether the SERVICE has results — from this
+       same cache. Painted once cold, it said so above 57 finished rows and
+       was never asked again (installed 1.0.15). Repaint it here too. */
+    renderResults()
+    renderServiceResults()
+    const opened = experimentsSnapshot().experiments.find(candidate => candidate.id === gatheredExperimentId)
+    if (opened?.serviceExperimentId) renderGatheredService(opened)
+    renderStatusPulse()
+    scheduleRunPoll()
+  }
+
+  function anyRunActive() {
+    for (const read of runsByExperiment.values()) {
+      if (read?.ok === true && read.runs.some(run => !runIsTerminal(run?.task?.status))) return true
+    }
+    return false
+  }
+
+  function scheduleRunPoll() {
+    if (runPollTimer) { clearTimeout(runPollTimer); runPollTimer = null }
+    if (destroyed) return
+    /* The poll refreshes runs; the LIFECYCLE comes from the snapshot, and
+       without re-reading it the worker control keeps its old word. Measured
+       on installed 1.0.11: seven minutes after the worker process died the
+       control still read "Run worker: running." and offered only Stop, so
+       there was no Start to press to recover.
+       Polling only while RUNS are active was not enough: kill the worker
+       while its queue is empty and nothing polls at all, so the control
+       claimed "running" for six and a half minutes with no worker process
+       alive (installed 1.0.12). While the service says a worker is running,
+       keep checking — slower, because nothing is in flight. */
+    const active = anyRunActive()
+    const watchingWorker = Boolean(service?.ok && service.lifecycle?.running === true)
+    if (!active && !watchingWorker) return
+    runPollTimer = setTimeout(() => { refreshServiceSnapshot() }, active ? 5000 : 15000)
+  }
+
+  /* The worker control: the service's own lifecycle word beside a start/stop
+     that reports the verified receipt state, never an assumed one. */
+  function workerControlMarkup() {
+    const lifecycle = service?.ok ? service.lifecycle : null
+    if (!lifecycle) return ''
+    const running = lifecycle.running === true
+    const word = typeof lifecycle.status === 'string' ? lifecycle.status.replace(/_/g, ' ') : 'unknown'
+    /* A cold start takes several seconds. The pending state lives HERE rather
+       than only in the click handler because the run poll repaints this board
+       while the request is in flight, which used to wipe the "Starting the
+       worker." sentence and hand back an enabled button — seven seconds of
+       apparent dead air, and an invitation to press twice (measured on the
+       installed build, 2026-08-15). */
+    if (workerPending) {
+      const verb = workerPending === 'start' ? 'Starting' : 'Stopping'
+      return `
+        <div class="research-queue-controls" data-research-worker>
+          <span class="research-observed-empty">Run worker: ${esc(word)}.</span>
+          <button type="button" disabled data-research-worker-pending="${esc(workerPending)}">${verb} the worker…</button>
+          <span class="research-queue-form-status" data-research-worker-status role="status">${verb} the worker. This can take a few seconds.</span>
+        </div>`
+    }
+    return `
+      <div class="research-queue-controls" data-research-worker>
+        <span class="research-observed-empty">Run worker: ${esc(word)}.</span>
+        ${lifecycle.available === false ? '' : `<button type="button" data-research-worker-toggle="${running ? 'stop' : 'start'}">${running ? 'Stop the worker' : 'Start the worker'}</button>`}
+        <span class="research-queue-form-status" data-research-worker-status role="status"></span>
+      </div>`
+  }
+
+  function runDrillMarkup(run) {
+    return `
+      <details class="research-run-drill" data-run-drill="${esc(run.runId)}">
+        <summary>${esc(Object.values(run?.params || {}).join(' · ') || run.runId)} · ${esc(runTaskStateWord(run?.task))}</summary>
+        <div class="research-run-drill-body" data-run-drill-body="${esc(run.runId)}">
+          <p class="research-observed-empty">Open reads the run's progress and files.</p>
+        </div>
+      </details>`
+  }
+
+  function renderServiceRunBoard() {
+    const host = moduleEl('runboard').querySelector('[data-research-runboard]')
+    if (!host || !service) return
+    let block = host.querySelector('[data-service-runboard]')
+    if (!block) {
+      block = el('<div data-service-runboard></div>')
+      host.appendChild(block)
+    }
+    if (!service.ok) {
+      block.innerHTML = unavailableMarkup('The queued runs', service.reason)
+      return
+    }
+    const experiments = serviceExperiments()
+    if (experiments.length === 0) {
+      block.innerHTML = `${workerControlMarkup()}<p class="research-observed-empty">No grid experiments are registered under this view yet.</p>`
+      return
+    }
+    block.innerHTML = workerControlMarkup() + experiments.map(experiment => {
+      const read = runsByExperiment.get(experiment.experimentId)
+      if (!read) return `<div class="research-runboard-exp"><h3>${esc(experiment.name)}</h3><p class="research-observed-empty">Reading its runs.</p></div>`
+      if (read.ok !== true) return `<div class="research-runboard-exp"><h3>${esc(experiment.name)}</h3>${unavailableMarkup('Its run list', read.reason)}</div>`
+      const rows = read.runs.map(run => runDrillMarkup(run)).join('')
+      /* A duplicated card keeps its runner, and the service identifies an
+         experiment by its configuration — so every Duplicate files its runs
+         under the FIRST card's name. Forty runs appearing under one heading
+         reads as a labelling bug unless the page says why (installed 1.0.12).
+         It is one study with more runs; name the designs feeding it. */
+      const designs = experimentsSnapshot().experiments
+        .filter(bench => bench.serviceExperimentId === experiment.experimentId)
+      const shared = designs.length > 1
+        ? `<p class="research-observed-empty">${designs.length} designs on this bench file their runs here: ${esc(designs.map(design => design.name).join(', '))}.</p>`
+        : ''
+      return `
+        <div class="research-runboard-exp" data-service-exp="${esc(experiment.experimentId)}">
+          <h3>${esc(experiment.name)} <span class="research-observed-empty">(queued through the service)</span></h3>
+          ${shared}
+          <div class="research-runboard-cells">${rows || '<p class="research-observed-empty">No runs submitted yet.</p>'}</div>
+        </div>`
+    }).join('')
+  }
+
+  moduleEl('runboard').addEventListener('click', async event => {
+    const action = event.target?.dataset?.researchWorkerToggle
+    if (!action || workerPending) return
+    workerPending = action
+    renderServiceRunBoard()
+    const key = globalThis.crypto?.randomUUID?.() || `worker-${Date.now()}`
+    const result = await postBridgeAction('research-lifecycle', { action, idempotencyKey: key })
+    workerPending = null
+    if (result?.ok === true && result.receipt) {
+      const receipt = result.receipt
+      await refreshServiceSnapshot()
+      const settled = moduleEl('runboard').querySelector('[data-research-worker-status]')
+      if (settled) settled.textContent = `The service says: ${String(receipt.status || 'unknown').replace(/_/g, ' ')}.`
+      return
+    }
+    renderServiceRunBoard()
+    const status = moduleEl('runboard').querySelector('[data-research-worker-status]')
+    if (status) {
+      const reason = String(result?.reason || 'the research service did not answer').replace(/\.$/, '')
+      status.textContent = `That did not happen — ${reason}. The worker is unchanged; try once more.`
+    }
+  })
+
+  /* The drill: opening a run reads its checkpoint, files and results once,
+     and renders absence as a sentence rather than an empty pane. The same
+     handler serves the run board and the gathered panel's drill rows. */
+  const onRunDrillToggle = async event => {
+    const drill = event.target
+    if (!drill?.hasAttribute?.('data-run-drill') || !drill.open) return
+    const runId = drill.dataset.runDrill
+    const body = drill.querySelector(`[data-run-drill-body="${runId}"]`)
+    if (!body || body.dataset.loaded === 'true') return
+    body.dataset.loaded = 'true'
+    const [runRead, resultsRead] = await Promise.all([readRun(runId), readResults(runId)])
+    if (runRead.ok !== true) {
+      body.innerHTML = unavailableMarkup('This run', runRead.reason)
+      body.dataset.loaded = ''
+      return
+    }
+    const drillModel = runDrillModel({ run: runRead.run, results: resultsRead.ok === true ? resultsRead.results : [] })
+    body.innerHTML = `
+      <p>${esc(drillModel.checkpointSummary)}</p>
+      ${drillModel.errorSentence ? `<p class="research-unavailable projection-unavailable">${esc(drillModel.errorSentence)}</p>` : ''}
+      <p class="research-observed-empty">Settings: ${esc(Object.entries(drillModel.params).map(([name, value]) => `${name} ${value}`).join(', ') || 'none')}. Results recorded: ${drillModel.resultCount}.</p>
+      <p class="research-observed-empty">${esc(drillModel.artifactsSentence)}</p>
+      ${Array.isArray(drillModel.artifacts) && drillModel.artifacts.length ? `<ul class="research-run-drill-files">${drillModel.artifacts.map(file => `<li>${esc(file.name)}${Number.isSafeInteger(file.bytes) ? ` · ${formatBytes(file.bytes)}` : ''}</li>`).join('')}</ul>` : ''}
+      ${drillModel.artifactDir ? `<p class="research-observed-empty">Folder: ${esc(drillModel.artifactDir)}</p>` : ''}`
+  }
+  moduleEl('runboard').addEventListener('toggle', onRunDrillToggle, true)
+  moduleEl('designer').addEventListener('toggle', onRunDrillToggle, true)
+
+  /* The service-side markup builders, shared by the results module and the
+     gathered panel so the two can never drift apart. */
+
+  function serviceCopyControlsMarkup(experimentId) {
+    return `
+            <div class="research-queue-controls">
+              <button type="button" data-service-csv="${esc(experimentId)}">Copy as CSV</button>
+              <button type="button" data-service-json="${esc(experimentId)}">Copy as JSON</button>
+            </div>`
+  }
+
+  function serviceResultsTableMarkup(model) {
+    return `
+          <div class="research-results-scroll"><table class="research-results-table">
+            <thead><tr>${model.columns.map(name => `<th>${esc(name)}</th>`).join('')}<th>state</th></tr></thead>
+            <tbody>${model.rows.map(row => `<tr>${row.cells.map(value => `<td>${esc(value ?? '—')}</td>`).join('')}<td>${esc(runStateWord(row.status))}</td></tr>`).join('')}</tbody>
+          </table></div>`
+  }
+
+  /* The claim form under a results table. It files the finding under the
+     experiment's own project through the research service; the reply names
+     the recorded finding, and a refusal keeps the claim in the field. */
+  function findingFormMarkup(experimentId, projectId) {
+    if (typeof projectId !== 'string' || projectId.length === 0) return ''
+    return `
+          <form class="research-queue-form research-finding-form" data-finding-form="${esc(experimentId)}" data-finding-project="${esc(projectId)}">
+            <input name="claim" maxlength="500" placeholder="What did these results show? One sentence." aria-label="Finding claim"/>
+            <div class="research-queue-form-row">
+              <button type="submit">Save as finding</button>
+              <span class="research-queue-form-status" data-finding-status role="status"></span>
+            </div>
+          </form>`
+  }
+
+  async function renderServiceResults() {
+    const host = moduleEl('results').querySelector('[data-research-results]')
+    if (!host || !service?.ok) return
+    let block = host.querySelector('[data-service-results]')
+    if (!block) {
+      block = el('<div data-service-results></div>')
+      host.appendChild(block)
+    }
+    const experiments = serviceExperiments()
+    const sections = []
+    for (const experiment of experiments) {
+      const read = runsByExperiment.get(experiment.experimentId)
+      if (read?.ok !== true) continue
+      const doneRuns = read.runs.filter(run => run?.task?.status === 'succeeded')
+      for (const run of doneRuns) {
+        if (!resultsByRun.has(run.runId)) {
+          const results = await readResults(run.runId)
+          resultsByRun.set(run.runId, results.ok === true ? results.results : [])
+        }
+      }
+      if (doneRuns.length === 0) continue
+      const model = resultTableModel({ runs: doneRuns, resultsByRun, resultSchema: experiment.resultSchema })
+      const column = chosenColumn(experiment.experimentId, model, experiment.resultSchema)
+      const columns = chartableColumns(model, experiment.resultSchema)
+      /* Same picker the gathered view carries: without it the results-module
+         chart was unlabeled bars of one column with no way to switch, and a
+         convergence study whose default column is `mean` reads as nine
+         identical bars (installed 1.0.14). */
+      const picker = column && columns.length > 1 ? `
+          <label class="research-chart-pick">Chart:
+            <select data-service-chart-column="${esc(experiment.experimentId)}">${columns.map(candidate => `
+              <option value="${esc(candidate.name)}"${candidate.name === column.name ? ' selected' : ''}>${esc(candidate.name)}</option>`).join('')}
+            </select>
+          </label>` : ''
+      sections.push(`
+        <div class="research-results-exp" data-service-results-exp="${esc(experiment.experimentId)}">
+          <div class="research-report-head">
+            <h3>${esc(experiment.name)}</h3>
+            ${serviceCopyControlsMarkup(experiment.experimentId)}
+          </div>
+          ${serviceResultsTableMarkup(model)}
+          ${picker}
+          <div class="research-result-chart" data-service-chart="${esc(experiment.experimentId)}" hidden></div>
+          <p class="research-queue-form-status" data-service-results-status="${esc(experiment.experimentId)}" role="status"></p>
+          ${findingFormMarkup(experiment.experimentId, experiment.projectId)}
+        </div>`)
+    }
+    /* Destroy the old charts BEFORE the markup they live in is replaced. The
+       reverse order still released echarts' registry, but disposed charts
+       whose hosts were already detached — the exact ordering that turns into
+       a leak the first time an early return lands between the two. */
+    for (const chart of serviceCharts.values()) chart.destroy()
+    serviceCharts.clear()
+    block.innerHTML = sections.join('')
+    /* The chart mounts only where a declared numeric column actually holds a
+       number; otherwise its host stays hidden and no empty frame renders. */
+    const mountServiceChart = (experiment, model, chosen) => {
+      serviceCharts.get(experiment.experimentId)?.destroy()
+      serviceCharts.delete(experiment.experimentId)
+      const chartHost = block.querySelector(`[data-service-chart="${experiment.experimentId}"]`)
+      if (!chosen || !chartHost) return
+      chartHost.hidden = false
+      const mounted = createResultChart(chartHost, { model, column: chosen })
+      if (mounted) serviceCharts.set(experiment.experimentId, mounted)
+      else chartHost.hidden = true
+    }
+    for (const experiment of experiments) {
+      const read = runsByExperiment.get(experiment.experimentId)
+      if (read?.ok !== true) continue
+      const doneRuns = read.runs.filter(run => run?.task?.status === 'succeeded')
+      if (doneRuns.length === 0) continue
+      const model = resultTableModel({ runs: doneRuns, resultsByRun, resultSchema: experiment.resultSchema })
+      const columns = chartableColumns(model, experiment.resultSchema)
+      mountServiceChart(experiment, model, chosenColumn(experiment.experimentId, model, experiment.resultSchema))
+      block.querySelector(`[data-service-chart-column="${experiment.experimentId}"]`)?.addEventListener('change', event => {
+        chartChoice.set(experiment.experimentId, event.target.value)
+        mountServiceChart(experiment, model, columns.find(candidate => candidate.name === event.target.value) || null)
+      })
+    }
+  }
+
+  /* One copy handler for the service tables wherever they render — the
+     results module and the gathered panel carry the same controls. The
+     experiment is looked up across every project, because a gathered panel
+     can stay open while the selector looks somewhere else. */
+  const onServiceCopyClick = async event => {
+    const csvId = event.target?.dataset?.serviceCsv
+    const jsonId = event.target?.dataset?.serviceJson
+    if (!csvId && !jsonId) return
+    const experimentId = csvId || jsonId
+    const experiment = allServiceExperiments().find(candidate => candidate.experimentId === experimentId)
+    const read = runsByExperiment.get(experimentId)
+    if (!experiment || read?.ok !== true) return
+    const doneRuns = read.runs.filter(run => run?.task?.status === 'succeeded')
+    const model = resultTableModel({ runs: doneRuns, resultsByRun, resultSchema: experiment.resultSchema })
+    const status = event.target.closest('.research-results-exp')?.querySelector(`[data-service-results-status="${experimentId}"]`)
+      || moduleEl('results').querySelector(`[data-service-results-status="${experimentId}"]`)
+    try {
+      await navigator.clipboard.writeText(resultsExport(model, csvId ? 'csv' : 'json'))
+      if (status) status.textContent = 'Copied. Paste it where you need it.'
+    } catch {
+      if (status) status.textContent = 'Select the table and copy it by hand — the clipboard refused this copy.'
+    }
+  }
+  moduleEl('results').addEventListener('click', onServiceCopyClick)
+  moduleEl('designer').addEventListener('click', onServiceCopyClick)
+
+  /* Save as finding: the claim posts through the findings client with the
+     open status, and the reply names the recorded finding. A refusal keeps
+     the claim in the field so nothing typed is lost. */
+  const onFindingSubmit = async event => {
+    if (!event.target?.hasAttribute?.('data-finding-form')) return
+    event.preventDefault()
+    const form = event.target
+    const status = form.querySelector('[data-finding-status]')
+    const saved = await saveFinding({ projectId: form.dataset.findingProject, claim: form.elements.claim.value, status: 'open' })
+    if (!saved.ok) {
+      const reason = String(saved.reason || 'the research service did not answer').replace(/\.$/, '')
+      if (status) status.textContent = saved.sentence || `That was not saved — ${reason}. Try once more.`
+      return
+    }
+    if (status) status.textContent = `Recorded as ${saved.findingId}.`
+    form.elements.claim.value = ''
+    refreshFindings()
+  }
+  moduleEl('results').addEventListener('submit', onFindingSubmit)
+  moduleEl('designer').addEventListener('submit', onFindingSubmit)
+
+  /* ---------- the gathered panel's service half ----------
+     Filled asynchronously after the panel opens: the experiment's queued
+     runs as the same drill rows the run board uses, then its results table,
+     chart, exports and finding form built by the shared builders above. */
+
+  async function renderGatheredService(experiment) {
+    const host = moduleEl('designer').querySelector(`[data-gathered-service="${experiment.id}"]`)
+    const serviceId = experiment.serviceExperimentId
+    if (!host || !serviceId) return
+    let read = runsByExperiment.get(serviceId)
+    if (!read) {
+      read = await readRuns(serviceId)
+      runsByExperiment.set(serviceId, read)
+    }
+    if (destroyed) return
+    if (read.ok !== true) {
+      host.innerHTML = unavailableMarkup('Its run list', read.reason)
+      return
+    }
+    if (read.runs.length === 0) {
+      host.innerHTML = '<p class="research-observed-empty">No runs submitted yet.</p>'
+      return
+    }
+    const cellsHost = moduleEl('designer').querySelector(`[data-gathered-cells="${experiment.id}"]`)
+    if (cellsHost) cellsHost.innerHTML = localCellsMarkup(experiment, cellsWithServiceStatus(experiment, read.runs))
+    const doneRuns = read.runs.filter(run => run?.task?.status === 'succeeded')
+    for (const run of doneRuns) {
+      if (!resultsByRun.has(run.runId)) {
+        const results = await readResults(run.runId)
+        resultsByRun.set(run.runId, results.ok === true ? results.results : [])
+      }
+    }
+    if (destroyed) return
+    const drills = read.runs.map(run => runDrillMarkup(run)).join('')
+    const model = doneRuns.length > 0
+      ? resultTableModel({ runs: doneRuns, resultsByRun, resultSchema: experiment.resultSchema })
+      : null
+    const column = model ? chosenColumn(serviceId, model, experiment.resultSchema) : null
+    const columns = model ? chartableColumns(model, experiment.resultSchema) : []
+    host.innerHTML = `
+      <div class="research-runboard-cells">${drills}</div>
+      ${model ? `
+      <div class="research-results-exp">
+        ${serviceCopyControlsMarkup(serviceId)}
+        ${serviceResultsTableMarkup(model)}
+        ${column && columns.length > 1 ? `
+        <label class="research-chart-pick">Chart:
+          <select data-chart-column="${esc(experiment.id)}">${columns.map(candidate => `
+            <option value="${esc(candidate.name)}"${candidate.name === column.name ? ' selected' : ''}>${esc(candidate.name)}</option>`).join('')}
+          </select>
+        </label>` : ''}
+        <div class="research-result-chart" data-gathered-chart="${esc(experiment.id)}" hidden></div>
+        <p class="research-queue-form-status" data-service-results-status="${esc(serviceId)}" role="status"></p>
+        ${findingFormMarkup(serviceId, experiment.projectId)}
+      </div>` : ''}`
+    gatheredCharts.get(experiment.id)?.destroy()
+    gatheredCharts.delete(experiment.id)
+    const mountGatheredChart = chosen => {
+      gatheredCharts.get(experiment.id)?.destroy()
+      gatheredCharts.delete(experiment.id)
+      const chartHost = host.querySelector(`[data-gathered-chart="${experiment.id}"]`)
+      if (!chosen || !chartHost) return
+      chartHost.hidden = false
+      const mounted = createResultChart(chartHost, { model, column: chosen })
+      if (mounted) gatheredCharts.set(experiment.id, mounted)
+      else chartHost.hidden = true
+    }
+    mountGatheredChart(column)
+    host.querySelector(`[data-chart-column="${experiment.id}"]`)?.addEventListener('change', event => {
+      chartChoice.set(serviceId, event.target.value)
+      mountGatheredChart(columns.find(candidate => candidate.name === event.target.value) || null)
+    })
+  }
+
+  /* ---------- project findings ----------
+     The durable claims filed under the selected project, read through the
+     research service and rendered in the working-lists module. The block is
+     ONE element re-appended after the projection render, so a projection
+     arriving late never wipes it. */
+
+  const findingsBlock = el(`
+    <div class="research-register-row" data-research-findings>
+      <h3>Project findings</h3>
+      <div data-research-findings-list><p class="research-observed-empty">Reading the findings.</p></div>
+    </div>`)
+  let findingsRead = null
+
+  function renderFindingsList() {
+    const host = moduleEl('worklists').querySelector('[data-research-worklists]')
+    if (host && !findingsBlock.isConnected) host.appendChild(findingsBlock)
+    const list = findingsBlock.querySelector('[data-research-findings-list]')
+    if (selection === PROJECT_ALL || selection === PROJECT_UNFILED) {
+      list.innerHTML = '<p class="research-observed-empty">Findings are filed under one project. Pick a project above to read its list.</p>'
+      return
+    }
+    if (!findingsRead) {
+      list.innerHTML = '<p class="research-observed-empty">Reading the findings.</p>'
+      return
+    }
+    if (findingsRead.ok !== true) {
+      list.innerHTML = unavailableMarkup('The findings list', findingsRead.reason)
+      return
+    }
+    if (findingsRead.findings.length === 0) {
+      list.innerHTML = '<p class="research-observed-empty">No findings are recorded under this project yet. Save one from a results table.</p>'
+      return
+    }
+    list.innerHTML = `<ol class="research-register-list">${findingsRead.findings.map(item => `
+      <li><span>${esc(findingStateWord(item?.status))}${item?.findingId ? `<br><span class="research-finding-id">${esc(item.findingId)}</span>` : ''}</span><p>${esc(item?.claim || 'The claim text is missing.')}</p></li>`).join('')}</ol>`
+  }
+
+  async function refreshFindings() {
+    if (selection === PROJECT_ALL || selection === PROJECT_UNFILED) {
+      findingsRead = null
+      renderFindingsList()
+      return
+    }
+    const wanted = selection
+    findingsRead = null
+    renderFindingsList()
+    const read = await readFindings(wanted)
+    /* A slow answer for a project the person has already left is dropped —
+       rendering it would file one project's findings under another's name. */
+    if (destroyed || selection !== wanted) return
+    findingsRead = read
+    renderFindingsList()
+  }
+
+  /* ---------- the status strip ----------
+     One honest sentence of load for the current selection: what is running,
+     what waits, what finished — from the local cells and the service runs
+     this page has actually read. Queued local cells are counted only when
+     their service run list could not be read, so the same run is never
+     counted twice. */
+
+  function renderStatusPulse() {
+    const pulse = bar.querySelector('[data-research-pulse]')
+    if (!pulse || !liveMode) return
+    let running = 0
+    let queued = 0
+    let finished = 0
+    let stalled = 0
+    let unread = 0
+    const okRead = id => {
+      const read = id ? runsByExperiment.get(id) : null
+      return read?.ok === true ? read : null
+    }
+    for (const experiment of experimentsSnapshot().experiments) {
+      if (!filesUnder(selection, experiment.projectId)) continue
+      const queuedThrough = experiment.serviceExperimentId
+      const serviceRead = okRead(queuedThrough)
+      for (const cell of experiment.cells) {
+        if (cell.status === 'running' || cell.status === 'starting') running += 1
+        else if (cell.status === 'finished') finished += 1
+        // A queue-dispatched cell's local row stays 'queued' for life; the
+        // service owns its real state. If the service could not be read, that
+        // state is UNKNOWN — counting it as queued is how the pulse came to
+        // say "0 finished" over seventeen finished runs when the capability
+        // layer died (adversarial live review, 2026-08-15).
+        else if (cell.status === 'queued') {
+          if (queuedThrough && !serviceRead) unread += 1
+          else if (!queuedThrough) queued += 1
+        }
+      }
+    }
+    for (const experiment of serviceExperiments()) {
+      const read = okRead(experiment.experimentId)
+      if (!read) continue
+      for (const run of read.runs) {
+        const status = run?.task?.status
+        if (runTaskIsStalled(run?.task)) stalled += 1
+        else if (status === 'running' || status === 'leased') running += 1
+        else if (status === 'queued' || status === 'retry_wait') queued += 1
+        else if (status === 'succeeded') finished += 1
+      }
+    }
+    const counted = `${running} running · ${queued} queued · ${finished} finished${stalled ? ` · ${stalled} stalled` : ''}`
+    if (unread === 0) {
+      lastKnownPulse = counted
+      pulse.textContent = running === 0 && queued === 0 && finished === 0 && stalled === 0
+        ? 'nothing running'
+        : counted
+      return
+    }
+    // Say what is not known rather than a number that stands in for it.
+    pulse.textContent = lastKnownPulse
+      ? `${lastKnownPulse} — last known; the run service could not be read just now`
+      : `${unread} cell${unread === 1 ? '' : 's'} are with the run service, which could not be read just now`
+  }
+
+  function renderServiceModules() {
+    renderProjectBar()
+    renderSessionsModule()
+    renderServiceRunBoard()
+    renderServiceResults()
+    renderStatusPulse()
+  }
+
+  async function refreshServiceSnapshot() {
+    service = await readResearchSnapshot()
+    if (destroyed) return
+    if (service.ok) {
+      assignmentStore.adoptServiceRows(service.assignments)
+      assignmentStore.flushPending()
+    }
+    renderServiceModules()
+    refreshFindings()
+    refreshRuns()
+  }
+
   /* ---------- boot ---------- */
 
   mountLayout()
@@ -1013,6 +2491,8 @@ export function researchView() {
     readExperimentsRow().then(() => {
       if (!destroyed) renderExperimentModules()
     })
+
+    refreshServiceSnapshot()
 
     localTiersStatus().then(result => {
       if (!destroyed) renderTiers(result)
@@ -1043,6 +2523,8 @@ export function researchView() {
     })
     const designerHost = moduleEl('designer').querySelector('[data-research-designer]')
     if (designerHost) designerHost.innerHTML = '<p class="research-observed-empty">This is the example face. Turn on Live data in settings to design experiments of your own.</p>'
+    const sessionsHost = moduleEl('sessions').querySelector('[data-research-sessions]')
+    if (sessionsHost) sessionsHost.innerHTML = '<p class="research-observed-empty">This is the example face. Turn on Live data in settings to file sessions under your projects.</p>'
     root.dataset.projectionState = 'simulated'
     root.setAttribute('aria-busy', 'false')
   }
@@ -1051,6 +2533,11 @@ export function researchView() {
     el: root,
     destroy() {
       destroyed = true
+      for (const chart of serviceCharts.values()) chart.destroy()
+      serviceCharts.clear()
+      for (const chart of gatheredCharts.values()) chart.destroy()
+      gatheredCharts.clear()
+      if (runPollTimer) { clearTimeout(runPollTimer); runPollTimer = null }
       document.removeEventListener('pointerdown', onDocPointer)
       document.removeEventListener('keydown', onDocKey)
       window.removeEventListener(RESEARCH_EXPERIMENTS_EVENT, onExperimentsChanged)

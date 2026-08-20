@@ -45,13 +45,39 @@ contextBridge.exposeInMainWorld('mcAgent', Object.freeze({
      posture as confinement(): read-only, registry identifiers only, and
      {ok:false, code} on every failure. */
   tools: () => ipcRenderer.invoke('mc-agent:tools'),
+  /* Which tiers this installation can really start, from the shell rather than
+     from a list the renderer keeps. The caller must fall back to codex-only on
+     any failure; see the note on the handler in shell/main.cjs. */
+  startableTiers: () => ipcRenderer.invoke('mc-agent:startable-tiers'),
+  /* The messages this computer has already written down, for the comms page.
+     Read-only, starts nothing, and carries no path: a message is
+     {id, sender, at, text} with `at` RFC3339 and `sender` the circle name. A
+     build whose payload cannot read them answers {ok:false, reason} -- a
+     sentence to show, not a rejection to catch. */
+  localMessages: request => ipcRenderer.invoke('mc-agent:local-messages', request || {}),
   /* Read-only, and the reason the home screen has something true to show on a
      computer with nothing else connected. Returns bounded records of what has
      run here: sequence, time, action. No path, no hash, no signature -- see
      history() in shell/spawn-record.cjs for why each is absent. */
   history: request => ipcRenderer.invoke('mc-agent:history', request || {}),
+  /* What the turns on this computer COST, from the same kind of signed record
+     and under the same rules: read-only, bounded figures, no path, no hash, no
+     signature. Its own channel rather than a field on history() because it is
+     its own chain in its own file -- a turn is not a run, and a busy session's
+     turns must not push the runs out of the window history() can read. See
+     shell/usage-record.cjs. */
+  usage: request => ipcRenderer.invoke('mc-agent:usage', request || {}),
   start: request => ipcRenderer.invoke('mc-agent:start', request),
   send: request => ipcRenderer.invoke('mc-agent:send', request),
+  /* File one standing request (the /Request family). Ids and words only, in
+     both directions: the reply is {ok, id, scope, key} for the confirmation
+     sentence, and no path crosses this bridge. */
+  request: request => ipcRenderer.invoke('mc-agent:request', request),
+  /* Read one scope's standing requests back. The same vocabulary and the same
+     silence about paths: {scope, key} in, {ok, exists, entries:[{id, words}]}
+     out. A READ ONLY -- removing a rule is a hand edit of the person's own
+     ledger file, which is the design recorded in the file's own header. */
+  requests: request => ipcRenderer.invoke('mc-agent:requests', request),
   /* Native dialogs, driven by the person. pickAttachment issues the chosen
      path to that session's image allowlist in main; pickMention returns a
      path the renderer inserts as TEXT. Both answer {ok, path|null}. */
@@ -83,6 +109,52 @@ contextBridge.exposeInMainWorld('mcAgent', Object.freeze({
     const forward = (_event, packet) => { listener(packet) }
     ipcRenderer.on('mc-agent:event', forward)
     return () => { ipcRenderer.removeListener('mc-agent:event', forward) }
+  },
+}))
+
+/* THE THREE ASSISTANT PROGRAMS, AS THIS COMPUTER ACTUALLY HAS THEM.
+ *
+ * Its own name rather than a fourth method on mcAgent, because it is not about
+ * an agent session: it answers a question about the MACHINE that is true before
+ * any session exists and stays true after one ends. A person reads it on the
+ * guide page while deciding whether to install anything at all.
+ *
+ * Read-only, and there is deliberately no setter beside it. This product never
+ * asks for a provider sign-in and never keeps one; the only thing it may know is
+ * whether one is there. A `signIn()` on this bridge would be the first step
+ * toward handling a credential, and the absence of it is the design. */
+/* The person's OWN accounts for those programs live on the same bridge, for the
+   same reason: they are facts about the machine rather than about a session, and
+   the guide page reads them beside the presence line. Three thin arrows and
+   nothing else -- there is still no signIn(), and its absence is still the
+   design. accountAdd() records a name and a folder; the SIGNING IN happens in
+   the provider's own program, from a command the person runs themselves. */
+/* The sign-in arrows are the deliberate exception to "no signIn() here", and
+   the exception is narrower than the name suggests: loginStart() asks the main
+   process to run the PROVIDER'S OWN login program, hidden, with stdin closed.
+   No credential, code or key can cross this bridge in either direction -- what
+   comes back is bounded prose, an https link, and an exit number, and nothing
+   the renderer sends can reach the child's input, because the child has none.
+   The defect this closes: 1.0.20 told its first external user to run
+   "codex login" in the window the install had just finished in, and that
+   window answered "'codex' is not recognized". */
+contextBridge.exposeInMainWorld('mcProviders', Object.freeze({
+  presence: () => ipcRenderer.invoke('mc-providers:presence'),
+  accounts: () => ipcRenderer.invoke('mc-accounts:list'),
+  accountAdd: request => ipcRenderer.invoke('mc-accounts:add', request),
+  accountRemove: request => ipcRenderer.invoke('mc-accounts:remove', request),
+  loginStart: request => ipcRenderer.invoke('mc-provider-login:start', request),
+  loginStop: request => ipcRenderer.invoke('mc-provider-login:stop', request),
+  loginOpenUrl: request => ipcRenderer.invoke('mc-provider-login:open-url', request),
+  installStart: request => ipcRenderer.invoke('mc-provider-login:install', request),
+  /* Returns its own unsubscribe, the same shape mcAgent.onEvent gives and for
+     the same reason: the guide mounts per navigation, and each visit must be
+     able to detach exactly its own listener. */
+  onLoginEvent: listener => {
+    if (typeof listener !== 'function') throw new TypeError('onLoginEvent requires a listener function')
+    const forward = (_event, packet) => { listener(packet) }
+    ipcRenderer.on('mc-provider-login:event', forward)
+    return () => { ipcRenderer.removeListener('mc-provider-login:event', forward) }
   },
 }))
 
@@ -194,7 +266,13 @@ contextBridge.exposeInMainWorld('mcPrefs', Object.freeze({
 const setup = ipcRenderer.sendSync('mc-setup:bootstrap')
 contextBridge.exposeInMainWorld('mcSetup', Object.freeze({
   bootstrap: setup,
-  chooseTier: tier => ipcRenderer.invoke('mc-setup:choose-tier', tier),
+  /* The consent rides with the level (owner, X4): for the widest level it says
+     the risk was shown, in which words, and confirmed; the shell refuses that
+     level without it. Null for every other level. */
+  chooseTier: (tier, consent) => ipcRenderer.invoke('mc-setup:choose-tier', tier, consent),
+  /* What the signed ledger holds about the widest level on this computer, so
+     the Settings row can state a confirmation only when one is on record. */
+  tierConsent: () => ipcRenderer.invoke('mc-setup:tier-consent'),
   /* The workspace question. Async, unlike `bootstrap`, and deliberately: the
      first-run gate has to know the permission level before the first paint, but
      nothing has to know the folder before the person has been asked about the
@@ -282,6 +360,25 @@ contextBridge.exposeInMainWorld('mcAccount', Object.freeze({
 contextBridge.exposeInMainWorld('mcLocalData', Object.freeze({
   plan: () => ipcRenderer.invoke('mc-reset:plan'),
   erase: () => ipcRenderer.invoke('mc-reset:erase'),
+}))
+
+/* THE INSTALLATION'S OWN SETTINGS -- the ones the capability layer enforces,
+ * which live beside the machine record in this installation's directory and are
+ * therefore outside a page's reach by design.
+ *
+ * This is NOT the settings page's other rows. Those are this window's own
+ * preferences (theme, density, which screens read live data) and they belong in
+ * the renderer's store. These four decide whether unattended work may run on
+ * this computer, they are read by a different process, and until this channel
+ * existed the product had no way to change them at all -- the research page
+ * named a switch in Settings that Settings did not have.
+ *
+ * `read` is a read. `set` names one row and one value and can name nothing
+ * else: shell/product-settings.cjs holds the list of rows this window may
+ * write, and an id outside it is refused rather than written. */
+contextBridge.exposeInMainWorld('mcSettings', Object.freeze({
+  read: () => ipcRenderer.invoke('mc-settings:read'),
+  set: (id, value) => ipcRenderer.invoke('mc-settings:set', { id, value }),
 }))
 
 function rgbToHex(rgb) {

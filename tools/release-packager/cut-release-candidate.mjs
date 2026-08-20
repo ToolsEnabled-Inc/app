@@ -46,6 +46,7 @@ import {
   isClean,
   listTrackedFiles,
   porcelainStatus,
+  tagCommit,
   revParse,
   showFile,
   worktreeAddDetached,
@@ -59,7 +60,7 @@ import { readExeVersionInfo } from './lib/version-info.mjs'
 import { computeNextVersion, writePackageVersion } from './lib/version-bump.mjs'
 import { toDeclarableFacts, portablePath } from './lib/portable-paths.mjs'
 import { assertNoOwnerData } from '../check-declaration-privacy.mjs'
-import { writeDeclaration } from './generate-declaration.mjs'
+import { attributionBlocksCommit, cuttingAttribution, writeDeclaration } from './generate-declaration.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const DEFAULT_REPO = path.resolve(HERE, '..', '..') // wt-installer
@@ -268,6 +269,16 @@ async function main() {
 
   console.log(`[cut-release-candidate] repo=${repo} sourceRef=${sourceRef} branch=${branch} test=${args.test}`)
 
+  /* Refuse in a second rather than at the commit, four minutes in, with a
+     build worktree stranded for postmortem. Measured on the 1.0.22 cut. */
+  if (attributionBlocksCommit()) {
+    throw new Error(
+      'nobody is named as the cutter, and this repo\'s commit-msg hook refuses a commit with no Co-Authored-By trailer, '
+      + 'so the version bump would fail after the build. Set TOOLSENABLED_CUT_MODEL (and ideally TOOLSENABLED_CUT_SESSION '
+      + 'and TOOLSENABLED_CUT_LANE) to whoever is cutting, then run this again.',
+    )
+  }
+
   // --- version -------------------------------------------------------------
   const packageJsonAtRef = JSON.parse(showFile(repo, sourceRef, 'package.json'))
   const currentVersion = packageJsonAtRef.version
@@ -347,8 +358,7 @@ async function main() {
       `package.json: bump version to ${version} for release candidate\n\n` +
         `Automated by tools/release-packager/cut-release-candidate.mjs. Built from ${sourceRef} in an isolated, ` +
         `detached worktree; the day-to-day worktree (with another lane's uncommitted work in it) was never entered.\n\n` +
-        `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n` +
-        `Lane: release-packager (session 6f84bf9b)\n`,
+        `${cuttingAttribution()}\n`,
     )
     console.log(`[cut-release-candidate] version-bump commit: ${buildRef}`)
 
@@ -444,6 +454,12 @@ async function main() {
          "vite not found" and npm ci cost the cycle the reuse existed to save.
          rmdirSync on the junction removes only the reparse point; the shared
          node_modules is never entered. */
+      /* TAG BEFORE REMOVING. buildRef is made inside this worktree and is
+         reachable from nothing else, so removing the worktree turns the commit
+         the DECLARATION names into garbage collectable objects. Eight earlier
+         candidates were already in that state when this was found. */
+      tagCommit(repo, `build/${version}`, buildRef)
+      console.log(`[cut-release-candidate] tagged build ref as build/${version} so it stays reachable`)
       releaseNodeModulesJunction(worktreePath)
       worktreeRemove(repo, worktreePath)
       worktreeRemoved = true

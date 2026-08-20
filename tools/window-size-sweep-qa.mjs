@@ -111,7 +111,10 @@ const SIZES = (argument('--widths', '1024,1280,1440,1600,1920'))
      .static-tree-node    an agent bubble on the canvas (src/tree-graph.js);
                           selecting one is what reveals the named door
      .graph-open-btn      "Open agent detail" in the named-controls strip
-                          (src/views/computers.js), `hidden` until a selection
+                          (src/views/computers.js). Since 18ef5e7 it is aimed
+                          at the first DECLARED seat and VISIBLE with no
+                          selection on a fresh install; selecting a node aims
+                          it at that node instead
      .node                the bubble's other class, kept because the wait
                           predicate has always used it
      .tree-empty-node     NOT a door -- an empty slot opens the compose panel.
@@ -661,6 +664,12 @@ const MEASURE = `(() => {
           display: cs.display,
           onGlass: cs.visibility !== 'hidden' && cs.display !== 'none' && Number(cs.opacity) !== 0
             && r.width > 0 && r.height > 0 && r.right > 0 && r.left < vw,
+          /* See the DECORATIVE BLEED note below: the author's own declaration
+             that this element carries nothing a person is meant to receive. It
+             travels on the CULPRIT rather than on the clipping box, because the
+             box doing the clipping is an ordinary container -- div.view -- and
+             what is spilling out of it is the thing that knows what it is. */
+          decorative: child.closest('[aria-hidden="true"]') !== null,
           text: norm(child.textContent).slice(0, 70),
         }
       }
@@ -728,6 +737,28 @@ const MEASURE = `(() => {
     const tag = node.tagName.toUpperCase()
     if (visuallyHidden(node, style, box)) continue
 
+    /* --- DECORATIVE BLEED IS NOT CUT-OFF CONTENT ---
+     *
+     * MEASURED: canvas.cres-gl, the corona behind the home ring, is about 3.4x
+     * the ring's radius by owner-reviewed constants (src/crescent-mount.js), it
+     * is aria-hidden="true" with pointer-events: none, and .view's
+     * overflow: hidden clips it against a box flush with the window edge. A
+     * person sees a clean ring with a faded glow: no scrollbar, nothing
+     * reachable lost, nothing to read cut in half. This sweep reported it as
+     * content cut off with no way to reach it, at every window size, because its
+     * rule is "clipped, and no SCROLLABLE ancestor" and an overflow: hidden
+     * ancestor is never an exemption -- correctly, for real content.
+     *
+     * aria-hidden="true" is the narrow exemption, and it is narrow on purpose:
+     * it is the author's own declaration that the element carries nothing a
+     * person is meant to receive, and it is the same declaration a screen reader
+     * acts on. An element with words in it that somebody is supposed to read
+     * cannot carry that attribute without already being a defect of its own. The
+     * exemption is not extended to overflow: hidden ancestors in general, which
+     * would excuse every genuinely clipped thing on every screen. */
+    const decorativeOnly = node.closest('[aria-hidden="true"]') !== null
+
+
     /* --- wide content that CAN be scrolled: the passing case --- */
     if (scrollsX(node)) {
       scrollers.push({ at: describe(node), box: boxOf(node), scrollWidth: node.scrollWidth, clientWidth: node.clientWidth })
@@ -743,6 +774,13 @@ const MEASURE = `(() => {
       const ink = inkPast(node, axis)
       const record = { at: describe(node), box: boxOf(node), by, axis, culprit, ink, text: norm(node.textContent).slice(0, 90) }
       if (axis === 'x' && style.textOverflow === 'ellipsis') { ellipsised.push(record); return }
+      /* See the note on decorativeOnly above: a glow the author marked as carrying
+         nothing to receive, clipped by a box flush with the window, is not
+         content a person cannot reach. Reported, never counted. */
+      if (decorativeOnly || (culprit && culprit.decorative)) {
+        blankPainted.push({ ...record, why: 'decorative bleed the author marked aria-hidden' })
+        return
+      }
       /* CLIPPED CONTENT NOBODY COULD SEE ANYWAY. A box can overflow because of
          a descendant that is display:none-adjacent -- visibility:hidden, parked
          off-screen, zero-opacity -- and clipping THAT hides nothing from
@@ -770,7 +808,7 @@ const MEASURE = `(() => {
       for (let parent = node.parentElement; parent; parent = parent.parentElement) {
         if (scrollsX(parent)) { scrollableAncestor = describe(parent); break }
       }
-      if (!scrollableAncestor) {
+      if (!scrollableAncestor && !decorativeOnly) {
         pastEdge.push({ at: describe(node), box: boxOf(node), right: Math.round(box.right), left: Math.round(box.left), vw, text: norm(node.textContent).slice(0, 90) })
       }
     }
@@ -1219,15 +1257,22 @@ async function main() {
            the simulator has an agent to show, which is a second or two after
            the view mounts. Clicking on a fixed delay found it at no size at
            all and reported the agent surface as unreachable five times. */
-        await app.until('the example-agent link', `document.querySelector('.graph-empty-action') !== null || document.querySelector('.node') !== null`, 32)
-        /* TWO DOORS, because there are two states. With no fleet the empty
-           graph offers "See an example agent"; with a fleet (or the
-           demonstration) there are nodes and the door is "Open agent detail",
-           which is hidden until a node is selected -- so a node is selected
-           first, the way a person selects one. Looking only for the empty-state
-           link reported the agent surface as unreachable at every size of the
-           loaded sweep, which was a fact about this harness. */
+        await app.until('a door into the agent page', `document.querySelector('.graph-empty-action') !== null || document.querySelector('.node') !== null || document.querySelector('.graph-open-btn:not([hidden])') !== null`, 32)
+        /* THREE DOORS, because there are three states. With no fleet AND no
+           declared organisation the empty graph offers "See an example agent".
+           On a fresh install with a declared organisation -- the state every
+           packaged copy actually opens in -- the tree is EMPTY BY DESIGN
+           (5cc2f09) and the door is `.graph-open-btn`, aimed at the first
+           DECLARED seat and visible with NO selection since 18ef5e7 ("The only
+           door to the page that starts an agent opened after you had started
+           one"). With running agents there are nodes, a node is selected
+           first, and the same button opens THAT node. The middle door is the
+           one this file did not know: it pressed `.graph-open-btn` only after
+           a `.static-tree-node` click succeeded, and on an empty-by-design
+           tree that click can never succeed -- so a visible, pressable door
+           was reported absent at all five sizes (2026-08-18). */
         const drilled = await app.clickVisible('.graph-empty-action') === 'clicked'
+          || await app.clickVisible('.graph-open-btn') === 'clicked'
           || (await app.clickVisible('.static-tree-node') === 'clicked'
             && (await delay(700), await app.clickVisible('.graph-open-btn') === 'clicked'))
         if (drilled) {

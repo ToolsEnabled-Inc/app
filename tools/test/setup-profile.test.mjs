@@ -33,6 +33,9 @@ import { after, test } from 'node:test'
 
 import {
   AUTONOMY_CHOICES,
+  INTENT_BANNER_BODY,
+  INTENT_IN_USE,
+  INTENT_RECORDED_ONLY,
   PROFILE_INTENT,
   PROFILE_SCHEMA_VERSION,
   PROFILE_STORAGE_KEY,
@@ -396,13 +399,62 @@ test('every setting the questions produce is reachable in Settings afterwards', 
   }
 })
 
-test('a setting that is recorded but not yet acted on says so where it is shown', () => {
+/* WHAT THIS PINNED BEFORE, AND WHY IT HAD TO CHANGE RATHER THAN BE DELETED.
+ *
+ * Until 2026-08-18 this asserted `field.enforced === false` for EVERY intent
+ * row, and it was right to: all four were recorded and none was read, and the
+ * screens said so. `failover` is now genuinely acted on -- the answer reaches
+ * the payload's rotation module as its mode, and decides whether a spent
+ * account may hand a session to the next one. So the old assertion would now
+ * be pinning a lie in the other direction.
+ *
+ * THE REPLACEMENT IS STRICTER, NOT LOOSER, AND THAT IS DELIBERATE. Flipping a
+ * boolean is the cheapest possible way to claim a setting is real, so this
+ * asserts BOTH populations exist and BOTH sentences appear. A change that
+ * marked every row enforced to make a test pass would fail here, and so would
+ * one that quietly marked this row unenforced again while leaving the code
+ * that reads it in place. */
+test('each recorded setting says truthfully whether it is acted on yet', () => {
   const SECTION = read('src/setup-profile-settings.js')
-  for (const field of PROFILE_INTENT) assert.equal(field.enforced, false)
+  const enforced = PROFILE_INTENT.filter(field => field.enforced === true)
+  const recordedOnly = PROFILE_INTENT.filter(field => field.enforced !== true)
+
+  /* Neither population may be empty, or one of the two sentences below would
+     be asserted against a screen that never prints it. */
+  assert.ok(enforced.length > 0, 'no intent row is acted on; the settings list would be claiming nothing works')
+  assert.ok(recordedOnly.length > 0, 'every intent row claims to be acted on; check that is really true before changing this')
+
+  /* An enforced row must NAME where it is acted on. A boolean alone is a claim
+     nobody can check, which is the failure this whole change is about. */
+  for (const field of enforced) {
+    assert.equal(typeof field.enforcedBy, 'string')
+    assert.ok(field.enforcedBy.trim().length > 0,
+      `${field.id} says it is enforced but names nothing that enforces it`)
+  }
+
   /* The same honesty rule src/setup-state.js applies to the permission level's
      own enforcement gap. A row that silently does nothing is worse than no row. */
-  assert.match(SECTION, /Recorded, not yet acted on/, 'the four cross-lane rows no longer state what they do today')
-  assert.match(VIEW, /still being built/, 'the review no longer states which of its settings are not yet acted on')
+  /* Asserted through the exported sentences rather than a literal in the screen:
+     the copy moved beside the rows precisely so two screens could not drift, and
+     a test matching a literal in one screen would not have noticed the other. */
+  assert.match(INTENT_RECORDED_ONLY, /not yet acted on/i, 'the rows that are not yet acted on no longer say so')
+  assert.match(INTENT_IN_USE, /in use now/i, 'the row that IS acted on is described as though it were not')
+  assert.match(SECTION, /INTENT_RECORDED_ONLY/, 'the settings list stopped printing what a recorded-only row does')
+  assert.match(SECTION, /INTENT_IN_USE/, 'the settings list stopped printing what an acted-on row does')
+  assert.match(INTENT_BANNER_BODY, /still being built/, 'the banner no longer states which settings are not yet acted on')
+  assert.match(INTENT_BANNER_BODY, /acted on when you start/, 'the banner no longer names the setting that IS acted on')
+  assert.match(VIEW, /INTENT_BANNER_BODY/, 'the review page stopped printing the banner that says what these rows do')
+})
+
+test('the failover answer is the one the account switching actually reads', () => {
+  /* THE ANTI-DECORATION CHECK. `enforced: true` is a string in a file; what
+     makes it true is that the main process passes this answer to the module
+     that switches accounts. This asserts the wiring exists rather than
+     trusting the flag, because the flag is exactly what a mistake would set
+     without doing the work. */
+  const MAIN = read('shell/main.cjs')
+  assert.match(MAIN, /failover/, 'nothing in the main process reads the failover answer')
+  assert.match(MAIN, /accountResolver/, 'the account choice is never handed to the thing that starts a session')
 })
 
 /* WHAT THIS ASSERTED FIRST, AND WHY THAT WAS THE WRONG PROPERTY.
@@ -637,6 +689,31 @@ const PINNED_ABSOLUTE_CLAIMS = Object.freeze([
     match: /Nothing runs until you press start/,
     kind: 'pinned',
     pinnedBy: 'the recommended answer requests report-read, agent-session, dispatch and cloud-launch, and every one of those is a control a person presses; asserted by the recommended-answer test, which fails if decision, queue or thread-reply are ever switched on by it',
+  },
+  /* The standing-requests brief (owner, 2026-08-19). These two sentences
+     describe the owner's request commands, not a state of this product, and
+     each was verified verbatim against the request skills' own SKILL.md
+     before it was written -- the source of truth the owner names for these
+     scopes. tools/test/settings-one-click.test.mjs pins the card's wording;
+     if the skills' scope semantics ever change, that suite and this registry
+     are the two places the change must land. */
+  {
+    match: /The rule stands for that working session and every agent it starts\. Other sessions never see it/,
+    kind: 'pinned',
+    pinnedBy: 'the session ledger is keyed by one session id and handed only to that session\'s own spawns at their boot; the request-session skill states "Other sessions never see it" in those words, and the card was checked against it rather than remembered',
+  },
+  {
+    match: /It never reaches its neighbours or its manager/,
+    kind: 'pinned',
+    pinnedBy: 'the tree ledger anchors at the agent the command was typed to and descends transitively; the request-tree skill states the rule "never flows upward or sideways", and the card was checked against it rather than remembered',
+  },
+  {
+    /* "Always" here is inside the words a person would TYPE -- the example
+       request itself -- not a promise this product makes. The clause after it
+       is the promise, and it is the global scope's own definition. */
+    match: /Type: \/Request Always ask before spending money\. From then on, every agent starts its work knowing that rule/,
+    kind: 'pinned',
+    pinnedBy: 'the global request ledger is carried in every agent\'s onboarding packet at boot until the owner edits or deletes it -- the request skill\'s definition of the global scope, which the card was checked against rather than remembered',
   },
 ])
 
@@ -1020,6 +1097,46 @@ test('keeping the same folder does not release it', () => {
   const result = SETUP_RECORD.recordWorkspaces([DEFAULT_WORKSPACE], { modules })
   assert.deepEqual(result.releasedRoots, [])
   assert.equal(existsSync(path.join(DEFAULT_WORKSPACE, '.mcp.json')), true, 'confirming the suggested folder removed its own configuration')
+})
+
+/* ---------- the Documents folder is the known-folder answer, not a guess ---------- */
+
+/* OneDrive's "Back up your folders" moves the real Documents known folder to
+   `%USERPROFILE%\OneDrive\Documents`; the engine module can only guess
+   `%USERPROFILE%\Documents`. The shell asks Electron and passes the answer in
+   at EVERY defaultWorkspacePath call site, so the suggested card, the recorded
+   default and the Browse dialog (main.cjs, app.getPath('documents')) name the
+   same folder. `options.documentsDir` is the test seam for the same value. */
+test('the suggested folder derivation is handed the real Documents location', () => {
+  const oneDrive = inSandbox('home', 'OneDrive', 'Documentos')
+  const seen = []
+  const { modules } = fakeModules()
+  modules.workspace.defaultWorkspacePath = (options = {}) => {
+    seen.push(options.documentsDir)
+    return options.documentsDir ? path.join(options.documentsDir, 'AI Workspace') : DEFAULT_WORKSPACE
+  }
+  const state = SETUP_RECORD.readWorkspaceState({ modules, documentsDir: oneDrive })
+  assert.equal(state.suggested, path.join(oneDrive, 'AI Workspace'),
+    'the suggestion follows the known folder, not the %USERPROFILE% guess')
+  assert.deepEqual(seen, [oneDrive], 'the known-folder answer reached the engine derivation')
+})
+
+/* A record written by an earlier build carries the GUESSED default. When the
+   person answers the folder question on a redirected machine, that older
+   invented folder must still give up its configuration -- and only invented
+   folders may: rule 3 stays narrow across both shapes of the default. */
+test('the previously guessed default still releases its configuration on a redirected machine', () => {
+  const oneDrive = inSandbox('home', 'OneDrive', 'Documentos')
+  mkdirSync(DEFAULT_WORKSPACE, { recursive: true })
+  writeFileSync(path.join(DEFAULT_WORKSPACE, '.mcp.json'), '{"mcpServers":{}}\n')
+  const { modules } = fakeModules({ record: baseRecord({ workspaceRoots: [DEFAULT_WORKSPACE] }) })
+  modules.workspace.defaultWorkspacePath = (options = {}) =>
+    (options.documentsDir ? path.join(options.documentsDir, 'AI Workspace') : DEFAULT_WORKSPACE)
+  const result = SETUP_RECORD.recordWorkspaces([WORK], { modules, documentsDir: oneDrive })
+  assert.deepEqual(result.releasedRoots, ['SETUP_ASSISTANT_CONFIG_RELEASED'],
+    'the guessed default an earlier build recorded kept its configuration')
+  assert.equal(existsSync(path.join(DEFAULT_WORKSPACE, '.mcp.json')), false)
+  assert.equal(existsSync(DEFAULT_WORKSPACE), true, 'only the configuration file is taken back, never the folder')
 })
 
 /* shell/setup-record.cjs states that the workspace is the ONE path allowed to

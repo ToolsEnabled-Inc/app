@@ -403,6 +403,9 @@ async function main() {
     // Jump the sidebar to Write first. Opening "the first collapsed tier in the
     // document" walks the tiers of whichever section happens to be on top and
     // never arrives.
+    /* The groups ship collapsed (settings-ia); open them the way a person does. */
+    await evaluate(`(() => { for (const head of document.querySelectorAll('.settings-group-head[aria-expanded="false"]')) head.click(); return true })()`)
+    await delay(400)
     const railClick = await clickVisible('.settings-rail button[data-category="Write"]')
     console.log('  Write category in the settings rail:', railClick)
     await delay(1200)

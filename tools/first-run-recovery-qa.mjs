@@ -72,7 +72,7 @@ import { fileURLToPath } from 'node:url'
    renderer reads them from. See the note on EXPLANATION below for why this is an
    import and not a regex. Both modules are plain data with no DOM, so a node
    process can hold them. */
-import { FIRST_RUN_NEEDS, GUIDE_ACTION, hostAbsentNotice } from '../src/first-run-needs.js'
+import { FIRST_RUN_NEEDS, GUIDE_ACTION, commsQuietNotice, hostAbsentNotice } from '../src/first-run-needs.js'
 import { assertRendererMeasurable, assertStagedRendererConsistent } from './lib/staged-renderer.mjs'
 
 const SELF = fileURLToPath(import.meta.url)
@@ -373,23 +373,47 @@ const SCREEN = `(() => {
 })()`
 
 async function walkSetup({ evaluate, until, clickVisible, clickLastVisible }, check) {
+  /* A CLICK WHOSE ANSWER IS THROWN AWAY turns "the control was not there" into
+   * twenty seconds of silence blamed on whatever we polled for NEXT.
+   *
+   * Every red driver in RELEASE-CUT-TRAPS-2026-08-15 section 12 reports the
+   * same sentence -- "gave up waiting for the review" -- and not one of them
+   * can say whether the review failed to draw or the click before it never
+   * landed. That is not a small difference: the first is a product defect and
+   * the second is a harness defect, and a whole diagnostic pass was spent
+   * without being able to tell them apart. clickVisible already answers
+   * absent / not-visible / clicked for exactly this reason. The walk simply
+   * discarded it.
+   *
+   * This records the answer and keeps walking rather than returning early: the
+   * abort would be a control-flow change these packaged drivers cannot be
+   * re-run here to validate, and the diagnostic value is the same either way --
+   * the named failure lands in the log BEFORE the misattributed one, so the
+   * reader can see which came first. */
+  const press = async (click, selector, what) => {
+    const outcome = await click(selector)
+    const ok = outcome === 'clicked'
+    check(`the walk can press ${what}`, ok, `${selector} -> ${outcome}`)
+    return ok
+  }
+
   const onSetup = await until('the permission question', `location.hash === '#/setup'`)
   check('a fresh profile opens on the permission question', onSetup, `hash=${await evaluate('location.hash')}`)
   if (!onSetup) return false
-  await clickVisible('[data-setup-continue]')
+  await press(clickVisible, '[data-setup-continue]', 'Continue on the permission question')
   await until('the folder question', `document.querySelector('[data-setup-section]')?.innerText.includes('Which folder')`)
   await until('the folder to resolve', `document.querySelector('.setup-root-path') !== null`)
-  await clickLastVisible('[data-setup-next]')
+  await press(clickLastVisible, '[data-setup-next]', 'Continue on the folder question')
   await until('the sign-in step',
     `document.querySelector('[data-setup-section]')?.innerText.includes('Who is using this copy') || document.querySelector('[data-setup-section]')?.innerText.includes('Signed in as')`)
-  await clickLastVisible('[data-setup-next]')
+  await press(clickLastVisible, '[data-setup-next]', 'Continue on the sign-in step')
   await until('the autonomy question', `document.querySelector('[data-setup-section]')?.innerText.includes('without asking')`)
-  await clickVisible('[data-setup-set="autonomy"][data-setup-value="assisted"]')
-  await clickVisible('[data-setup-next="review"]')
+  await press(clickVisible, '[data-setup-set="autonomy"][data-setup-value="assisted"]', 'the assisted autonomy level')
+  await press(clickVisible, '[data-setup-next="review"]', 'Continue through to the review')
   await until('the review', `document.querySelector('[data-setup-section]')?.innerText.includes('what those answers set')`)
   await until('the readiness answer on the review',
     `!document.querySelector('[data-setup-section]')?.innerText.includes('Checking whether Codex')`)
-  await clickVisible('[data-setup-next="finish"]')
+  await press(clickVisible, '[data-setup-next="finish"]', 'Finish on the review')
   const intoApp = await until('the app itself', `location.hash === '#/' || location.hash === ''`, 120)
   check('setup ends in the app', intoApp, `hash=${await evaluate('location.hash')}`)
   return intoApp
@@ -420,6 +444,37 @@ if (!EXPLANATION.includes(EXPLAINS_CLAUSE)) {
   process.exit(2)
 }
 const MECHANISM_ONLY = /fleet projection unavailable|ops projection unavailable/i
+
+/* THE COMMS BOARD HAS TWO INTENDED EMPTY STATES, AND WHICH ONE SHOWS IS A
+ * PROPERTY OF THE PAYLOAD, NOT OF THIS REPO.
+ *
+ * The board's message pane is read at run time through the shell
+ * (`mc-agent:local-messages` -> the capability payload's agent-comms-local.js
+ * ownerJournal()). A payload WITHOUT that reader refuses the read, and the
+ * board falls back to the host-absent notice -- EXPLAINS_CLAUSE above. A
+ * payload WITH it answers a sterile profile ok-and-empty, the board takes its
+ * live branch, and the honest sentence is the quiet notice: the record was
+ * read and there is nothing in it. Calling that an absent host would blame a
+ * read that worked.
+ *
+ * MEASURED, 2026-08-19, when the re-cut confirming run took this suite
+ * 45/47: the previous cut's staged copy (Temp\first-run-recovery-t9LvJB,
+ * payload files of 08-13) has NO agent-comms-local.js -- its board showed the
+ * host-absent notice and this suite was green against it. The re-cut's
+ * payload carries the reader, the board went quiet-and-doorless, and both
+ * comms checks went red with src/views/comms.js UNCHANGED in the commit
+ * window (a3e9f85..0485034 touches neither comms.js nor first-run-needs.js;
+ * capability/ is not even tracked). The product now says why it is quiet in
+ * the module's words below and keeps the door; this suite accepts EITHER
+ * intended state and still fails a board that explains in neither. */
+const QUIET = commsQuietNotice().body
+const QUIET_CLAUSE = 'no agent here has sent another agent a message'
+if (!QUIET.includes(QUIET_CLAUSE)) {
+  console.error('\nNO VERDICT: the quiet-board clause this suite looks for is no longer in the copy module.')
+  console.error(`  looked for: ${JSON.stringify(QUIET_CLAUSE)}`)
+  console.error(`  the module says: ${JSON.stringify(QUIET)}`)
+  process.exit(2)
+}
 
 async function main() {
   auditSelf()
@@ -465,11 +520,33 @@ async function main() {
     await delay(1800)
     const computers = await evaluate(SCREEN)
     note(`fleet graph: ${computers.screen.slice(0, 500)}`)
-    check('the fleet graph explains what has not reported, in the copy module\'s words',
-      computers.screen.includes(EXPLAINS_CLAUSE), computers.screen.slice(0, 300))
-    check('the fleet graph still reports what it looked for, verbatim',
-      /No local agent fleet host detected on this machine/i.test(computers.screen),
+    /* WHAT THIS CHECK USED TO ASK FOR, AND WHY THE PAGE NO LONGER OWES IT.
+     *
+     * It required the envelope explanation -- "a program that watches the agents
+     * running on a group of computers" -- on this screen, because when it was
+     * written the fleet graph's whole answer to a fresh install was the
+     * unavailable state, and an unexplained refusal was the defect. 6f0a34a
+     * ("Page 2: put THIS computer on the fleet page, so a fresh install has an
+     * agent") changed what the screen IS: it now draws this computer from the
+     * organisation this copy declares, so the person is looking at their own
+     * machine rather than at a sentence about a host that is missing. Demanding
+     * the explanation of a missing host on a page that is no longer describing
+     * one would be asking the product to apologise for something it now does.
+     *
+     * What it still owes, and what is asserted instead: the machine in front of
+     * the person is ON the page, the page says where that came from rather than
+     * letting it read as observed telemetry, and the way out is still offered.
+     * The verbatim refusal is kept as a NOTE: the projection still carries it
+     * (declaredAgentsData's observedSessions.reason) and the drill-in still
+     * prints it, but it is no longer required to be on this screen. */
+    check('the fleet graph puts this computer on the page rather than a missing host',
+      /this computer/i.test(computers.screen), computers.screen.slice(0, 300))
+    check('the fleet graph says where what it is showing came from',
+      /(signed record|team record saved on this computer|declar)/i.test(computers.screen),
       computers.screen.slice(0, 300))
+    if (/No local agent fleet host detected on this machine/i.test(computers.screen)) {
+      note('the fleet graph also still carries the verbatim host refusal')
+    }
     await shoot('02-fleet-graph')
     check('the fleet graph offers the guide',
       computers.guideLinks > 0, JSON.stringify(computers.exits))
@@ -493,15 +570,31 @@ async function main() {
        paragraph is on it. */
     check('the metrics page offers the guide',
       onTheWay.metrics.guideLinks > 0, JSON.stringify(onTheWay.metrics.exits))
-    check('the research page explains what has not reported',
-      onTheWay.research.screen.includes(EXPLAINS_CLAUSE), onTheWay.research.screen.slice(0, 260))
+    /* 61262ac: "The research page said its report library 'could not be read'.
+       It was never shipped." The envelope explanation belonged to the old
+       sentence, which described a read that failed. There was no failed read:
+       this copy ships with no report library at all, and the page now says that
+       and says what a report library is. Requiring the old clause here would be
+       requiring the page to go back to explaining a failure that never
+       happened. */
+    /* ASSERTED ON THE SENTENCE, NOT ON THE ABSENCE OF A PHRASE ANYWHERE ON THE
+       SCREEN. The first version of this check also required that the words
+       "could not be read" appear NOWHERE in the page's text -- and this screen
+       carries several other regions that legitimately say a thing could not be
+       read. That is a rule about the whole page dressed up as a rule about one
+       sentence, and it went red on a page that says exactly the right thing. */
+    check('the research page says its report library was never shipped, rather than that a read failed',
+      /was not shipped with one/i.test(onTheWay.research.screen)
+        && !/report library.{0,40}could not be read/i.test(onTheWay.research.screen),
+      onTheWay.research.screen.slice(0, 260))
     check('the research page offers the guide',
       onTheWay.research.guideLinks > 0, JSON.stringify(onTheWay.research.exits))
     await delay(1800)
     const comms = await evaluate(SCREEN)
     note(`comms board: ${comms.screen.slice(0, 500)}`)
     check('the comms board explains why there is no traffic, in the copy module\'s words',
-      comms.screen.includes(EXPLAINS_CLAUSE), comms.screen.slice(0, 300))
+      comms.screen.includes(EXPLAINS_CLAUSE) || comms.screen.includes(QUIET_CLAUSE),
+      comms.screen.slice(0, 300))
     check('the comms board no longer leaves the bare refusal as the only thing on it',
       !MECHANISM_ONLY.test(comms.screen) || comms.screen.includes(EXPLAINS_CLAUSE),
       comms.screen.slice(0, 300))
@@ -515,8 +608,15 @@ async function main() {
     await delay(1600)
     const ledger = await evaluate(SCREEN)
     note(`ledger: ${ledger.screen.slice(0, 260)}`)
-    check('the ledger explains what has not reported',
-      ledger.screen.includes(EXPLAINS_CLAUSE), ledger.screen.slice(0, 260))
+    /* 1bdcce7: "The ledger promised it would fill in, and it never will." The
+       envelope explanation carried an implicit promise -- that this is a view
+       onto a fleet which, once connected, would populate this register. It will
+       not: this register lists requests recorded while ToolsEnabled itself is
+       being built, and on a customer's machine it is empty for good. So the
+       page says what the register IS, and that is what is checked. */
+    check('the ledger says what this register is, instead of promising it will fill in',
+      /requests recorded while ToolsEnabled itself is being built/i.test(ledger.screen),
+      ledger.screen.slice(0, 260))
     check('the ledger offers the guide', ledger.guideLinks > 0, JSON.stringify(ledger.exits))
 
     /* ---------- SETTINGS ---------- */
@@ -537,6 +637,9 @@ async function main() {
     /* The section a person hunting for the missing switch actually opens, reached
        by pressing its own rail button. Shot separately because the note lives
        under that title and the page opens on a different section entirely. */
+    /* The groups ship collapsed (settings-ia); open them the way a person does. */
+    await evaluate(`(() => { for (const head of document.querySelectorAll('.settings-group-head[aria-expanded="false"]')) head.click(); return true })()`)
+    await delay(400)
     const toDataSim = await clickVisible('.settings-rail button[data-category="Data & Sim"]')
     check('the settings rail reaches Data and Sim', toDataSim === 'clicked', String(toDataSim))
     await delay(700)

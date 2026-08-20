@@ -10,6 +10,11 @@ import { sessionEventText, sessionTurnStatus } from '../../src/agent-session-eve
 import { MISSING_MODULE, UNAVAILABLE_TEXT, refusalCode, unavailableReason } from '../../src/agent-availability-copy.js'
 import { confinementNote } from '../../src/agent-confinement-copy.js'
 import { ENGINE_REASON, readAgentEngine } from '../../src/local-activity.js'
+/* The compose panel's own composer, because the defect this file now also
+   covers is not "the code has no copy" but "the code reaches THAT surface as
+   the sentence for a refusal nobody explained". Only startRefusalSentence()
+   can answer that. */
+import { START_REFUSAL, startRefusalSentence } from '../../src/fleet-tree-copy.js'
 
 // The interface can start an agent only if three things hold at once: the
 // renderer can reach the agent channels, the surface can tell whether an
@@ -573,7 +578,27 @@ test('the payload, when one is staged, still links the credential the probe expe
   const payload = readFileSync(payloadPath, 'utf8')
   assert.match(payload, /process\.env\.CODEX_HOME \|\| path\.join\(require\('node:os'\)\.homedir\(\), '\.codex'\)/,
     'the payload still resolves the user Codex home as CODEX_HOME or ~/.codex; the probe copies that construction')
-  assert.match(payload, /path\.join\(userHome, 'auth\.json'\)/, 'the payload still names auth.json as the credential')
+  /* THE CREDENTIAL NAME MOVED, AND THE INVARIANT DID NOT. This used to match
+     `path.join(userHome, 'auth.json')` in the payload, because that is the
+     construction shell/agent-host.cjs copies at line 726 to decide whether a
+     person is signed out. The payload stopped hardcoding it: linkCredential()
+     now takes `signInFile` as a REQUIRED parameter so one function serves both
+     providers, from the single table multi-account/registry.js keeps.
+
+     So this drift check fired correctly and pointed at a change that is not a
+     defect -- for a Codex home the resolved name is still auth.json, which is
+     what the host probe assumes. Matching the old literal again would just be
+     re-pinning a construction that legitimately moved. Pin the thing the probe
+     actually depends on instead: the registry's name for codex. That is
+     strictly stronger, because the old regex would have stayed green if the
+     registry had started naming something else while a stale literal survived
+     somewhere in the file. */
+  assert.match(payload, /function linkCredential\(userHome, confinedHome, signInFile\)/,
+    'the payload still resolves the credential by a passed name; the host probe copies whatever that resolves to')
+  const registry = readFileSync(resolve(ROOT, 'capability/src/lib/multi-account/registry.js'), 'utf8')
+  assert.match(registry, /codex: Object\.freeze\(\{[^}]*signInFile: 'auth\.json'[^}]*\}\)/,
+    "the registry still names auth.json for a Codex home; shell/agent-host.cjs hardcodes that name to answer"
+    + ' AGENT_CONFINEMENT_SIGNED_OUT, so if this moves the probe reports the wrong sign-in state')
   assert.match(payload, /'AGENT_CONFINEMENT_SIGNED_OUT'/, 'the payload still raises the code the probe reports')
   assert.match(payload, /confinement\.isolated !== true/, 'the payload still builds a confined home only for an isolated level')
 })
@@ -812,6 +837,76 @@ test('the two surfaces name the same fault in their own register', () => {
   }
 })
 
+test('every refusal the start CHANNEL raises reaches the person as a reason, not as "we were not told why"', () => {
+  /* THE GAP THIS CLOSES, and it is one level up from the two walks above.
+   *
+   * Those walk what the HOST and the RECORDER can answer. Ten more refusals are
+   * raised by shell/main.cjs on the mc-agent:start channel itself, before the
+   * host is ever reached: the trusted-sender check, the payload parse, the
+   * session-profile resolve, the session limit, and the spawn recorder. Every
+   * one of them crossed the IPC boundary correctly -- rendererSafeAgentError
+   * makes the message the code precisely so it survives -- and then fell
+   * through startRefusalSentence() to START_REFUSAL.noReasonGiven, "Nothing was
+   * started, and this copy was not told why. Try once more."
+   *
+   * The copy WAS told why. And "try once more" is worse than saying nothing,
+   * because not one of these clears on a second press: the limit is still
+   * reached, the folder is still gone, the record still cannot be written.
+   *
+   * THE LIST IS READ FROM THE SOURCE, never typed here, so a refusal added to
+   * that channel later fails this test instead of quietly reaching a person as
+   * the no-reason sentence. The profile family is read the same way: the start
+   * path rethrows sessionProfiles.resolveCwd's code with an MC_AGENT_ prefix,
+   * so the codes come from shell/session-profiles.cjs. */
+  const main = read('shell/main.cjs')
+  const channelCodes = new Set([...main.matchAll(/'(MC_AGENT_[A-Z_]+)'/g)].map(match => match[1]))
+  /* `'MC_AGENT_' + error.code` -- the prefix is a literal on its own and is not
+     a code. Dropping it here rather than loosening the pattern keeps the
+     pattern honest about what a code looks like. */
+  channelCodes.delete('MC_AGENT_')
+  const profiles = read('shell/session-profiles.cjs')
+  for (const [, code] of profiles.matchAll(/refusal\('(PROFILE_[A-Z_]+)'/g)) {
+    /* Only the ones a START can reach: resolveCwd is what mc-agent:start calls,
+       and the create/remove refusals belong to their own controls. */
+    if (code === 'PROFILE_UNKNOWN' || code.startsWith('PROFILE_FOLDER_')) channelCodes.add(`MC_AGENT_${code}`)
+  }
+
+  assert.ok(channelCodes.size >= 10,
+    `only ${channelCodes.size} refusal codes were found in the start channel; the reader has drifted from the source`)
+
+  /* NOT EVERY CODE ON THESE CHANNELS IS A START, and composing a send refusal
+     behind "Nothing was started." would be the product asserting something it
+     does not know. Each entry here is send-only for a stated reason and is
+     still required to carry copy, one assertion further down. */
+  const sendOnly = new Set([
+    // Raised by mc-agent:send when a message names a file that was not picked
+    // in that session. A session IS open and running; what failed is the
+    // message.
+    'MC_AGENT_ATTACHMENT_UNKNOWN',
+    // Raised by send, interrupt and close for a session this RUN does not
+    // hold. It already has its own sentence in the start table too, because a
+    // tree node can outlive its session.
+    'MC_AGENT_UNKNOWN_SESSION',
+  ])
+
+  for (const code of channelCodes) {
+    assert.equal(refusalCode(new Error(code)), code,
+      `${code} does not survive the IPC boundary: refusalCode() cannot recover it, so the panel shows AGENT_SESSION_FAILED instead`)
+    assert.ok(Object.hasOwn(UNAVAILABLE_TEXT, code),
+      `${code} has no sentence, so a person who hits it is told this copy was not told why`)
+    if (sendOnly.has(code)) continue
+    const sentence = startRefusalSentence({ ok: false, code })
+    assert.notEqual(sentence, START_REFUSAL.noReasonGiven,
+      `${code} reaches the compose panel as the no-reason sentence, which also tells the person to try again when trying again cannot work`)
+    assert.ok(sentence.length > 40, `the sentence for ${code} is too short to act on: ${sentence}`)
+    /* Rule 3 of the flow's copy: every failure sentence ends with something to
+       do. Asserted as "the sentence has a second clause", which is the weakest
+       thing that can distinguish a diagnosis from a diagnosis plus a remedy. */
+    assert.ok(sentence.split(/(?<=[.!?])\s/).length >= 2,
+      `the sentence for ${code} states a problem and offers no next step: ${sentence}`)
+  }
+})
+
 test('a code with no copy still refuses, rather than degrading to ready', () => {
   // The fallback direction. An unmapped code is a copy gap, and a copy gap must
   // never become an enabled control -- both surfaces branch on `ok`, never on
@@ -887,6 +982,18 @@ test('every refusal code in the agent host is classified as reachable from the p
        MC_AGENT_INVALID_PAYLOAD family as AGENT_TIER_UNKNOWN above. */
     'AGENT_TURN_OPTION_FORBIDDEN',
     'AGENT_TURN_IMAGES_INVALID',
+    /* Standing requests (the /Request family). KEYS_INVALID is the
+       MC_AGENT_INVALID_PAYLOAD family: the view sends node ids it already
+       holds, so only renderer/host drift or a hand-built payload can produce
+       it -- never a click. UNAVAILABLE answers the person's own typed
+       command through the chat, which writes its own sentence for it
+       (src/views/computers.js fileStandingRequestFor); a readiness probe has
+       nothing to resolve because the absence is the payload's age. The
+       R_LEDGER-mapped refusals (AGENT_REQUEST_WORDS_*, _KEY, _SCOPE, ...)
+       are raised through a computed fail(code) the literal scan cannot see,
+       and the same chat sentences answer them. */
+    'AGENT_REQUEST_KEYS_INVALID',
+    'AGENT_REQUEST_UNAVAILABLE',
   ])
   const source = read('shell/agent-host.cjs')
   const found = new Set()

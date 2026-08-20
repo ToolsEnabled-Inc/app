@@ -133,12 +133,31 @@ await emitProjection(DOMAIN, async at => {
   })
   const preflight = runJsonCli(LIVE_ROOT, PREFLIGHT_PATH, ['--json'], 'live-agent-preflight')
   const preflightSource = sourceFromResult(preflight, 'live-cli')
+  /* THE MESSAGE PANE IS NOT THIS FILE'S TO FILL, AND SAYING SO IS THE FIX.
+   *
+   * THE OWNER'S FINDING: "i couldnt verify if the comms page is wired because i
+   * couldnt get the agents to communicate." Both halves of that were true, and
+   * this file is the second half. It runs at BUILD time, on the machine that
+   * cuts the release, and everything it emits is frozen into
+   * public/data/ops.json inside the application archive. A customer's agent
+   * messages do not exist when this runs and the file cannot be rewritten
+   * afterwards -- it is inside the asar. So no edit here could ever have made
+   * that pane live, and `source-unreadable-safely` invited exactly the wrong
+   * conclusion: it reads as "there is live data and we chose not to read it",
+   * which sent the next reader looking for a reader to fix.
+   *
+   * The reason now names the real one. The live channel is read at RUNTIME by
+   * the page itself (src/views/comms.js), from the engine's own durable message
+   * fabric, and this projection deliberately stays a projection of the things
+   * that ARE build-time facts: the declared services and the channels the
+   * preflight CLI observed. The static path is untouched for everything that
+   * legitimately still uses it. */
   const messagesSource = source({
     id: 'live-message-reader',
     kind: 'live-reader',
     path: 'state/',
     ok: false,
-    reason: 'source-unreadable-safely',
+    reason: 'source-not-build-time',
   })
   const sources = [sourceFromResult(reader, 'canonical-reader'), registrySource, preflightSource, messagesSource]
 
@@ -184,7 +203,11 @@ await emitProjection(DOMAIN, async at => {
     declaredServices: services,
     channels: channelsObservation(preflight.value),
     mcp: mcpObservation(preflight.value),
-    // No safe CLI exposes live message/audit/memory contents for this domain.
-    messages: unavailable('source-unreadable-safely'),
+    /* Unavailable HERE because this is a build-time projection and a customer's
+       messages do not exist yet; the page reads the live channel itself at run
+       time. See the messagesSource note above -- the reason is the change, and
+       it is the difference between "we declined to read it" and "this file is
+       structurally the wrong place to read it from". */
+    messages: unavailable('source-not-build-time'),
   }, sources, at)
 })

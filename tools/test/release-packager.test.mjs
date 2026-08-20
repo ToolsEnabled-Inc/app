@@ -14,7 +14,7 @@ import { measureFile, sameBytes, sha256File } from "../release-packager/lib/hash
 import { findOtherCandidates } from "../release-packager/lib/scan-artifacts.mjs";
 import { assertStagingFree, classifyStagedCandidate } from "../release-packager/lib/staging-collision.mjs";
 import { currentBranch, isAncestor, revParse } from "../release-packager/lib/git.mjs";
-import { renderDeclaration } from "../release-packager/generate-declaration.mjs";
+import { attributionBlocksCommit, cuttingAttribution, renderDeclaration } from "../release-packager/generate-declaration.mjs";
 import { copyPrivateInputs, parseKnownFixArg } from "../release-packager/cut-release-candidate.mjs";
 
 // --- version-bump.mjs -------------------------------------------------------
@@ -598,3 +598,50 @@ test("releaseNodeModulesJunction detaches a junction but never touches a real di
     await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
+
+// --- who cut it -------------------------------------------------------------
+
+test('the declaration names the session that cut it, and never invents one', () => {
+  /* These two lines were hardcoded to the session that first wrote the
+     generator, so every declaration since -- including builds cut months
+     later by other models -- carried that name. A document whose whole
+     purpose is honest provenance was misreporting its own. Found reading the
+     1.0.21 declaration this lane had just cut, which credited a session that
+     had nothing to do with it. */
+  const named = cuttingAttribution({
+    TOOLSENABLED_CUT_MODEL: 'Claude Fable 5',
+    TOOLSENABLED_CUT_SESSION: 'abc123',
+    TOOLSENABLED_CUT_LANE: 'research-subsystem',
+  })
+  assert.match(named, /Co-Authored-By: Claude Fable 5 <noreply@anthropic\.com>/)
+  assert.match(named, /Lane: research-subsystem \(session abc123\)/)
+
+  // Nothing set: the gap is stated, never filled with a guess.
+  const anonymous = cuttingAttribution({})
+  assert.match(anonymous, /unnamed session/)
+  assert.match(anonymous, /session not recorded/)
+  assert.equal(/Co-Authored-By:/.test(anonymous), false, 'an unknown cutter must not be credited to anyone')
+
+  // The old hardcoded identity may never reappear from any environment.
+  for (const environment of [{}, { TOOLSENABLED_CUT_MODEL: 'Claude Fable 5' }, { CLAUDE_SESSION_ID: 'zzz' }]) {
+    const line = cuttingAttribution(environment)
+    assert.equal(line.includes('6f84bf9b'), false, 'the first author\'s session id is back in the declaration')
+    assert.equal(line.includes('Sonnet 5'), false, 'a hardcoded model name is back in the declaration')
+  }
+})
+
+test('an unnamed cutter is refused before the build, not at the commit', () => {
+  /* The honest-attribution change has a cost, and the 1.0.22 cut paid it in
+     full: with nobody named, the version-bump commit carries no
+     Co-Authored-By, this repo's commit-msg hook refuses it, and the cut dies
+     AFTER staging the payload with a build worktree stranded for postmortem.
+     The refusal was right; the timing was cruel. This pins the early check. */
+  assert.equal(attributionBlocksCommit({}), true, 'an unnamed cutter must be caught before the build starts')
+  assert.equal(attributionBlocksCommit({ TOOLSENABLED_CUT_MODEL: 'Claude Fable 5' }), false,
+    'a named cutter must not be blocked')
+  assert.equal(attributionBlocksCommit({ CLAUDE_MODEL_NAME: 'Claude Fable 5' }), false,
+    'the fallback environment name counts too')
+  // And the thing it protects: what it lets through must satisfy the hook.
+  assert.match(cuttingAttribution({ TOOLSENABLED_CUT_MODEL: 'Claude Fable 5', TOOLSENABLED_CUT_SESSION: 'abc' }),
+    /Co-Authored-By: .+\nLane: .+ \(session abc\)/)
+})

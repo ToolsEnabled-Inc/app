@@ -92,6 +92,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assertRendererMeasurable, assertStagedRendererConsistent } from './lib/staged-renderer.mjs'
+/* The precondition this file used to ASSUME. See tools/lib/fleet-node.mjs. */
+import { startFleetNode } from './lib/fleet-node.mjs'
 
 const require_ = createRequire(import.meta.url)
 const SELF = fileURLToPath(import.meta.url)
@@ -596,6 +598,15 @@ async function main() {
     await evaluate(`(() => {
       localStorage.setItem('mc.live.computers', 'live')
       localStorage.setItem('mc.write.dispatch', 'enabled')
+      /* The walk below starts an agent on this computer so that there is a node
+         to open a rail on, and this is the switch that decides whether the
+         product will let anything start at all. Turned on the way a person
+         turns it on in Settings. NOTHING IS SPENT: CODEX_HOME is an empty
+         scratch directory, so the start is refused with the engine's own
+         signed-out sentence before any child process exists -- and the node is
+         written before the engine is asked, which is why the refusal still
+         leaves the circle this harness needs. */
+      localStorage.setItem('mc.write.agent-session', 'enabled')
       const url = new URL(window.location.href)
       url.search = 'bridge=${decoyOrigin}'
       window.location.replace(url.toString())
@@ -645,9 +656,15 @@ async function main() {
       throw new Error(`refusing to dispatch: the renderer is not provably talking to the controlled layer (bootstrapAccepted=${beforeStart.bootstrapAccepted}, dispatches=${beforeStart.dispatches.length}, decoyContacts=${JSON.stringify(decoy.received.map(entry => entry.pathname))}). A loop bound to a real bridge would spawn real agents repeatedly.`)
     }
 
-    const opened = await clickVisible('.static-tree-node')
-    await delay(700)
-    check('clicking an agent opens the rail board', opened === 'clicked', opened)
+    /* THE BOARD OPENS EMPTY, AND THAT IS THE PRODUCT'S RULE, NOT A DEFECT.
+       This was a single click on `.static-tree-node`, which on a sterile
+       profile is absent -- "the node tree should be empty unless a user has
+       started a session" -- so this check could never have passed and the loop
+       panel behind it was never measured. The walk starts an agent the way a
+       person does and then opens its rail. */
+    const reached = await startFleetNode({ session, evaluate, delay })
+    check('an agent started on this computer opens its rail board',
+      reached.ok, reached.ok ? '' : `stopped at ${reached.at}: ${reached.detail}`)
 
     const loopBox = await evaluate(`(${VISIBLE})('.board-loop-box')`)
     /* When this is absent the bare word "absent" is not enough to act on -- it

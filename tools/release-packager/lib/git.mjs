@@ -60,6 +60,19 @@ export function worktreeRemove(cwd, worktreePath, { force = true } = {}) {
   git(['worktree', 'remove', ...(force ? ['--force'] : []), worktreePath], { cwd })
 }
 
+/* KEEP THE BUILD REF REACHABLE. The bump commit is made inside a throwaway
+   worktree and the worktree is removed on success, so the commit every
+   DECLARATION names as its "build ref" is unreferenced the moment the cut
+   works -- garbage a `git gc` is entitled to delete. Measured 2026-08-17:
+   EIGHT candidates' build refs were in that state, 1.0.4 through 1.0.23,
+   including the build then installed on the owner's machine. A declaration
+   whose build ref no longer resolves is a provenance claim that cannot be
+   checked, which is worse than no claim. A lightweight tag costs nothing and
+   makes the ref permanent. */
+export function tagCommit(cwd, tag, commit) {
+  return git(['tag', '-f', tag, commit], { cwd, allowFailure: true });
+}
+
 export function worktreeList(cwd) {
   return git(['worktree', 'list', '--porcelain'], { cwd }).stdout
 }

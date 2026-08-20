@@ -112,9 +112,17 @@ test('the compact card is real-sourced or absent, never the simulator', () => {
   /* The card exists only when the view vouches for a real onSend — that is
      what makes buildChat's seeded/canned path unreachable. No config → the
      chip routes to the rail. And only one card opens at a time. */
+  /* SLICED BY STRUCTURE, NOT BY A CHARACTER COUNT. This read
+     `graph.slice(start, start + 2200)`, and a comment added inside the branch
+     pushed `seed: 0` past 2200 -- so the suite reported "the tree card seeds
+     fake history again" about code that does no such thing. A window measured
+     in bytes fails on prose. The branch ends where the next method begins. */
   const start = graph.indexOf('if (record.agent.treeNode)')
-  const branch = graph.slice(start, start + 2200)
-  assert.match(branch, /typeof config\.onSend !== 'function'/, 'a card can open without a real send path')
+  const branch = graph.slice(start, graph.indexOf('  _openChatCard(record'))
+  /* EITHER a real send path, OR a stated reason it cannot send -- both make
+     buildChat's seeded reply unreachable (composerReason refuses `send`
+     outright). A config with neither still falls back to the rail. */
+  assert.match(branch, /typeof config\.onSend !== 'function' && !config\.composerReason/, 'a card can open without a real send path')
   assert.match(branch, /onOpenControls\?\.\(record\.agent\)/, 'a source-less chip no longer falls back to the rail')
   assert.match(branch, /seed: 0/, 'the tree card seeds fake history again')
   assert.match(branch, /closeChat\(other\)/, 'one-chat-at-a-time is no longer enforced')
@@ -123,9 +131,9 @@ test('the compact card is real-sourced or absent, never the simulator', () => {
   const send = view.slice(view.indexOf('function treeCardSend'), view.indexOf('function drainOutboxMessage'))
   assert.match(send, /outboxEnqueue\(node\.sessionId, text\)/, 'a busy card send no longer queues')
   assert.ok(send.indexOf('bridge.send({') !== -1
-    && send.indexOf('cardReplies.set') < send.indexOf('bridge.send({'), 'the reply slot registers after the send — a fast turn could race it')
+    && send.indexOf('awaitTurnReply(node.sessionId, reply)') < send.indexOf('bridge.send({'), 'the reply slot registers after the send — a fast turn could race it')
   const turn = view.slice(view.indexOf('unsubs.push(window.mcAgent.onEvent'))
-  assert.ok(turn.indexOf('cardReplies.get(sessionId)') < turn.indexOf('outboxTakeNext(sessionId)'),
+  assert.ok(turn.indexOf('deliverTurnReply(sessionId,') < turn.indexOf('outboxTakeNext(sessionId)'),
     'the card reply is delivered after the drain — the queued send would steal the turn')
 })
 

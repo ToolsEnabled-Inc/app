@@ -66,10 +66,69 @@ const TIER_DETAIL = Object.freeze(Object.fromEntries(
    read as a promise about their disk. Each is the behaviour
    agent-session-confinement.js records as measured against a user config that
    says danger-full-access, where the thread option won. */
+/* THE workspace-write LINE USED TO PROMISE WRITING, AND IT WAS MEASURABLY
+   FALSE ON THIS PLATFORM. It said: "It can change files in the folder you
+   chose, and this computer refuses any attempt it makes to change one outside
+   it." Both halves were wrong in different ways.
+
+   MEASURED 2026-08-20, three independent ways, including from a throwaway
+   CODEX_HOME with no credential in it -- every run 401'd on the model, which is
+   the proof nothing of ours was involved, and the startup banner still printed
+   the resolved policy. Codex 0.146.0 accepts `workspace-write` and resolves it
+   to READ-ONLY, silently:
+
+     asked read-only          -> read-only
+     asked workspace-write    -> READ-ONLY
+     asked danger-full-access -> danger-full-access
+
+   Confirmed on the wire too -- `thread/start` answers
+   {"type":"readOnly","networkAccess":false} to a workspace-write request -- and
+   on disk: at that resolved level a Codex agent cannot write, and cannot even
+   run `node --version`, which was declined in 0ms against a positive control
+   that ran it in 185ms at danger-full-access.
+
+   SO THE FIRST CLAUSE WAS FALSE FOR CODEX. And the second overclaimed for
+   Claude: Claude at this level DOES write inside its workspace and IS refused
+   outside it -- verified with a file that exists inside and one that does not
+   exist outside -- but the thing refusing is the Claude CLI's own permission
+   layer, not "this computer". No OS sandbox is involved on that path, so the
+   word promised an enforcement that was not the one doing the work.
+
+   The sentence below is true for both engines and needs no plumbing to stay
+   true: it states what the LEVEL allows, which is a fact about the level, and
+   admits that whether an engine can act inside it is a fact about the engine.
+   confinementNote() renders this before any session exists, so it cannot speak
+   from a resolved sandbox -- there is nothing resolved yet. A running session
+   saying which sandbox it actually got is separate work and is deliberately not
+   pre-announced here. */
 export const SANDBOX_EFFECT = Object.freeze({
   'read-only': 'It can read files, and this computer refuses any attempt it makes to change one.',
-  'workspace-write': 'It can change files in the folder you chose, and this computer refuses any attempt it makes to change one outside it.',
+  'workspace-write': 'It may change files only inside the folder you chose. Anything outside it is refused. Some engines are refused inside it too, and say so when it happens.',
   'danger-full-access': 'Nothing narrows it: it can read, change and delete any file on this computer and run any program, without asking.',
+})
+
+/* WHAT EACH LEVEL SAYS ABOUT CREDENTIALS, keyed by the tier name.
+ *
+ * THE FIRST OUTSIDE USER'S CASE, and the reason this table exists. Their
+ * agents "weren't able to use credential manager or vault" -- on the
+ * recommended (Guided) level, where the credential requester is withheld BY
+ * DESIGN: the read-only tool surface carries system.doctor and the presence
+ * checks, and system.credential_request starts at Standard. That is the
+ * legal/consent architecture working; what failed was VISIBILITY. Nothing on
+ * any screen said so, so a deliberate limit read as a breakage, to the person
+ * and to their agent alike. The agent's own copy of this sentence now rides
+ * the standard tool note (engine src/lib/agent-tool-summary.js); this is the
+ * person's copy, at the moment of pressing Start.
+ *
+ * MEASURED, not assumed: real stdio sessions against the staged payload
+ * (tools/agent-tools-matrix-qa.mjs, 2026-08-19) advertise no
+ * system.credential_request at guided (111 tools) and do advertise it at
+ * standard and above, where the driven flow queues the guarded owner form and
+ * the entered value never reaches the agent. */
+export const CREDENTIAL_CLAUSE = Object.freeze({
+  guided: 'It can see what is already set up, but it cannot ask you for credentials or store any — asking starts at the Standard level.',
+  standard: 'It can ask you to add a credential through a guarded form. What you type goes into this computer\'s encrypted store and is never shown to the assistant.',
+  unrestricted: 'It can ask you to add a credential through a guarded form. What you type goes into this computer\'s encrypted store and is never shown to the assistant.',
 })
 
 /* The clause that is still true, and the only one carried over unedited.
@@ -165,9 +224,10 @@ export function confinementNote(reading) {
      questions -- "where does it work" and "what stops it leaving" -- and a person
      deciding to press Start is owed both. At `unrestricted` they collapse into
      the same statement, so only one is shown rather than saying it twice. */
+  const credentials = CREDENTIAL_CLAUSE[tier] || null
   const sentences = tier === 'unrestricted'
-    ? [level, effect, ...(note ? [note] : []), ...(tools ? [tools] : []), RECORD_CLAUSE]
-    : [level, detail, effect, ...(note ? [note] : []), ...(tools ? [tools] : []), RECORD_CLAUSE]
+    ? [level, effect, ...(credentials ? [credentials] : []), ...(note ? [note] : []), ...(tools ? [tools] : []), RECORD_CLAUSE]
+    : [level, detail, effect, ...(credentials ? [credentials] : []), ...(note ? [note] : []), ...(tools ? [tools] : []), RECORD_CLAUSE]
 
   return Object.freeze({
     level,
@@ -182,4 +242,32 @@ export function confinementNote(reading) {
 /** The one-line form, for the status row under the Start button. */
 export function confinementLine(reading) {
   return confinementNote(reading).sentences.join(' ')
+}
+
+/* THE SHORT FORM, FOR THE OTHER START BUTTON.
+ *
+ * WHY A SECOND SHAPE RATHER THAN confinementLine(). There are two controls in
+ * this product that start an agent, and only one of them was ever told what a
+ * session may do. The agent page has a whole column to spend and renders every
+ * sentence above. The fleet tree's compose panel is a narrow rail whose own
+ * design notes record Start being pushed below the fold TWICE as an
+ * owner-reported defect -- so a block the height of confinementLine() is not
+ * something that surface can carry, and "carry all of it or none of it" is how
+ * it ended up carrying none.
+ *
+ * WHAT IS KEPT IS THE HALF ABOUT THIS PERSON'S DISK: which level is in force,
+ * what the operating system will do to a file, and -- when nothing was ever
+ * recorded -- that the answer came from a fail-closed default rather than from
+ * them. That is the part a person is about to find out the hard way. The tool
+ * count, the credential rule and the recording clause are not dropped from the
+ * product; they stay on the surface that has room for them.
+ *
+ * IT NEVER INVENTS. Everything here comes from confinementNote(), which
+ * collapses an absent, unreadable or unfamiliar reading to UNKNOWN_CONFINEMENT
+ * -- so the worst this can say is that it does not know, which is the one
+ * honest answer when nothing could be read.
+ */
+export function startControlLine(reading) {
+  const note = confinementNote(reading)
+  return [note.level, note.effect, note.note].filter(Boolean).join(' ')
 }

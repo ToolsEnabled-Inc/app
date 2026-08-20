@@ -16,6 +16,18 @@ import {
 } from '../font-choice.js'
 import { LIVE_VIEW_FLAGS, isLiveView, setLiveView } from '../live-flags.js'
 import { WRITE_ACTION_FLAGS, isWriteEnabled, setWriteEnabled } from '../write-flags.js'
+/* THE TWO ROWS ON THIS PAGE THAT HAD NOWHERE TO BE WRITTEN DOWN. Glow and
+   reduce motion were read back off the DOM alone, so both were thrown away
+   when the window closed -- measured on the shipped 1.0.20 installer, where 98
+   of the other 100 rows survived the same restart. The module writes them
+   under this page's own `mc.set.<id>` keys and puts them back at launch, and
+   the drawer's copy of the same two controls writes through it as well. */
+import {
+  GLOW_SETTING_ID,
+  REDUCE_MOTION_SETTING_ID,
+  applyAppearance,
+  rememberAppearance,
+} from '../appearance-persistence.js'
 import { createLedgerArchiveController } from '../mission-bridge.js'
 /* WHAT EVERY ROW GRANTS AND WHAT IT RISKS, stated separately (owner, R1529).
    The statements are data in src/permission-guidance.js and the markup is
@@ -47,6 +59,20 @@ import {
   CHATBOX_SETTING_COUNT,
   createChatboxSettings,
 } from '../chatbox-settings.js'
+/* THE SETTINGS THE INSTALLED APPLICATION ENFORCES, and the reason this is a
+   section module rather than five more entries in SETTINGS below.
+   Every row in SETTINGS is a preference of this window, stored by this window.
+   These are stored beside the program and read by another process -- so they
+   are asked for and written through the installed application, and their value,
+   their wording and whether anything enforces them all come back from it rather
+   than from this file. Which is also why they are the rows that never went
+   dead: their enforcer is named in the register and does the reading. */
+import {
+  RESEARCH_SECTION,
+  RESEARCH_SETTING_COUNT,
+  PRODUCT_SETTING_IDS,
+  createResearchSettings,
+} from '../research-settings.js'
 /* WHY A SECTION ON THIS PAGE NEEDS A SENTENCE ABOVE ITS SWITCHES.
  *
  * LEGACY-ONB-001, re-measured on a sterile profile: a person whose fleet graph
@@ -59,6 +85,19 @@ import {
  * -- otherwise the search ends in them flipping live sources off and concluding
  * the product is fake data. */
 import { GUIDE_HREF } from '../first-run-needs.js'
+/* HOW THIS PAGE IS ARRANGED, NOT WHAT IT STORES. The first outside user found
+   seventeen flat categories hard to read, so they nest under six groups a
+   person scans in one glance. The groups, the remembered open-state, the
+   truth-first sentence beside a switch and the System refusal translation are
+   all data and pure functions in one DOM-free module, where a node test can
+   hold them still. Every row id, storage key and default is untouched. */
+import {
+  SETTINGS_GROUPS,
+  groupOfSection,
+  groupsOpenOnArrival,
+  writeOpenGroups,
+  toggleStateSentence,
+} from '../settings-presentation.js'
 import '../settings.css'
 import '../chatbox-settings.css'
 import '../fleet-profile-settings.css'
@@ -76,20 +115,57 @@ const SECTIONS = [
      asked and nothing said. A control for that buried below the simulation
      knobs would be a control nobody finds, which is the same outcome. */
   'Data & Privacy',
+  /* HIGH, FOR THE SAME REASON 'Data & Privacy' IS. This section answers "may
+     anything run on this computer for a research project", and it is the switch
+     the research page sends people here to find. A section for that below the
+     chart-drawing knobs is a section nobody finds, which is the state this
+     product was already in -- the page named a switch that was not anywhere. */
+  RESEARCH_SECTION,
   'Appearance',
   'Text & Reading',
   'Motion & Effects',
-  'Fleet Graph',
-  'Metrics',
-  'Chat & Threads',
-  'Comms Board',
   'Ledger',
-  'Performance',
   'Data & Sim',
   'Write',
-  'Developer',
+  /* SIX SECTIONS THAT USED TO BE LISTED HERE ARE GONE, 2026-08-20: Fleet Graph,
+     Metrics, Chat & Threads, Comms Board, Performance and Developer. Each was
+     inert top to bottom -- every row in them wrote a `mc.set.<id>` key that
+     nothing in the product read -- so removing their rows left six titled
+     headings with nothing under them, which is its own defect: a person opening
+     a group cannot tell an empty section from a broken one. The headings went
+     with the rows. Their wording is kept verbatim in
+     docs/design/UNBUILT-SETTINGS-ROWS-2026-08-20.md. */
 ]
 
+/* SEVENTY-FOUR ROWS WERE REMOVED FROM THIS CATALOGUE ON 2026-08-20, and the
+ * reason is the same one written under `offline_fallback` below.
+ *
+ * This page built 96 rows and its footer said "116 settings". Seventy-four of
+ * them wrote a `mc.set.<id>` key that NOTHING in the product ever read. Six
+ * whole sections were inert top to bottom. Every one of those rows moved,
+ * filled, reported a percentage and survived a restart, so nothing on screen
+ * distinguished them from the twenty-two that worked -- which is the actual
+ * harm: a person who moves a control that does nothing stops looking for the
+ * real switch, and `contrast_curve` made that promise ("make the lighter,
+ * secondary text darker and easier to read") to the person least able to detect
+ * that nothing had happened.
+ *
+ * REMOVING A DEAD ROW IS NOT REMOVING A FEATURE. There was no feature. The
+ * behaviours these rows described -- chart quality, a frame cap, a Sankey gap, a
+ * thread memory span, a simulation tick bias -- do not exist anywhere in this
+ * tree, so "wiring them up" would mean building them.
+ *
+ * THE WORDING IS NOT LOST. Every removed definition is kept verbatim in
+ * docs/design/UNBUILT-SETTINGS-ROWS-2026-08-20.md, with a dated header saying
+ * they are unbuilt intentions, so nobody has to re-invent a reviewed sentence
+ * when one of these features is actually built.
+ *
+ * A ROW ADDED HERE WITH NO READER NOW FAILS A TEST.
+ * tools/test/settings-rows-do-something.test.mjs derives the dead set from this
+ * file at run time and names every offender. There is deliberately no exemption
+ * list: if a row acts through a door the test does not know about, teach it the
+ * door and the line that reads it. The defect was never that somebody wrote 74
+ * bad rows -- it was that nothing could tell a real control from a drawn one. */
 export const SETTINGS = [
   /* THE DEFAULT IS "ASK ME", AND THAT IS THE WHOLE POINT OF THIS ENTRY.
    *
@@ -131,83 +207,15 @@ export const SETTINGS = [
   /* The choices live in src/font-choice.js (owner, R1523); each option's
      button is written in the font it applies, here and in the drawer. */
   { id: 'ui_font', section: 'Appearance', name: 'Font', desc: 'Choose the app’s lettering. Each option is written in its own font, so what you see on the button is what you get everywhere.', depth: 1, type: 'seg', options: FONT_CHOICES.map(choice => [choice.id, choice.label]), def: 'plex' },
-  { id: 'display_density', section: 'Appearance', name: 'Display density', desc: 'How tightly packed busy screens are. Comfortable gives everything more room; compact fits more on screen.', depth: 1, type: 'seg', options: ['comfortable', 'compact'], def: 'comfortable' },
-  { id: 'contrast_curve', section: 'Appearance', name: 'Contrast curve', desc: 'Make the lighter, secondary text darker and easier to read, without changing the theme.', depth: 1, type: 'seg', options: ['standard', 'strong'], def: 'standard' },
-  { id: 'role_hue_emphasis', section: 'Appearance', name: 'Emphasize role colors', desc: 'Make each agent role’s color stand out a little more.', depth: 1, type: 'toggle', def: false },
-  { id: 'chrome_edge_weight', section: 'Appearance', name: 'Chrome edge weight', desc: 'How visible the thin outlines around buttons and panels are.', depth: 2, type: 'range', min: 0, max: 100, step: 1, unit: '%', def: 42 },
-  { id: 'drawer_width', section: 'Appearance', name: 'Settings drawer width', desc: 'How wide the quick settings panel (behind the gear button) opens.', depth: 2, type: 'stepper', min: 280, max: 440, step: 8, unit: 'px', def: 320 },
-  { id: 'surface_frost', section: 'Appearance', name: 'Surface frost retention', desc: 'How much frosted-glass blur panels keep. Lower is clearer, higher is softer.', depth: 3, type: 'range', min: 0, max: 100, step: 1, unit: '%', def: 58 },
-  { id: 'brace_stroke_width', section: 'Appearance', name: 'Brace stroke width', desc: 'The thickness of the curly-brace lines that frame the home panel, in fractions of a pixel.', depth: 4, type: 'stepper', min: 0.75, max: 2, step: 0.25, unit: 'px', def: 1.25 },
 
   { id: 'text_size', section: 'Text & Reading', name: 'Text size', desc: 'Make everything bigger or smaller without changing the layout.', depth: 1, type: 'seg', options: [['0.9', 'Small'], ['1', 'Default'], ['1.12', 'Large']], def: '1' },
-  { id: 'numeric_font', section: 'Text & Reading', name: 'Mono numeric values', desc: 'Show numbers and IDs in a fixed-width font, so digits line up as they change.', depth: 1, type: 'toggle', def: true },
-  { id: 'reading_line_height', section: 'Text & Reading', name: 'Reading line height', desc: 'How much vertical space lines of text get in descriptions and messages.', depth: 1, type: 'seg', options: ['tight', 'standard', 'open'], def: 'standard' },
-  { id: 'timestamp_verbosity', section: 'Text & Reading', name: 'Timestamp detail', desc: 'How times are shown: “5 minutes ago” (relative), clock time, or the full date and time.', depth: 2, type: 'select', options: ['relative', 'clock', 'full'], def: 'relative' },
-  { id: 'reading_measure', section: 'Text & Reading', name: 'Reading measure', desc: 'The longest a line of text may grow before it wraps, measured in characters.', depth: 2, type: 'stepper', min: 56, max: 92, step: 2, unit: 'ch', def: 72 },
-  { id: 'caps_tracking', section: 'Text & Reading', name: 'Micro-cap tracking', desc: 'The letter spacing of the small ALL-CAPS labels used in navigation.', depth: 3, type: 'range', min: 6, max: 18, step: 1, unit: '%', def: 12 },
-  { id: 'baseline_nudge', section: 'Text & Reading', name: 'Tabular baseline nudge', desc: 'Nudge columns of numbers up or down so they sit level with the text beside them.', depth: 4, type: 'stepper', min: -2, max: 2, step: 0.25, unit: 'px', def: 0 },
 
   { id: 'reduce_motion', section: 'Motion & Effects', name: 'Reduce motion', desc: 'Turn animation off: things move instantly and nothing pulses in the background.', depth: 1, type: 'toggle', def: false },
   { id: 'glow', section: 'Motion & Effects', name: 'Glow intensity', desc: 'How brightly the glowing status lights shine.', depth: 1, type: 'range', min: 0, max: 200, step: 1, unit: '%', def: 100 },
-  { id: 'view_transitions', section: 'Motion & Effects', name: 'View transitions', desc: 'Fade smoothly from one page to the next instead of switching instantly.', depth: 1, type: 'toggle', def: true },
-  { id: 'entry_response', section: 'Motion & Effects', name: 'Entry response', desc: 'How long newly appearing panels take to settle into place.', depth: 2, type: 'range', min: 120, max: 600, step: 20, unit: 'ms', def: 420 },
-  { id: 'hover_response', section: 'Motion & Effects', name: 'Hover response', desc: 'How quickly controls change shade when the pointer passes over them.', depth: 2, type: 'select', options: ['immediate', 'clinical', 'soft'], def: 'clinical' },
-  { id: 'checkpoint_halo_decay', section: 'Motion & Effects', name: 'Checkpoint halo decay', desc: 'How long the glow around a checkpoint stays visible after it pulses.', depth: 3, type: 'range', min: 120, max: 1600, step: 40, unit: 'ms', def: 800 },
-  { id: 'view_morph_snapshot_bias', section: 'Motion & Effects', name: 'View-morph snapshot bias', desc: 'During the crossfade between pages, whether the old or the new page holds the frame longer.', depth: 4, type: 'range', min: -100, max: 100, step: 5, unit: '%', def: 0 },
 
-  { id: 'graph_layout', section: 'Fleet Graph', name: 'Graph layout', desc: 'How the map of your agents arranges itself: balanced, tighter, or spread wide.', depth: 1, type: 'seg', options: ['balanced', 'compact', 'wide'], def: 'balanced' },
-  { id: 'agent_labels', section: 'Fleet Graph', name: 'Agent labels', desc: 'Keep each agent’s name visible on the map without zooming in.', depth: 1, type: 'toggle', def: true },
-  { id: 'group_by_machine', section: 'Fleet Graph', name: 'Group by machine', desc: 'Group agents on the map by the computer they run on.', depth: 1, type: 'toggle', def: true },
-  { id: 'link_detail', section: 'Fleet Graph', name: 'Link detail', desc: 'How much is written on the lines that connect agents to each other.', depth: 1, type: 'seg', options: ['quiet', 'full'], def: 'quiet' },
-  { id: 'edge_tension', section: 'Fleet Graph', name: 'Edge tension', desc: 'How curved the connecting lines between agents are drawn.', depth: 2, type: 'range', min: 0, max: 100, step: 1, unit: '%', def: 54 },
-  { id: 'collision_padding', section: 'Fleet Graph', name: 'Collision padding', desc: 'Extra breathing room kept between neighboring agents so they never touch.', depth: 2, type: 'stepper', min: 0, max: 48, step: 2, unit: 'px', def: 16 },
-  { id: 'tier_vertical_gain', section: 'Fleet Graph', name: 'Tier vertical gain', desc: 'The vertical distance between levels of the map, from managers down to their agents.', depth: 3, type: 'range', min: 70, max: 150, step: 2, unit: '%', def: 100 },
-  { id: 'leader_line_elbow_radius', section: 'Fleet Graph', name: 'Leader-line elbow radius', desc: 'How rounded the corner is where a label’s pointer line turns.', depth: 4, type: 'stepper', min: 0, max: 24, step: 1, unit: 'px', def: 6 },
-
-  { id: 'metrics_window', section: 'Metrics', name: 'Default time window', desc: 'The time span charts open with: the last hour, the last day, or the last week.', depth: 1, type: 'seg', options: [['1h', '1 h'], ['24h', '24 h'], ['7d', '7 d']], def: '24h' },
-  { id: 'metrics_auto_refresh', section: 'Metrics', name: 'Auto refresh', desc: 'Keep charts moving as new readings arrive in the demonstration.', depth: 1, type: 'toggle', def: true },
-  { id: 'zero_baseline', section: 'Metrics', name: 'Zero baselines', desc: 'Start chart scales at zero where possible, so bar and line sizes compare honestly.', depth: 1, type: 'toggle', def: true },
-  { id: 'unit_mode', section: 'Metrics', name: 'Unit mode', desc: 'How chart numbers are labelled: adaptive picks a handy unit, absolute shows the exact value, normalized shows relative scale.', depth: 2, type: 'select', options: ['adaptive', 'absolute', 'normalized'], def: 'adaptive' },
-  { id: 'anomaly_sensitivity', section: 'Metrics', name: 'Anomaly sensitivity', desc: 'How unusual a reading has to be before a chart highlights it.', depth: 2, type: 'range', min: 0, max: 100, step: 1, unit: '%', def: 62 },
-  { id: 'sankey_node_gap', section: 'Metrics', name: 'Sankey node gap', desc: 'The vertical gap between the blocks of the token-flow diagram (the Sankey chart).', depth: 3, type: 'stepper', min: 4, max: 40, step: 2, unit: 'px', def: 14 },
-  { id: 'heartbeat_trace_persistence', section: 'Metrics', name: 'Heartbeat trace persistence', desc: 'How long finished heartbeat blips stay visible on the rolling trace.', depth: 4, type: 'range', min: 5, max: 120, step: 5, unit: 's', def: 30 },
-
-  { id: 'thread_sort', section: 'Chat & Threads', name: 'Thread order', desc: 'Which conversations come first: the most recent, or the most important.', depth: 1, type: 'seg', options: ['recent', 'priority'], def: 'recent' },
-  { id: 'enter_to_send', section: 'Chat & Threads', name: 'Enter to send', desc: 'Press Enter to send a message; Shift+Enter starts a new line instead.', depth: 1, type: 'toggle', def: true },
-  { id: 'collapse_resolved', section: 'Chat & Threads', name: 'Collapse resolved threads', desc: 'Shrink finished conversations down to one quiet summary line.', depth: 1, type: 'toggle', def: true },
-  { id: 'thread_preview_lines', section: 'Chat & Threads', name: 'Thread preview lines', desc: 'How many recent lines you can see of a conversation before opening it.', depth: 2, type: 'stepper', min: 1, max: 8, step: 1, unit: 'lines', def: 3 },
-  { id: 'chat_timestamp_mode', section: 'Chat & Threads', name: 'Message timestamps', desc: 'How message times are shown inside a conversation: relative, clock time, or hidden.', depth: 2, type: 'select', options: ['relative', 'clock', 'hidden'], def: 'relative' },
-  { id: 'thread_memory_span', section: 'Chat & Threads', name: 'Thread memory span', desc: 'How much conversation history the demonstration keeps per thread (its context window).', depth: 3, type: 'range', min: 8, max: 128, step: 8, unit: 'k', def: 64 },
-  { id: 'chat_stream_cadence_jitter', section: 'Chat & Threads', name: 'Chat stream cadence jitter', desc: 'How unevenly the demonstration streams text in, to read like natural typing.', depth: 4, type: 'range', min: 0, max: 240, step: 10, unit: 'ms', def: 40 },
-
-  { id: 'board_mode', section: 'Comms Board', name: 'Default board mode', desc: 'Open the comms page as one single timeline, or as a board per channel.', depth: 1, type: 'seg', options: ['timeline', 'channels'], def: 'timeline' },
-  { id: 'pin_owner_messages', section: 'Comms Board', name: 'Pin owner messages', desc: 'Keep your own instructions pinned in view as new messages stream past.', depth: 1, type: 'toggle', def: true },
-  { id: 'show_machine_tags', section: 'Comms Board', name: 'Machine tags', desc: 'Show which computer each message came from, next to the message.', depth: 1, type: 'toggle', def: true },
-  { id: 'channel_density', section: 'Comms Board', name: 'Channel density', desc: 'How tightly packed the channel list on the left is.', depth: 2, type: 'seg', options: ['calm', 'dense'], def: 'calm' },
-  { id: 'packet_highlight', section: 'Comms Board', name: 'New-message highlight', desc: 'Flash a message briefly as it arrives on the board.', depth: 2, type: 'toggle', def: true },
-  { id: 'lane_arrival_hold', section: 'Comms Board', name: 'Arrival hold', desc: 'How long new activity stays highlighted before fading back to normal.', depth: 3, type: 'range', min: 0, max: 1600, step: 50, unit: 'ms', def: 450 },
-  { id: 'comms_queue_fairness', section: 'Comms Board', name: 'Queue fairness', desc: 'When several channels are equally busy, how evenly the demonstration spreads new messages between them (its fairness coefficient).', depth: 4, type: 'range', min: 0, max: 100, step: 1, unit: '%', def: 50 },
-
-  { id: 'ledger_register', section: 'Ledger', name: 'Open the ledger on', desc: 'Which list the ledger opens with: requests (R items) or questions (Q items).', depth: 1, type: 'seg', options: [['r', 'R items'], ['q', 'Q items']], def: 'r' },
-  { id: 'expand_evidence', section: 'Ledger', name: 'Expand evidence', desc: 'Show a record’s evidence line as soon as you open it, without a second click.', depth: 1, type: 'toggle', def: false },
-  { id: 'show_done', section: 'Ledger', name: 'Show completed items', desc: 'Keep finished requests visible in the list instead of hiding them.', depth: 1, type: 'toggle', def: true },
-  { id: 'ledger_age_format', section: 'Ledger', name: 'Age format', desc: 'How a request’s age is shown: elapsed time (“3 h”), the exact time it was claimed, or both.', depth: 2, type: 'select', options: ['elapsed', 'claimed-at', 'both'], def: 'elapsed' },
-  { id: 'root_rollup', section: 'Ledger', name: 'Root rollups', desc: 'On a request that was split into sub-items, show a summary of how the sub-items are doing.', depth: 2, type: 'toggle', def: true },
-  { id: 'gate_signal_hold', section: 'Ledger', name: 'Gate signal hold', desc: 'How long a request keeps its “gated” emphasis after the gate changes state.', depth: 3, type: 'range', min: 0, max: 24, step: 1, unit: 'h', def: 4 },
-  { id: 'collision_row_hysteresis', section: 'Ledger', name: 'Collision-row hysteresis', desc: 'How close a row’s columns may get before it re-arranges itself — the wait (hysteresis) stops flickering.', depth: 4, type: 'range', min: 0, max: 32, step: 1, unit: 'px', def: 8 },
   { id: 'ledger_archive', section: 'Ledger', name: 'Clean up old R', desc: 'The first click only shows which completed or superseded requests would be archived. A second click moves exactly that list into the archive — nothing is moved without the preview.', depth: 1, type: 'action', def: null },
 
-  { id: 'power_profile', section: 'Performance', name: 'Power profile', desc: 'Trade snappiness against battery and background work.', depth: 1, type: 'seg', options: ['balanced', 'quiet'], def: 'balanced' },
-  { id: 'chart_quality', section: 'Performance', name: 'Chart quality', desc: 'How finely charts are drawn. High looks sharper and uses more battery.', depth: 1, type: 'seg', options: ['standard', 'high'], def: 'standard' },
-  { id: 'background_updates', section: 'Performance', name: 'Background updates', desc: 'Let pages you are not looking at keep their demonstration data ticking.', depth: 1, type: 'toggle', def: true },
-  { id: 'graph_frame_cap', section: 'Performance', name: 'Graph frame cap', desc: 'Cap how many frames per second the agent map animates at.', depth: 2, type: 'select', options: [['30', '30 fps'], ['60', '60 fps'], ['auto', 'Adaptive']], def: 'auto' },
-  { id: 'data_history', section: 'Performance', name: 'In-memory history', desc: 'How many minutes of demonstration samples the open charts keep in memory.', depth: 2, type: 'range', min: 5, max: 120, step: 5, unit: 'min', def: 30 },
-  { id: 'reflow_debounce', section: 'Performance', name: 'Reflow debounce', desc: 'How long the layout waits during rapid window resizing before refitting itself.', depth: 3, type: 'stepper', min: 0, max: 240, step: 10, unit: 'ms', def: 40 },
-  { id: 'layer_promotion_threshold', section: 'Performance', name: 'Layer-promotion threshold', desc: 'How many moving things it takes before a panel gets its own graphics layer (a rendering optimization).', depth: 4, type: 'stepper', min: 1, max: 64, step: 1, unit: 'nodes', def: 12 },
-
   { id: 'scenario_tick_rate', section: 'Data & Sim', name: 'Demonstration speed', desc: 'How fast the demonstration fleet generates new activity (its scenario tick rate).', depth: 1, type: 'range', min: 30, max: 300, step: 5, unit: '%', def: 100 },
-  { id: 'seed_mode', section: 'Data & Sim', name: 'Seed mode', desc: 'Whether the demonstration replays the same history every time (stable) or varies it (varied).', depth: 1, type: 'seg', options: ['stable', 'varied'], def: 'stable' },
-  { id: 'retain_samples', section: 'Data & Sim', name: 'Retain samples on navigation', desc: 'Keep a page’s demonstration data when you navigate away and come back.', depth: 1, type: 'toggle', def: true },
   /* 'offline_fallback' was removed 2026-08-13 rather than left as a row: it was
      declared here and read by NOTHING in the tree, so the toggle moved and
      changed no behavior — a control that looks real and is not, the exact
@@ -224,30 +232,24 @@ export const SETTINGS = [
     type: 'toggle',
     def: true,
   })),
-  { id: 'event_variance', section: 'Data & Sim', name: 'Event variance', desc: 'How bursty the demonstration workload looks: steady, or arriving in waves.', depth: 2, type: 'range', min: 0, max: 100, step: 1, unit: '%', def: 35 },
   /* "Synthetic failure rate" was a name written from inside the code. Nothing a
      person owns is synthetic, and the row is about the built-in example. */
-  { id: 'failure_rate', section: 'Data & Sim', name: 'Practice problems', desc: 'How often the demonstration shows a problem it recovers from, as a percentage. It is there so the screens have something to show.', depth: 2, type: 'range', min: 0, max: 20, step: 1, unit: '%', def: 3 },
-  { id: 'sample_bucket', section: 'Data & Sim', name: 'Sample bucket width', desc: 'How many seconds of raw demonstration ticks are grouped into one chart point.', depth: 3, type: 'stepper', min: 1, max: 60, step: 1, unit: 's', def: 5 },
-  { id: 'sim_worker_tick_bias', section: 'Data & Sim', name: 'Sim worker tick bias', desc: 'Whether the demonstration favors the freshest data or does more work per batch.', depth: 4, type: 'range', min: -100, max: 100, step: 5, unit: '%', def: 0 },
 
+  /* The shipped-default sentence moved off the description and into the row's
+     STATE line (toggleStateSentence), because here it contradicted the switch:
+     driven tonight, a row reading ON carried "This ships switched off" as its
+     first claim, and the reader believed the sentence over the switch. The
+     state line says the current truth first and the shipped default after. */
   ...WRITE_ACTION_FLAGS.map(flag => ({
     id: `write_${flag.id}`,
     section: 'Write',
     name: flag.label,
-    desc: `${flag.description} This ships switched off; nothing acts until you turn it on.`,
+    desc: flag.description,
     depth: ['dispatch', 'report-read'].includes(flag.id) ? 1 : 2,
     type: 'toggle',
     def: false,
   })),
 
-  { id: 'diagnostic_labels', section: 'Developer', name: 'Diagnostic labels', desc: 'Show small internal component names beside live surfaces, useful for reporting a problem precisely.', depth: 1, type: 'toggle', def: false },
-  { id: 'log_level', section: 'Developer', name: 'Console detail', desc: 'How much diagnostic detail the demonstration writes to the console.', depth: 1, type: 'seg', options: ['quiet', 'normal', 'verbose'], def: 'normal' },
-  { id: 'copy_ids', section: 'Developer', name: 'Copy stable identifiers', desc: 'When you copy a row, agent, or channel, copy its permanent ID rather than its display name.', depth: 1, type: 'toggle', def: true },
-  { id: 'expose_timings', section: 'Developer', name: 'Expose render timings', desc: 'Show how long each screen took to draw, in development-only readouts.', depth: 2, type: 'toggle', def: false },
-  { id: 'mock_failures', section: 'Developer', name: 'Show practice problems', desc: 'Let a pretend problem appear on a screen that is actually healthy, so you can see what this program does when something goes wrong.', depth: 2, type: 'toggle', def: false },
-  { id: 'observer_budget', section: 'Developer', name: 'Observer callback budget', desc: 'The soft time limit for one internal resize or layout callback, in milliseconds.', depth: 3, type: 'stepper', min: 1, max: 24, step: 1, unit: 'ms', def: 8 },
-  { id: 'tier_guide_hairline_alpha', section: 'Developer', name: 'Tier-guide hairline alpha', desc: 'How faint the thin guide lines between the map’s levels are (their alpha).', depth: 4, type: 'range', min: 1, max: 20, step: 1, unit: '%', def: 7 },
 ]
 
 const byId = new Map(SETTINGS.map(setting => [setting.id, setting]))
@@ -391,15 +393,57 @@ function searchHaystack(setting) {
   ].join(' ').toLowerCase()
 }
 
+/* WHERE A ROW'S GUIDANCE CAN SEND YOU: the thing the switch actually gates.
+ * One press instead of "read the name, work out which page, walk the ring".
+ * Only rows whose gated surface has a stable address get a link; the agent
+ * drill-ins have no fixed page to name, so their rows carry none rather than
+ * a link that lands somewhere the control is not. */
+const JUMP_TARGETS = new Map([
+  ...LIVE_VIEW_FLAGS.filter(flag => flag.id !== 'agent').map(flag => [
+    `live_${flag.id}`,
+    { href: flag.id === 'home' ? '#/' : `#/${flag.id}`, label: `Open the ${flag.label.toLowerCase()}` },
+  ]),
+  ['write_dispatch', { href: '#/computers', label: 'Open the page that shows this control' }],
+  ['write_decision', { href: '#/ledger', label: 'Open the ledger this controls' }],
+  ['write_queue', { href: '#/ledger', label: 'Open the ledger this controls' }],
+  ['write_thread-reply', { href: '#/', label: 'Open the first page, where replies go' }],
+])
+
+function jumpMarkup(setting) {
+  const target = JUMP_TARGETS.get(setting.id)
+  if (!target) return ''
+  return `<a class="settings-jump" href="${escapeHtml(target.href)}">${escapeHtml(target.label)}</a>`
+}
+
+/* The truth-first sentence beside a switch. Toggles only: every other control
+   shows its current value in its own body (the lit option, the number). */
+function stateMarkup(setting) {
+  if (setting.type !== 'toggle') return ''
+  const sentence = toggleStateSentence({
+    value: Boolean(readValue(setting)),
+    def: setting.def,
+    acts: writeSettingActions.has(setting.id),
+  })
+  return `<div class="settings-state" data-setting-state>${escapeHtml(sentence)}</div>`
+}
+
+/* ONE ROW ANATOMY, IN ONE ORDER: name — state sentence — description — control
+ * — disclosure. The disclosure is a grid row of its OWN, under both columns,
+ * because it used to live beside the control with the row centre-aligned:
+ * opening it grew the copy column and slid the control 14 to 81px under the
+ * pointer mid-press (measured tonight on the driven build). Below the control,
+ * opening it moves nothing a pointer is over. */
 function rowMarkup(setting, searchResult = false) {
   return `<article class="settings-row ${setting.depth === 4 ? 'is-engineer' : ''}" data-setting-id="${setting.id}">
     <div class="settings-copy">
       ${searchResult ? `<div class="settings-prefix">${escapeHtml(setting.section)} · depth ${setting.depth}</div>` : ''}
       <div class="settings-name" id="setting-label-${setting.id}">${escapeHtml(setting.name)}</div>
+      ${stateMarkup(setting)}
       <div class="settings-desc" data-setting-message>${escapeHtml(setting.desc)}</div>
-      ${guidanceMarkup(setting.id, { section: setting.section, probe })}
+      ${jumpMarkup(setting)}
     </div>
     <div class="settings-control">${controlMarkup(setting)}</div>
+    <div class="settings-disclosure">${guidanceMarkup(setting.id, { section: setting.section, probe })}</div>
   </article>`
 }
 
@@ -445,6 +489,41 @@ function sectionNoteMarkup(section) {
     <a class="host-absent-action" href="${escapeHtml(note.link.href)}">${escapeHtml(note.link.label)}</a></p>`
 }
 
+/* THE TWO SECTION-LEVEL ONE-PRESS CONTROLS, AND THE ASYMMETRY BETWEEN THEM.
+ *
+ * Data & Sim's switches are genuinely independent screen-source toggles: both
+ * directions are equally honest (the example is labelled as an example), so
+ * both directions get one press. Write's switches each let the program ACT,
+ * and the product deliberately asks for each grant one row at a time -- the
+ * walkthrough's one-answer bulk grant is the sanctioned path, with its
+ * consequences stated. So Write gets ONE press for the safe direction only:
+ * off. There is deliberately no "turn everything on" press here. */
+const BULK_ROWS = Object.freeze({
+  'Data & Sim': `<article class="settings-row settings-bulk-row">
+    <div class="settings-copy">
+      <div class="settings-name" id="settings-bulk-live-label">Every screen at once</div>
+      <div class="settings-desc">One press sets every switch in this section together. Each switch below stays its own afterwards.</div>
+    </div>
+    <div class="settings-control">
+      <div class="fleet-profile-actions" role="group" aria-labelledby="settings-bulk-live-label">
+        <button type="button" class="ctl-btn" data-bulk-live="on">All live</button>
+        <button type="button" class="ctl-btn" data-bulk-live="off">All examples</button>
+      </div>
+    </div>
+  </article>`,
+  Write: `<article class="settings-row settings-bulk-row">
+    <div class="settings-copy">
+      <div class="settings-name" id="settings-bulk-write-label">Everything off, in one press</div>
+      <div class="settings-desc">Turns every switch in this section off, including the ones under the reveals below. Turning things ON stays one row at a time, so nothing acts without its own choice.</div>
+    </div>
+    <div class="settings-control">
+      <div class="fleet-profile-actions" role="group" aria-labelledby="settings-bulk-write-label">
+        <button type="button" class="ctl-btn" data-bulk-write-off>Turn everything off</button>
+      </div>
+    </div>
+  </article>`,
+})
+
 function sectionMarkup(section, level) {
   const items = SETTINGS.filter(setting => setting.section === section)
   const at = depth => items.filter(setting => setting.depth === depth)
@@ -466,6 +545,7 @@ function sectionMarkup(section, level) {
   return `<section class="settings-section" data-settings-section="${escapeHtml(section)}">
     <h2 class="settings-section-title">${escapeHtml(section)}</h2>
     ${sectionNoteMarkup(section)}
+    ${BULK_ROWS[section] || ''}
     <div class="settings-section-rows">${at(1).map(setting => rowMarkup(setting)).join('')}</div>
     ${revealMarkup(section, 2, hidden, '', level >= 2)}
     ${depth2}
@@ -489,10 +569,57 @@ function setTierFocusable(tier, open) {
   }
 }
 
-export function settingsView() {
+/**
+ * The one row a link asked for, or null.
+ *
+ * A LINK MAY NAME A SWITCH, AND ONLY A SWITCH THIS PAGE HAS. The id arrives off
+ * the address bar, so it is looked up in this page's own table and anything
+ * else is ignored -- an unknown id lands the person at the top of Settings,
+ * which is exactly where they landed before this existed, rather than throwing
+ * an error at somebody who followed a link.
+ */
+function requestedSetting(query) {
+  const id = query && typeof query.get === 'function' ? query.get('setting') : null
+  if (typeof id !== 'string' || id.length === 0) return null
+  /* THE RESEARCH ROWS ARE LANDABLE TOO, and this is the half that makes the
+     research page's sentence true. That page sends a person here for the switch
+     that decides whether anything runs; landing needs a section and a depth, and
+     these four are not in SETTINGS because they are not this window's own
+     preferences. They render at the top of their section, so depth 1 is what
+     they are, and the row itself carries data-setting-id like every other row,
+     which is what markLanding and scrollToLanding look for. */
+  if (PRODUCT_SETTING_IDS.includes(id)) return { id, section: RESEARCH_SECTION, depth: 1 }
+  return byId.get(id) || null
+}
+
+/* NOT NAMED `query`: this view already has a local `query` holding what is
+   typed in the search box, and a parameter of the same name is a redeclaration
+   the module would not even parse. */
+export function settingsView({ query: routeQuery = null } = {}) {
+  const landing = requestedSetting(routeQuery)
+  /* WHICH GROUPS ARE OPEN, remembered across visits and restarts, and decided
+     in src/settings-presentation.js so a node test can hold the rule still.
+     Returning: exactly what this person last left open. Following a link: that
+     row's group as well. ARRIVING with no posture at all: the group holding
+     sign-in, because a first visit used to render six headings and zero
+     controls -- measured, with the only door to #/account 0x0 inside it. None
+     of the three writes anything; arriving is not a filing decision. */
+  const openGroups = groupsOpenOnArrival(globalThis.localStorage, landing ? landing.section : null)
   const profileController = createFleetProfileSettings()
   const setupController = createSetupProfileSettings()
   const chatboxController = createChatboxSettings()
+  const researchController = createResearchSettings()
+  /* The rail is the same two levels the page is: six group lines, and the
+     familiar seventeen category buttons nested under whichever are open. */
+  const railMarkup = () => SETTINGS_GROUPS.map(group => {
+    const open = openGroups.has(group.id)
+    return `<div class="settings-rail-group ${open ? 'is-open' : ''}" data-rail-group-wrap="${escapeHtml(group.id)}">
+      <button type="button" class="settings-rail-head" data-rail-group="${escapeHtml(group.id)}" aria-expanded="${open ? 'true' : 'false'}">${escapeHtml(group.label)}</button>
+      <div class="settings-rail-sections" ${open ? '' : 'hidden'}>
+        ${group.sections.map(section => `<button type="button" data-category="${escapeHtml(section)}">${escapeHtml(section)}</button>`).join('')}
+      </div>
+    </div>`
+  }).join('')
   const root = el(`<main class="view-pad settings-page">
     <div class="settings-shell">
       <header class="settings-header m-head">
@@ -501,9 +628,7 @@ export function settingsView() {
         <label class="settings-search"><span class="settings-sr-only">Search all settings</span><input type="search" placeholder="search all settings" autocomplete="off" spellcheck="false"/></label>
       </header>
       <div class="settings-layout">
-        <nav class="settings-rail" aria-label="Settings categories">
-          ${SECTIONS.map((section, index) => `<button type="button" data-category="${escapeHtml(section)}" class="${index === 0 ? 'is-active' : ''}" ${index === 0 ? 'aria-current="location"' : ''}>${escapeHtml(section)}</button>`).join('')}
-        </nav>
+        <nav class="settings-rail" aria-label="Settings categories">${railMarkup()}</nav>
         <div class="settings-main">
           <div class="settings-sections" aria-live="polite"></div>
           <p class="settings-footer"></p>
@@ -557,13 +682,18 @@ export function settingsView() {
     profileController.afterRender(root)
     setupController.afterRender(root)
     chatboxController.afterRender(root)
+    researchController.afterRender(root)
   }
 
   function updateFooter() {
-    footer.textContent = `${SETTINGS.length + FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT + CHATBOX_SETTING_COUNT} settings · ${shown} shown · search finds the hidden ones too`
+    footer.textContent = `${SETTINGS.length + FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT + CHATBOX_SETTING_COUNT + RESEARCH_SETTING_COUNT} settings · ${shown} shown · search finds the hidden ones too`
   }
 
   function syncRail() {
+    const activeGroup = groupOfSection(activeSection)
+    for (const head of rail.querySelectorAll('button[data-rail-group]')) {
+      head.classList.toggle('is-active', activeGroup?.id === head.dataset.railGroup)
+    }
     for (const button of rail.querySelectorAll('button[data-category]')) {
       const on = button.dataset.category === activeSection
       button.classList.toggle('is-active', on)
@@ -574,21 +704,94 @@ export function settingsView() {
 
   function sectionNodeMarkup(section) {
     if (section === CHATBOX_SECTION) return chatboxController.markup()
+    if (section === RESEARCH_SECTION) return researchController.markup()
     if (section === 'System') return profileController.markup()
     if (section === 'Setup') return setupController.markup()
     return sectionMarkup(section, levels.get(section))
   }
 
+  /* How many rows a person can currently see: rows in open groups, at each
+     section's revealed depth. A closed group's rows are counted by the total
+     and found by search, exactly as the footer sentence says. */
+  function sectionShownCount(section) {
+    if (section === CHATBOX_SECTION) return CHATBOX_SETTING_COUNT
+    if (section === RESEARCH_SECTION) return RESEARCH_SETTING_COUNT
+    if (section === 'System') return FLEET_PROFILE_SETTING_COUNT
+    if (section === 'Setup') return SETUP_PROFILE_SETTING_COUNT
+    return SETTINGS.filter(setting => setting.section === section && setting.depth <= levels.get(section)).length
+  }
+
+  function countShown() {
+    return SECTIONS.reduce((total, section) => {
+      const group = groupOfSection(section)
+      return group && !openGroups.has(group.id) ? total : total + sectionShownCount(section)
+    }, 0)
+  }
+
+  /* One nest level above the sections. `hidden` on the body is the guard: a
+     closed group's controls are out of the layout, the tab order and the
+     accessibility tree at once, which is what the tier machinery needs three
+     attributes to do -- there is nothing animated here to compensate for. */
+  function groupMarkup(group) {
+    const open = openGroups.has(group.id)
+    return `<section class="settings-group ${open ? 'is-open' : ''}" data-settings-group="${escapeHtml(group.id)}">
+      <button type="button" class="settings-group-head" data-group-toggle="${escapeHtml(group.id)}" aria-expanded="${open ? 'true' : 'false'}" aria-controls="settings-group-${escapeHtml(group.id)}">
+        <span class="settings-group-name">${escapeHtml(group.label)}<span class="settings-reveal-glyph" aria-hidden="true">${open ? '⌃' : '⌄'}</span></span>
+        <span class="settings-group-detail">${escapeHtml(group.detail)}</span>
+        <span class="settings-group-list">${group.sections.map(section => escapeHtml(section)).join(' · ')}</span>
+      </button>
+      <div class="settings-group-body" id="settings-group-${escapeHtml(group.id)}" ${open ? '' : 'hidden'}>
+        ${group.sections.map(sectionNodeMarkup).join('')}
+      </div>
+    </section>`
+  }
+
+  function syncGroups() {
+    for (const groupNode of sectionsNode.querySelectorAll('.settings-group')) {
+      const id = groupNode.dataset.settingsGroup
+      const open = openGroups.has(id)
+      groupNode.classList.toggle('is-open', open)
+      const head = groupNode.querySelector('[data-group-toggle]')
+      if (head) {
+        head.setAttribute('aria-expanded', open ? 'true' : 'false')
+        const glyph = head.querySelector('.settings-reveal-glyph')
+        if (glyph) glyph.textContent = open ? '⌃' : '⌄'
+      }
+      const body = groupNode.querySelector('.settings-group-body')
+      if (body) body.hidden = !open
+    }
+    for (const wrap of rail.querySelectorAll('[data-rail-group-wrap]')) {
+      const open = openGroups.has(wrap.dataset.railGroupWrap)
+      wrap.classList.toggle('is-open', open)
+      wrap.querySelector('[data-rail-group]')?.setAttribute('aria-expanded', open ? 'true' : 'false')
+      const list = wrap.querySelector('.settings-rail-sections')
+      if (list) list.hidden = !open
+    }
+    shown = countShown()
+    updateFooter()
+  }
+
+  function setGroupOpen(id, open, { remember = true } = {}) {
+    if (open) openGroups.add(id)
+    else openGroups.delete(id)
+    if (remember) writeOpenGroups(openGroups, globalThis.localStorage)
+    syncGroups()
+  }
+
   function renderSectioned() {
-    sectionsNode.innerHTML = SECTIONS.map(sectionNodeMarkup).join('')
-    shown = FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT + CHATBOX_SETTING_COUNT
-      + SETTINGS.filter(setting => setting.depth <= levels.get(setting.section)).length
+    const grouped = new Set(SETTINGS_GROUPS.flatMap(group => group.sections))
+    /* A section the group model does not know renders ungrouped at the end
+       rather than vanishing; the presentation suite keeps this branch empty. */
+    sectionsNode.innerHTML = SETTINGS_GROUPS.map(groupMarkup).join('')
+      + SECTIONS.filter(section => !grouped.has(section)).map(sectionNodeMarkup).join('')
+    shown = countShown()
     // `inert` is the primary guard; the explicit tabindex pass keeps closed
     // tiers unreachable in older engines while preserving the CSS reveal.
     for (const section of SECTIONS) syncSectionDepth(section)
     wireControls()
     updateFooter()
     syncRail()
+    markLanding()
   }
 
   function renderSearch() {
@@ -601,18 +804,21 @@ export function settingsView() {
     const profileMatches = profileController.matches(normalized)
     const setupMatches = setupController.matches(normalized)
     const chatboxMatches = chatboxController.matches(normalized)
+    const researchMatches = researchController.matches(normalized)
     sectionsNode.innerHTML = `<section class="settings-results">
       <h2 class="settings-section-title">Results</h2>
       ${chatboxMatches ? chatboxController.markup({ searchResult: true }) : ''}
+      ${researchMatches ? researchController.markup({ searchResult: true }) : ''}
       ${profileMatches ? profileController.markup({ searchResult: true }) : ''}
       ${setupMatches ? setupController.markup({ searchResult: true }) : ''}
       ${matches.map(setting => rowMarkup(setting, true)).join('')}
-      ${profileMatches || setupMatches || chatboxMatches || matches.length ? '' : '<p class="settings-empty">No settings match this search.</p>'}
+      ${profileMatches || setupMatches || chatboxMatches || researchMatches || matches.length ? '' : '<p class="settings-empty">No settings match this search.</p>'}
     </section>`
     shown = matches.length
       + (profileMatches ? FLEET_PROFILE_SETTING_COUNT : 0)
       + (setupMatches ? SETUP_PROFILE_SETTING_COUNT : 0)
       + (chatboxMatches ? CHATBOX_SETTING_COUNT : 0)
+      + (researchMatches ? RESEARCH_SETTING_COUNT : 0)
     wireControls()
     updateFooter()
   }
@@ -633,6 +839,16 @@ export function settingsView() {
       }
       const checkbox = row.querySelector('.settings-toggle input')
       if (checkbox) checkbox.checked = Boolean(value)
+      /* The state sentence moves with the switch, in the same frame, so the
+         two can never be read disagreeing. */
+      const stateNode = row.querySelector('[data-setting-state]')
+      if (stateNode && setting.type === 'toggle') {
+        stateNode.textContent = toggleStateSentence({
+          value: Boolean(value),
+          def: setting.def,
+          acts: writeSettingActions.has(setting.id),
+        })
+      }
       const range = row.querySelector('input[type="range"]')
       if (range) {
         range.value = value
@@ -665,6 +881,9 @@ export function settingsView() {
       setDrawerSegment('#text-seg', 'text', value)
     } else if (setting.id === 'glow') {
       const number = clampNumber(setting, value)
+      /* WRITTEN DOWN, NOT ONLY APPLIED. Without this the slider moved, the page
+         changed, and the choice was gone at the next launch. */
+      rememberAppearance(GLOW_SETTING_ID, number)
       document.documentElement.style.setProperty('--glow', String(number / 100))
       const drawerRange = document.getElementById('set-glow')
       if (drawerRange) {
@@ -675,6 +894,7 @@ export function settingsView() {
       value = number
     } else if (setting.id === 'reduce_motion') {
       value = Boolean(value)
+      rememberAppearance(REDUCE_MOTION_SETTING_ID, value)
       document.body.classList.toggle('reduce-motion', value)
       const drawerToggle = document.getElementById('set-motion')
       if (drawerToggle) drawerToggle.checked = value
@@ -713,8 +933,7 @@ export function settingsView() {
       button.setAttribute('aria-expanded', open ? 'true' : 'false')
       button.innerHTML = revealInner(prefix, count, open)
     }
-    shown = FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT + CHATBOX_SETTING_COUNT
-      + SETTINGS.filter(setting => setting.depth <= levels.get(setting.section)).length
+    shown = countShown()
     updateFooter()
   }
 
@@ -729,6 +948,27 @@ export function settingsView() {
   }
 
   sectionsNode.addEventListener('click', event => {
+    const groupHead = event.target.closest('button[data-group-toggle]')
+    if (groupHead) {
+      const id = groupHead.dataset.groupToggle
+      setGroupOpen(id, !openGroups.has(id))
+      return
+    }
+
+    /* The two one-press section controls. Each goes through applyValue, the
+       same door every individual switch uses, so the write, the store and the
+       row repaint are exactly what a row-by-row walk would have done. */
+    const bulkLive = event.target.closest('button[data-bulk-live]')
+    if (bulkLive) {
+      const live = bulkLive.dataset.bulkLive === 'on'
+      for (const flag of LIVE_VIEW_FLAGS) applyValue(byId.get(`live_${flag.id}`), live)
+      return
+    }
+    if (event.target.closest('button[data-bulk-write-off]')) {
+      for (const flag of WRITE_ACTION_FLAGS) applyValue(byId.get(`write_${flag.id}`), false)
+      return
+    }
+
     const archiveButton = event.target.closest('button[data-setting-action="ledger-archive"]')
     if (archiveButton) {
       archiveController.click()
@@ -780,9 +1020,35 @@ export function settingsView() {
   })
 
   rail.addEventListener('click', event => {
+    const scrollBehavior = () => document.body.classList.contains('reduce-motion') ? 'auto' : 'smooth'
+    const head = event.target.closest('button[data-rail-group]')
+    if (head) {
+      const id = head.dataset.railGroup
+      const opening = !openGroups.has(id)
+      if (query.trim()) {
+        query = ''
+        searchInput.value = ''
+        renderSectioned()
+      }
+      setGroupOpen(id, opening)
+      if (opening) {
+        const group = SETTINGS_GROUPS.find(candidate => candidate.id === id)
+        if (group) activeSection = group.sections[0]
+        syncRail()
+        requestAnimationFrame(() => {
+          sectionsNode.querySelector(`.settings-group[data-settings-group="${id}"]`)
+            ?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
+        })
+      }
+      return
+    }
     const button = event.target.closest('button[data-category]')
     if (!button) return
     activeSection = button.dataset.category
+    /* A category press is a statement of destination: its group opens if it
+       was closed, so the press always lands somewhere rather than nowhere. */
+    const group = groupOfSection(activeSection)
+    if (group && !openGroups.has(group.id)) setGroupOpen(group.id, true)
     syncRail()
     if (query.trim()) {
       query = ''
@@ -792,16 +1058,48 @@ export function settingsView() {
     requestAnimationFrame(() => {
       const section = [...sectionsNode.querySelectorAll('.settings-section')]
         .find(node => node.dataset.settingsSection === activeSection)
-      section?.scrollIntoView({ behavior: document.body.classList.contains('reduce-motion') ? 'auto' : 'smooth', block: 'start' })
+      section?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
     })
   })
+
+  /* The row a link named, marked so the eye finds it. Re-applied on every
+     render rather than only on the first, because the capability probes answer
+     a second or two after this page paints and re-render it -- without this the
+     mark a person was following vanished under them. */
+  function markLanding() {
+    if (!landing) return
+    const row = sectionsNode.querySelector(`[data-setting-id="${landing.id}"]`)
+    if (row) row.classList.add('is-landed')
+  }
+
+  /* INSTANT, NOT SMOOTH, and that is a decision rather than an oversight. The
+     row this lands on measured 10170px down the page; a smooth scroll over that
+     distance is a long animated journey past two hundred controls, which reads
+     as the page running away from the person who followed the link. Arriving is
+     what was asked for. */
+  function scrollToLanding() {
+    if (!landing) return
+    requestAnimationFrame(() => {
+      const row = sectionsNode.querySelector(`[data-setting-id="${landing.id}"]`)
+      if (!row) return
+      row.scrollIntoView({ behavior: 'auto', block: 'center' })
+      /* Focus goes to the CONTROL, so somebody who followed the link with the
+         keyboard arrives on the switch itself and can press space. preventScroll
+         because the line above is what decides where the page sits; letting
+         focus scroll as well moves the row off centre again. */
+      const control = row.querySelector('input, select, button')
+      control?.focus?.({ preventScroll: true })
+    })
+  }
 
   function updateActiveFromScroll() {
     scrollFrame = 0
     if (query.trim()) return
     const top = root.getBoundingClientRect().top + 48
-    let next = SECTIONS[0]
+    let next = activeSection
     for (const section of sectionsNode.querySelectorAll('.settings-section')) {
+      /* A section inside a closed group has no box; it must not win. */
+      if (section.closest('.settings-group-body[hidden]')) continue
       if (section.getBoundingClientRect().top <= top) next = section.dataset.settingsSection
       else break
     }
@@ -844,7 +1142,29 @@ export function settingsView() {
      on the page, which is exactly what made it look like it had worked. */
   setupController.bind(root)
   chatboxController.bind(root)
+  researchController.bind(root)
+
+  /* LANDING ON THE SWITCH A LINK NAMED, and the reason this is more than a
+     scroll.
+     MEASURED on the packaged build, following "Turn on agent sessions in
+     Settings" from the home screen with a real mouse press: the row it means
+     (write_agent-session, "Run an agent session") sat at y=10170 in a 946px
+     viewport AND inside a collapsed depth-2 tier carrying `inert`. So it was
+     not merely below the fold -- no amount of scrolling reached it, because the
+     tier it lives in renders closed and `inert` removes it from hit testing and
+     from the tab order. A person who followed that link had to know to open the
+     "Write" section's reveal first, which is the one thing the link did not
+     say.
+     So the section is opened to the depth the row lives at BEFORE the first
+     render, which is what makes the row exist un-inert at all, and the scroll
+     happens after. Both halves are required; either alone leaves the link
+     landing somewhere the control is not. */
+  if (landing) {
+    activeSection = landing.section
+    levels.set(landing.section, Math.max(levels.get(landing.section) || 1, landing.depth))
+  }
   renderSectioned()
+  if (landing) scrollToLanding()
   void refreshCapabilityProbes()
 
   return {
@@ -855,6 +1175,7 @@ export function settingsView() {
       profileController.destroy()
       setupController.destroy()
       chatboxController.destroy()
+      researchController.destroy()
       if (scrollFrame) cancelAnimationFrame(scrollFrame)
       window.removeEventListener(QUICK_SETTING_EVENT, onQuickSetting)
       window.removeEventListener(CAPABILITY_PROBE_EVENT, onCapabilityProbes)
@@ -869,4 +1190,31 @@ export function settingsView() {
 export function applyStoredSimPace() {
   const setting = byId.get('scenario_tick_rate')
   if (setting) sim.setPace(Number(readStored(setting)) / 100)
+}
+
+/* GLOW AND REDUCE MOTION, THE BOOT HALF AND THE DRAWER HALF.
+ *
+ * Called once at launch (src/main.js) and it does two things. It puts back
+ * whatever was stored, which is what makes the two rows behave like the other
+ * ninety-eight. And it listens for the gear drawer applying either of them,
+ * because that drawer is on every page and applied both directly: the settings
+ * page is only one of the two places a person meets these controls, and the
+ * other one is the common one.
+ *
+ * The drawer already announces what it applied so an open settings PAGE can
+ * re-sync its rows; this listens to the same announcement and writes it down.
+ * Nothing here touches the document -- the surface that announced has already
+ * applied the value -- so there is no second opinion about what is on screen.
+ */
+export function applyStoredAppearance() {
+  const applied = applyAppearance()
+  if (typeof window !== 'undefined') {
+    window.addEventListener(QUICK_SETTING_EVENT, event => {
+      const id = event?.detail?.settingId
+      if (id === GLOW_SETTING_ID || id === REDUCE_MOTION_SETTING_ID) {
+        rememberAppearance(id, event.detail?.value)
+      }
+    })
+  }
+  return applied
 }

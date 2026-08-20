@@ -25,10 +25,49 @@ import { sim, fmtRuntime } from '../sim.js'
 import { ROLES, POOLS, PROVIDERS } from '../vocab.js'
 import { el, sparkline, makeTooltip, bindRuntime, attachSeg } from '../components.js'
 import { buildTheme } from '../echarts-theme.js'
-import { createCharts, createLiveUsageSankey } from '../metrics-charts.js'
+/* THE DEMONSTRATION'S EIGHT INSTRUMENTS. This module's option builders read the
+   simulated dataset, so nothing from it may reach a measured panel -- which is
+   why the measured charts are built by a different module below rather than by
+   adding a branch in here. createLiveUsageSankey stays unimported for the same
+   reason it always did: one door per face. */
+import { createCharts } from '../metrics-charts.js'
+/* THE CHARTS ON THE MEASURED FACE, and they live in their own file on purpose.
+   ../metrics-live-charts.js can see this computer's readings and the design
+   tokens and NOTHING ELSE -- no import of an import of it reaches ../sim.js,
+   ../vocab.js, ../fleet-profile.js or ../metrics-charts.js, and a test walks that
+   graph on every run. Its option builders stamp a private mark that its own
+   draw() checks, so a demonstration option handed to a measured panel raises an
+   exception instead of drawing a plausible picture. That fence is what makes it
+   safe for this page to have charts on both faces at last. */
+import {
+  activityMatrix, activityOption, burnOption, createLiveCharts, liveWindow,
+  outcomeOption, refusalOption, routingFlows, routingOption,
+  tokenBandOption, tokenBands, turnCounts, turnStripOption, turnsInWindow,
+} from '../metrics-live-charts.js'
 import { createMetricsLayout } from '../metrics-layout.js'
 import { isLiveView, setLiveView } from '../live-flags.js'
 import { fetchMetrics } from '../live-status.js'
+/* WHERE THE LIVE NUMBERS ON THIS PAGE COME FROM NOW.
+   The metrics projection is a BUILD-TIME file: tools/gen-metrics.mjs reads the
+   builder's own checkout, so every installed copy ships it unavailable and
+   nothing on a customer's machine ever rewrites it. This page therefore read a
+   refusal on every tile, for ever, on every install -- the owner hit it himself
+   and asked whether it was his account. It was not. ../local-metrics.js reads
+   the record this computer actually keeps: the signed, hash-chained ledger of
+   every agent session this app has started. The projection is still read, and
+   still owns the token-routing panel on a copy that genuinely has a measured
+   usage reading; it no longer decides whether the page has anything to say. */
+import {
+  LOCAL_METRICS_COPY,
+  LOCAL_USAGE_COPY,
+  UNMEASURED,
+  describeLocalMetrics,
+  readLocalRuns,
+  readLocalUsage,
+} from '../local-metrics.js'
+/* The join that turns a session id into the agent a person named. See
+   src/session-roles.js for why it is not inside local-metrics.js. */
+import { readSessionRoles } from '../session-roles.js'
 /* Metrics is one of the four screens src/first-run-needs.js names as
    permanently empty on a copy with no agent host. The label and the address of
    the page that explains why are imported, never retyped: six screens offer
@@ -173,6 +212,12 @@ function viewportTooltip(container) {
 
 const RANGES = [['24h', '24h'], ['7d', '7d'], ['30d', '30d']]
 const MACHINES = [['all', 'All'], ['c1', 'Computer 1'], ['c2', 'Computer 2']]
+/* THE MEASURED FACE HAS ONE COMPUTER AND OFFERS ONE PILL.
+   Three machine pills over a record kept by the computer a person is sitting at
+   is a control that cannot mean anything: two of the three name machines that do
+   not exist, and pressing them moved a highlight and changed nothing. One pill,
+   already chosen, states the truth instead of miming a choice. */
+const LIVE_MACHINES = [['all', 'This computer']]
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -326,56 +371,55 @@ export function metricsView() {
   const after = (fn, ms) => { const t = setTimeout(() => { timers.delete(t); fn() }, ms); timers.add(t); return t }
   let destroyed = false
   let projection = liveMode ? { ok: false, reason: 'still reading the live totals' } : null
+  /* The reading this page is now built on. null until the record answers; every
+     renderer below treats null as "still reading" rather than as "nothing here",
+     because those are different sentences and the whole repair is that they
+     stopped being the same one. */
+  let local = null
+  /* THE RAW RECORDS, KEPT rather than dropped after the first reading. The Range
+     control on the measured face re-derives every time-shaped series from these,
+     so pressing 7d genuinely re-projects what this computer recorded instead of
+     sliding a highlight across a picture that never changes. */
+  let records = null
+  let liveSeries = null
 
   const state = { range: '24h', machine: 'all', laneFilter: null, editing: false }
   const meta = () => RANGE_META[state.range]
 
-  /* Live metrics deliberately consume only the aggregate facts their
-     projection declares. The existing simulation remains intact below and is
-     selected by one flag flip; no live branch borrows its series, roster, or
-     derived claims from the sim. */
-  const LIVE_TILES = [
-    { id: 'agents', label: 'Codex sessions', field: 'sessions', key: 'codex', unit: 'observed' },
-    { id: 'tasks', label: 'Claude sessions', field: 'sessions', key: 'claude', unit: 'observed' },
-    { id: 'fail', label: 'Services', field: 'services', key: 'total', unit: (v) => `${v.stale} stale` },
-    { id: 'tokens', label: 'Requests', field: 'requests', key: 'total', unit: 'total' },
-    { id: 'ckpt', label: 'Open requests', field: 'requests', key: 'open', unit: 'open' },
-    { id: 'gates', label: 'Queue', field: 'queue', key: 'total', unit: (v) => `${v.blocked} blocked · ${v.done} done` },
-  ]
+  /* The six stat-strip slots keep their DOM identities (TILE_DEFS ids) and get
+     their labels, numbers and units from ../local-metrics.js. Six labels naming
+     the builder's own checkout -- "Requests", "Open requests", "Queue" -- have
+     gone with the projection that fed them; a person's metrics page now counts
+     the person's own runs. */
 
+  /* THE BUILD-TIME PROJECTION NO LONGER FEEDS ANY PANEL ON THIS PAGE.
+   *
+   * It used to feed exactly one -- token routing -- and it was absent by
+   * construction on every installed copy, because it is written into the archive
+   * from the BUILDER's machine. So the widest panel on the page reported the
+   * absence of a file the reader has never had and cannot obtain. That panel now
+   * draws this computer's own signed record of what each turn used
+   * (renderTokenRouting), which is a reading every installation genuinely has.
+   *
+   * The reader below is kept because the projection is still fetched and the
+   * page's own state attribute is still derived from what it can say; nothing
+   * a person sees comes from it. */
   function liveObservation(field) {
     if (!projection?.ok || !projection.data?.data) {
-      return { ok: false, reason: projection?.reason || 'the live totals could not be read', value: null }
+      return { ok: false, reason: projection?.reason || 'the token reading could not be taken', value: null }
     }
     return projection.data.data[field] || { ok: false, reason: 'this reading is not in the live totals', value: null }
   }
 
-  function liveTile(tile) {
-    const observation = liveObservation(tile.field)
-    const value = observation?.value
-    const number = observation?.ok && Number.isFinite(value?.[tile.key]) ? value[tile.key] : null
-    return { observation, number, value }
-  }
-
-  function liveUsageAttribution() {
-    const observation = liveObservation('usageAttribution')
-    if (!observation?.ok || !observation.value) {
-      return { state: 'unavailable', reason: observation?.reason || 'usage attribution could not be read', value: null }
-    }
-    if (!['complete', 'empty', 'partial'].includes(observation.state)) {
-      return { state: 'unavailable', reason: 'the usage attribution reading is invalid', value: null }
-    }
-    return { state: observation.state, reason: null, value: observation.value }
-  }
-
   /* This is intentionally shape-free. It lets the shared mount plumbing keep
-     its element identities without inventing a chart or a zero while the
-     aggregate projection is loading or unavailable. */
+     its element identities without inventing a chart or a zero while the local
+     record is still being read. */
   function buildLiveData() {
+    const tiles = local?.tiles || []
     return {
       live: true,
-      tiles: Object.fromEntries(LIVE_TILES.map(tile => [tile.id, liveTile(tile).number])),
-      spark: Object.fromEntries(LIVE_TILES.map(tile => [tile.id, []])),
+      tiles: Object.fromEntries(tiles.map(tile => [tile.id, tile.value])),
+      spark: Object.fromEntries(tiles.map(tile => [tile.id, []])),
     }
   }
 
@@ -455,13 +499,14 @@ export function metricsView() {
     <div class="view-pad">
       <div class="metrics">
         <div class="m-filter" id="m-filter">
+          <span class="mf-face" id="mf-face">${liveMode ? 'This computer' : 'Demonstration'}</span>
           <span class="mf-label">Range</span>
           ${pillGroup('range', RANGES, 'Time range')}
           <span class="mf-sep"></span>
-          <span class="mf-label">Machine</span>
-          ${pillGroup('machine', MACHINES, 'Machine')}
+          <span class="mf-label">${liveMode ? 'Computer' : 'Machine'}</span>
+          ${pillGroup('machine', liveMode ? LIVE_MACHINES : MACHINES, liveMode ? 'Computer' : 'Machine')}
           <span class="spacer"></span>
-          <span class="mf-note" id="mf-note">demonstration fleet · <i class="live-dot" aria-hidden="true"></i><b>live</b></span>
+          <span class="mf-note" id="mf-note">${liveMode ? 'reading this computer’s record of what has run here' : 'made-up numbers, so the page can be shown with nothing on it'}</span>
           <button type="button" class="m-edit-btn" id="m-edit" aria-pressed="false">Edit layout</button>
         </div>
         <div class="m-strip" id="tiles" data-mc="stats"></div>
@@ -549,6 +594,14 @@ export function metricsView() {
   const metricsSurface = root.querySelector('.metrics')
   root.dataset.liveMode = liveMode ? 'live' : 'simulated'
   metricsSurface.dataset.liveMode = liveMode ? 'live' : 'simulated'
+  /* WHICH FACE A PERSON IS LOOKING AT, said in the markup and in one word on the
+     screen. The owner's finding was not only that the charts had gone: it was
+     that he could no longer tell the two pages apart, and he was right to be
+     confused -- the demonstration wore a pulsing dot and the word "live" while
+     the page that actually reads this computer had no charts at all. One of them
+     is a demonstration and it now says so, in the filter row, in the note beside
+     it and in an attribute a probe can read. */
+  root.dataset.face = metricsSurface.dataset.face = liveMode ? 'this-computer' : 'demonstration'
   if (!liveMode) root.dataset.projectionState = metricsSurface.dataset.projectionState = 'simulated'
 
   /* ================= layout customization =================
@@ -591,6 +644,14 @@ export function metricsView() {
     /* moving a component reparents live echarts hosts — resize every
        instance in place; dispose/rebuild measured unnecessary (report) */
     onArrange: () => {
+      /* Moving a component reparents its host. Both engines ride their elements,
+         so both are resized in place -- the measured one was not, so a
+         rearranged measured page left its charts at the old geometry. */
+      liveCharts?.resize()
+      /* And a tray-first instrument that has just been PLACED has no chart yet,
+         because the measured face does not build one in the stash. Repainting
+         this face is what gives it one. */
+      if (liveMode) { applyLiveProjection(); return }
       charts?.resize()
       if (!charts) return
       syncOptionalChrome()
@@ -974,24 +1035,33 @@ export function metricsView() {
     }
   }
 
+  /* WHAT A TILE SAYS WHEN THERE IS NOTHING IN IT, and why it is never the word
+     "unavailable" on its own. The strip is six figures wide and the delta line
+     under each one is where the old page printed the same refusal six times; a
+     person reading six identical "unavailable · No local agent fleet host
+     detected on this machine" lines concluded, correctly, that the page was
+     broken and, incorrectly, that it was their account. The absence is now said
+     ONCE, under the filter row, in a full sentence with a door -- and the tiles
+     themselves fall silent rather than each repeating it. */
   function applyLiveTiles() {
+    const tiles = local?.tiles || []
     for (const ref of tileRefs) {
-      const tile = LIVE_TILES.find(item => item.id === ref.def.id)
+      const tile = tiles.find(item => item.id === ref.def.id)
+      /* No reading at all yet: the record is still being asked. Leave the
+         protected DOM alone rather than writing a state that is about to be
+         replaced with the real one a frame later. */
       if (!tile) continue
-      const { observation, number, value } = liveTile(tile)
-      const unavailable = number == null
+      const absent = tile.value == null
       ref.label.textContent = tile.label
-      ref.el.classList.toggle('projection-unavailable', unavailable)
-      ref.num.textContent = unavailable ? '—' : Math.round(number).toLocaleString('en-US')
-      ref.unit.textContent = unavailable
-        ? 'unavailable'
-        : (typeof tile.unit === 'function' ? tile.unit(value) : tile.unit)
-      ref.delta.textContent = unavailable
-        ? `unavailable · ${observation.reason || 'the live totals could not be read'}`
-        : 'live total · no history series'
-      ref.delta.className = `td flat${unavailable ? ' projection-unavailable' : ''}`
-      /* A sparkline asserts a sequence. The aggregate contract supplies none,
-         so preserve this protected stat-strip DOM while clearing its path. */
+      ref.el.classList.toggle('projection-unavailable', absent)
+      ref.num.textContent = absent ? '—' : Math.round(tile.value).toLocaleString('en-US')
+      ref.unit.textContent = absent ? '' : tile.unit
+      ref.delta.textContent = absent ? '' : 'counted from this computer’s own record'
+      ref.delta.className = `td flat${absent ? ' projection-unavailable' : ''}`
+      /* A sparkline asserts a sequence, and the ledger is a list of instants
+         rather than a series per tile. Preserve this protected stat-strip DOM
+         while clearing its path; the activity grid below is where the shape of
+         the week is drawn, from the same runs. */
       ref.path?.setAttribute('d', '')
       ref.tip?.setAttribute('opacity', '0')
       ref.halo?.setAttribute('opacity', '0')
@@ -1408,8 +1478,28 @@ export function metricsView() {
      and hover focus. */
 
   let charts = null
-  let liveSankey = null
+  /* THE SECOND ENGINE, AND WHY IT IS A SEPARATE VARIABLE RATHER THAN THE SAME ONE.
+     `charts` is the demonstration's eight instruments and its update() takes the
+     simulated dataset. `liveCharts` draws only options minted in
+     ../metrics-live-charts.js. Keeping them apart is what makes it impossible to
+     hand a simulated series to a measured panel by editing one call site: there
+     is no call that could do it, because the measured engine refuses anything
+     the measured feeders did not build. */
+  let liveCharts = null
   let theme = null
+
+  /* Where each measured chart lives. Resolved on every draw rather than captured
+     once: the outcome bar's host is rebuilt with the counts around it. */
+  const LIVE_HOSTS = {
+    hero: '#hero-chart',
+    strip: '#strip-chart',
+    sankey: '#sankey-chart',
+    fail: '#fail-chart',
+    heat: '#heat-chart',
+    verdict: '#verdict-live-chart',
+    burn: '#burn-chart',
+  }
+  const liveHost = (key) => root.querySelector(LIVE_HOSTS[key]) || null
 
   const tokenLegendRefs = new Map([...root.querySelectorAll('[data-token-provider]')]
     .map(node => [node.dataset.tokenProvider, node]))
@@ -1746,8 +1836,13 @@ export function metricsView() {
     root.querySelector('#heat-sub').textContent = `${R.heatSub}${machineSuffix()}`
     root.querySelector('#verdict-sub').textContent = `${R.verdictSub}${machineSuffix()}`
     syncOptionalChrome(R)
-    root.querySelector('#table-sub').textContent = `${machineName()} · live`
-    root.querySelector('#mf-note').innerHTML = `${R.word} · ${machineName()} · <i class="live-dot" aria-hidden="true"></i><b>live</b>`
+    root.querySelector('#table-sub').textContent = `${machineName()} · demonstration`
+    /* THIS LINE USED TO SAY "live", WITH THE PULSING DOT, ON THE DEMONSTRATION.
+       The static markup underneath it was honest and this overwrote it on the
+       first frame, so the made-up page announced itself as a measurement while
+       the measured page said nothing of the kind. That is the confusion the
+       owner reported, in one string. */
+    root.querySelector('#mf-note').innerHTML = `${R.word} · ${machineName()} · <i class="sim-dot" aria-hidden="true"></i><b>made-up numbers</b>`
     applyTileDeltas(target)
     /* the token chart's x-axis language (00:00 / weekday / −N d) rides the
        chart update itself now — retarget() re-issues options with R in them */
@@ -1782,46 +1877,629 @@ export function metricsView() {
     return /[.!?]$/.test(value) ? value : `${value}.`
   }
 
-  function projectionReason(field, absent) {
-    const observation = field ? liveObservation(field) : null
-    if (observation && !observation.ok) return `${absent} · ${observation.reason}`
-    if (!projection?.ok) return `unavailable · ${projection?.reason || 'the live totals could not be read'}`
-    return `unavailable · ${absent}`
-  }
-
-  function setProjectionUnavailable(componentId, subId, detail, hosts = []) {
+  /* WHAT A PANEL WITH NOTHING IN IT LOOKS LIKE NOW.
+   *
+   * The function this replaces wrote one string -- the projection's refusal --
+   * into the sub-heading AND into the body of every chart host, on nine panels
+   * at once. That produced a page that said "unavailable · No local agent fleet
+   * host detected on this machine." nine times over, which is the screen the
+   * owner photographed. Two things are different here.
+   *
+   * The panel keeps a HEADING that says what it is about, and the body carries a
+   * sentence a person can act on, or stop looking for a switch over. And the two
+   * reasons a panel can be empty are told apart: `renderUnmeasured` is for a
+   * subject this copy does not record at all (there is no remedy, and saying so
+   * IS the help), `renderAbsent` is for a subject it does record and has nothing
+   * for yet (which is either a first day or a real fault, and the sentence says
+   * which).
+   *
+   * `projection-unavailable` stays on the element because the packaged probes
+   * read that selector; dropping a class a probe watches does not fail the
+   * probe, it makes the probe quietly record nothing. */
+  function setPanelBody(componentId, subId, sub, sentence, hosts, kind) {
     const component = root.querySelector(`[data-mc="${componentId}"]`)
     component?.classList.add('projection-unavailable')
-    const sub = root.querySelector(subId)
-    if (sub) sub.textContent = detail
+    component?.setAttribute('data-panel-state', kind)
+    const subEl = root.querySelector(subId)
+    if (subEl) subEl.textContent = sub
     for (const hostId of hosts) {
       const host = root.querySelector(hostId)
       if (!host) continue
       host.classList.add('projection-unavailable')
-      host.setAttribute('aria-label', detail)
-      host.replaceChildren(document.createTextNode(detail))
+      host.setAttribute('aria-label', sentence)
+      const note = document.createElement('p')
+      note.className = 'm-panel-note'
+      note.textContent = sentence
+      host.replaceChildren(note)
     }
   }
 
+  /* A subject this copy does not measure. No remedy is offered because none
+     exists -- the rule src/first-run-needs.js sets out for exactly this case. */
+  const renderUnmeasured = (componentId, subId, sub, sentence, hosts = []) =>
+    setPanelBody(componentId, subId, sub, sentence, hosts, 'not-measured')
+
+  /* A subject this copy does measure, with nothing in it yet or nothing
+     readable. The sentence comes from ../local-metrics.js and distinguishes
+     those two, which the old page could not. */
+  const renderAbsent = (componentId, subId, sub, sentence, hosts = []) =>
+    setPanelBody(componentId, subId, sub, sentence, hosts, 'nothing-yet')
+
+  function panelReady(componentId, subId, sub) {
+    const component = root.querySelector(`[data-mc="${componentId}"]`)
+    component?.classList.remove('projection-unavailable')
+    component?.setAttribute('data-panel-state', 'reading')
+    const subEl = root.querySelector(subId)
+    if (subEl) subEl.textContent = sub
+  }
+
+  function readyHost(hostId, label) {
+    const host = root.querySelector(hostId)
+    if (!host) return null
+    host.classList.remove('projection-unavailable')
+    host.setAttribute('aria-label', label)
+    return host
+  }
+
+  /* ---------- the measured charts' hosts ----------
+     A host that is about to carry a chart must not still be carrying the
+     sentence that stood there when the panel had nothing -- and a host that
+     ALREADY carries a chart must not be emptied, because that would throw away
+     the engine's own DOM under it. One helper, so neither mistake is available
+     at the call sites below. */
+  function chartHost(key, hostId, label) {
+    const host = readyHost(hostId, label)
+    if (!host) return null
+    if (!liveCharts?.drawn(key)) host.replaceChildren()
+    return host
+  }
+
+  /* The other direction: give the host back before a sentence is written into
+     it. Without this the note would be appended over a live chart, and the
+     engine would keep running behind a paragraph nobody can see. */
+  function releaseChart(...keys) {
+    for (const key of keys) liveCharts?.release(key)
+  }
+
+  /* A sentence that belongs to a panel but not inside its chart host -- the
+     money statement under pool burn, the derived-total note under routing. Kept
+     as ONE node per panel so repeated renders cannot stack copies of it. */
+  function panelAside(componentId, text) {
+    const component = root.querySelector(`[data-mc="${componentId}"]`)
+    if (!component) return
+    let note = component.querySelector(':scope > .m-panel-aside')
+    if (!text) { note?.remove(); return }
+    if (!note) {
+      note = document.createElement('p')
+      note.className = 'm-panel-note m-panel-aside'
+      component.appendChild(note)
+    }
+    note.textContent = text
+  }
+
+  /* WHAT A WINDOW WITH NOTHING IN IT SAYS, and it is deliberately not the
+     record-level absence. "Nothing has been started on this computer yet" over a
+     stat strip showing nineteen runs is the contradiction ../local-metrics.js
+     writes emptyWindow to prevent; these two say the same thing for a window the
+     Range control chose. */
+  const rangeWord = () => (liveSeries?.window || liveWindow(state.range)).word
+  const runsWindowAbsence = () => {
+    const source = local?.source
+    if (!source?.ok) return source?.absence || LOCAL_METRICS_COPY.unreadable
+    return `Nothing ran on this computer in the ${rangeWord()}. The counts above cover everything ever run here.`
+  }
+  const usageWindowAbsence = () => {
+    const totals = local?.usage?.totals
+    if (!totals?.ok) return totals?.absence || LOCAL_USAGE_COPY.unreadable
+    return `No turn reported a token count in the ${rangeWord()}. Pick a longer range, or ask an agent something.`
+  }
+
+  /* ---------- runs by hour, over the window the Range control chose ----------
+     AN ECHARTS HEATMAP AGAIN, and the rule that forbade one is not relaxed, it
+     is enforced somewhere a person cannot forget it: the option comes from
+     ../metrics-live-charts.js, which cannot import the simulation, and the
+     engine here refuses any option that file did not mint. The cells are counts
+     of runs this computer recorded, shaded against the busiest REAL hour -- a
+     quiet week still draws as a quiet week. */
+  function renderActivity() {
+    const reading = liveSeries?.activity
+    if (!reading || !reading.ok) {
+      releaseChart('heat')
+      renderAbsent('heatmap', '#heat-sub', `runs by hour · ${rangeWord()}`,
+        local ? runsWindowAbsence() : LOCAL_METRICS_COPY.unreadable, ['#heat-chart'])
+      root.querySelector('#heat-key')?.replaceChildren()
+      return
+    }
+    panelReady('heatmap', '#heat-sub',
+      `runs by hour · ${rangeWord()} · ${reading.total} ${reading.total === 1 ? 'run' : 'runs'}`)
+    const host = chartHost('heat', '#heat-chart',
+      `Runs started on this computer by hour over the ${rangeWord()}. ${reading.total} in total.`)
+    if (!host || !theme) return
+    liveCharts.draw('heat', activityOption({
+      activity: reading, theme, hourTicks: HOUR_TICKS,
+      dur: 420, entrance: !liveCharts.drawn('heat'), reduced: reduced(),
+    }))
+    const key = root.querySelector('#heat-key')
+    if (key) {
+      /* The ramp the cells are actually painted with, from the same theme
+         snapshot the chart was given, and the busiest real cell beside it. */
+      key.innerHTML = `<em>none</em>${theme.heat.map(colour => `<i style="background:${colour}"></i>`).join('')}<em>busiest</em>`
+      const caption = document.createElement('span')
+      caption.className = 'ck-cap'
+      caption.textContent = reading.max === 1 ? 'one run per cell at most' : `up to ${reading.max} runs in an hour`
+      key.appendChild(caption)
+    }
+  }
+
+  /* ---------- what became of them ----------
+     The panel used to be "Review verdicts · this week" over three invented
+     categories. It shows the only three outcomes this computer records, and the
+     third -- an outcome that was never written down -- is a segment of its own
+     rather than folded into either of the others. Silence read as success is the
+     exact defect readLocalSessions exists to prevent, and the bar below would
+     put that defect back in a different shape if it hid the third segment.
+
+     THE SPLIT IS A CHART AGAIN and the counts stay in the DOM beside it. Both,
+     not one traded for the other: the bar is what the page looked like, the
+     legend is what a person quotes, and the legend numbers come from the same
+     reading the bar's segments are built from. */
+  function renderOutcomes() {
+    const reading = local?.outcomes
+    if (!reading || !reading.ok) {
+      releaseChart('verdict')
+      renderAbsent('verdicts', '#verdict-sub', 'what became of each run',
+        reading?.absence || LOCAL_METRICS_COPY.unreadable, ['#verdict-chart'])
+      return
+    }
+    panelReady('verdicts', '#verdict-sub', 'what became of every run recorded here')
+    const host = readyHost('#verdict-chart', reading.sentence || 'What became of each run recorded on this computer.')
+    if (!host) return
+    const panel = document.createElement('div')
+    panel.className = 'm-outcomes'
+
+    const total = document.createElement('div')
+    total.className = 'm-outcome-total'
+    const totalNum = document.createElement('b')
+    totalNum.textContent = reading.total.toLocaleString('en-US')
+    const totalWord = document.createElement('span')
+    totalWord.textContent = reading.total === 1 ? 'run recorded here' : 'runs recorded here'
+    total.append(totalNum, totalWord)
+    panel.appendChild(total)
+
+    /* The bar itself: an engine host, empty in the DOM, filled by the measured
+       option below. It keeps the .m-outcome-bar identity the stylesheet and the
+       packaged probes already know. */
+    const bar = document.createElement('div')
+    bar.className = 'm-outcome-bar echart'
+    bar.id = 'verdict-live-chart'
+    panel.appendChild(bar)
+
+    const legend = document.createElement('ul')
+    legend.className = 'm-outcome-legend'
+    for (const segment of reading.segments) {
+      const row = document.createElement('li')
+      const swatch = document.createElement('i')
+      swatch.dataset.key = segment.key
+      const name = document.createElement('span')
+      name.textContent = segment.label
+      const value = document.createElement('b')
+      value.textContent = segment.count.toLocaleString('en-US')
+      row.append(swatch, name, value)
+      legend.appendChild(row)
+    }
+    panel.appendChild(legend)
+
+    if (reading.sentence) {
+      const note = document.createElement('p')
+      note.className = 'm-outcome-note'
+      note.textContent = reading.sentence
+      panel.appendChild(note)
+    }
+    host.replaceChildren(panel)
+    if (!theme) return
+    const option = outcomeOption({ outcomes: reading, theme, dur: 420, entrance: true, reduced: reduced() })
+    /* Nothing recorded means nothing to split, and a full-width bar of one
+       colour over a total of zero would be a shape asserting a measurement. The
+       counts above stay; the bar simply is not drawn. */
+    if (option) liveCharts.draw('verdict', option)
+    else releaseChart('verdict')
+  }
+
+  /* ---------- why the ones that did not start, did not start ----------
+     The reason is the SENTENCE this product already gives for that code on the
+     screen a person would go to about it, never the bare identifier the shell
+     recorded. A page that printed an upper-case code at somebody would be the
+     thing src/refusal-copy.js and tools/check-plain-language.mjs exist to stop.
+     The bars are counts, not rates: over four refusals a percentage prints a
+     decisive-looking 21% that is one event. */
+  function renderRefusals() {
+    const reading = local?.refusals
+    const legend = root.querySelector('[data-mc="lanes"] .chart-legend')
+    /* The three severity chips describe a percentage scale this panel does not
+       draw. Hidden rather than deleted: the demonstration still uses them, and
+       removing a legend the other face needs would be fixing one screen by
+       breaking another. */
+    if (legend) legend.hidden = true
+    if (!reading || !reading.ok) {
+      releaseChart('fail')
+      renderAbsent('lanes', '#fail-sub', 'why a run did not start',
+        reading?.absence || LOCAL_METRICS_COPY.unreadable, ['#fail-chart'])
+      return
+    }
+    panelReady('lanes', '#fail-sub', 'why a run did not start')
+    /* Nothing was refused. That is a RESULT, not an absence, and it gets a
+       sentence of its own rather than the empty-record one -- and never a chart,
+       because an empty pair of axes is a shape a person reads as a measurement
+       that came out at nothing. */
+    if (reading.rows.length === 0) {
+      releaseChart('fail')
+      const host = readyHost('#fail-chart', reading.sentence)
+      if (!host) return
+      const note = document.createElement('p')
+      note.className = 'm-panel-note is-good'
+      note.textContent = reading.sentence
+      host.replaceChildren(note)
+      return
+    }
+    const host = chartHost('fail', '#fail-chart', reading.sentence || 'Why runs did not start on this computer.')
+    if (!host || !theme) return
+    liveCharts.draw('fail', refusalOption({
+      refusals: reading, theme, dur: 420, entrance: !liveCharts.drawn('fail'), reduced: reduced(),
+    }))
+  }
+
+  /* ---------- the runs themselves ----------
+     The table used to list a simulated roster of agents on machines that do not
+     exist. It lists what has actually run here, newest first, with the reason
+     beside anything that did not start -- the same three facts the home screen
+     gives for a run, in a table a person can read down. */
+  const RUN_COLS = ['Run', 'When', 'What happened', 'Why']
+  function renderRunTable() {
+    const reading = local?.runs
+    if (!reading || !reading.ok) {
+      renderAbsent('agents', '#table-sub', 'every run recorded on this computer',
+        reading?.absence || LOCAL_METRICS_COPY.unreadable, ['#agent-table'])
+      return
+    }
+    panelReady('agents', '#table-sub',
+      reading.total === 1 ? 'the one run recorded on this computer' : `${reading.total} runs recorded on this computer`)
+    const host = readyHost('#agent-table', 'Every agent run recorded on this computer, newest first.')
+    if (!host) return
+    const head = document.createElement('thead')
+    const headRow = document.createElement('tr')
+    for (const column of RUN_COLS) {
+      const cell = document.createElement('th')
+      cell.textContent = column
+      headRow.appendChild(cell)
+    }
+    head.appendChild(headRow)
+    const body = document.createElement('tbody')
+    for (const run of reading.rows) {
+      const row = document.createElement('tr')
+      const sequence = document.createElement('td')
+      sequence.className = 'm-run-seq'
+      sequence.textContent = String(run.sequence)
+      const when = document.createElement('td')
+      when.textContent = run.when
+      if (run.at) when.title = run.at
+      const outcome = document.createElement('td')
+      /* An empty string for a run whose outcome was never recorded, and the cell
+         is simply blank. A word there would be this page inventing the one fact
+         the record does not hold. */
+      outcome.textContent = run.resultWord
+      if (run.result) outcome.dataset.result = run.result
+      const why = document.createElement('td')
+      why.className = 'm-run-why'
+      why.textContent = run.why
+      row.append(sequence, when, outcome, why)
+      body.appendChild(row)
+    }
+    host.replaceChildren(head, body)
+  }
+
+  /* ================= WHAT THE TURNS ON THIS COMPUTER USED =================
+   *
+   * Four panels on this page -- token routing, token flow, account pools and
+   * pool burn -- printed one sentence each saying a token count never passes
+   * through this product. That was true of the RECORD and false of the PRODUCT:
+   * both engines report usage on every turn and nothing wrote it down. Now
+   * shell/usage-record.cjs does, so these panels draw it.
+   *
+   * HAND-BUILT DOM, like every other live panel here, and for the reason stated
+   * over renderActivity(): initialising the chart engine in the live branch is
+   * one refactor away from handing it a simulated series, and a simulated series
+   * on a page about this computer is the defect all of this exists to end.
+   *
+   * MONEY IS STILL NOT MEASURED. This product holds no prices and no balances,
+   * so none of these counts is a cost, and UNMEASURED.pools keeps saying so
+   * beside the figures rather than being quietly retired now that the panels
+   * have numbers in them. A token count wearing a currency symbol would be the
+   * same class of claim the counts were introduced to replace.
+   */
+  const tokenWord = (value) => `${Number(value || 0).toLocaleString('en-US')}`
+
+  /* One labelled bar row, shaded against the largest row rather than an invented
+     ceiling -- the same rule renderActivity() follows for a quiet week. */
+  function tokenRows(host, rows, { max, unit = 'tokens' } = {}) {
+    const list = document.createElement('ul')
+    list.className = 'm-token-rows'
+    const ceiling = max || rows.reduce((high, row) => Math.max(high, row.tokens || 0), 0)
+    for (const row of rows) {
+      const item = document.createElement('li')
+      const name = document.createElement('span')
+      name.className = 'm-token-name'
+      name.textContent = row.label
+      const bar = document.createElement('i')
+      bar.className = 'm-token-bar'
+      bar.style.setProperty('--w', `${ceiling > 0 ? ((row.tokens || 0) / ceiling) * 100 : 0}%`)
+      const value = document.createElement('b')
+      value.className = 'm-token-value'
+      value.textContent = tokenWord(row.tokens)
+      const note = document.createElement('span')
+      note.className = 'm-token-note'
+      note.textContent = row.note || ''
+      item.append(name, bar, value, note)
+      item.title = `${row.label}: ${tokenWord(row.tokens)} ${unit}`
+      list.appendChild(item)
+    }
+    host.replaceChildren(list)
+  }
+
+  /* Token routing: which sign-in, through which assistant, to which agent. The
+     three columns the panel has always promised, drawn as the Sankey this page
+     was built around -- from tuples this computer actually recorded, never from
+     the declared fleet the demonstration invents. */
+  function renderTokenRouting() {
+    /* Before the record answers. A wait, not a fault -- see LOCAL_USAGE_COPY. */
+    if (!local) {
+      releaseChart('sankey')
+      setSankeyStatePanel('reading the record', LOCAL_USAGE_COPY.waiting, 'sign-ins → assistants → agents')
+      return
+    }
+    const totals = local?.usage?.totals
+    if (!totals || !totals.ok) {
+      releaseChart('sankey')
+      setSankeyStatePanel('nothing recorded yet', totals?.absence || LOCAL_USAGE_COPY.unreadable,
+        'sign-ins → assistants → agents')
+      return
+    }
+    const flows = liveSeries?.flows
+    if (!flows || !flows.ok) {
+      /* The record has turns and this WINDOW has none. A different sentence from
+         "nothing recorded yet", because a person who is told the wrong one goes
+         looking for a fault instead of pressing 7d. */
+      releaseChart('sankey')
+      setSankeyStatePanel('nothing in this range', usageWindowAbsence(),
+        `sign-ins → assistants → agents · ${rangeWord()}`)
+      return
+    }
+    const component = root.querySelector('[data-mc="sankey"]')
+    component?.classList.remove('projection-unavailable')
+    component?.setAttribute('data-panel-state', 'reading')
+    const label = `Token routing measured on this computer over the ${rangeWord()}: ${tokenWord(flows.total)} tokens across ${flows.sessions} recorded ${flows.sessions === 1 ? 'session' : 'sessions'}.`
+    const host = chartHost('sankey', '#sankey-chart', label)
+    if (!host || !theme) return
+    host.classList.remove('m-sankey-empty-host')
+    /* The panel's 430px is the height the DEMONSTRATION's routing needs -- five
+       pools, four providers, five roles. A person with one sign-in and one
+       assistant has a two-hop flow, and a two-hop flow stretched over 430px is
+       a slab of colour rather than a diagram. The measured face asks for the
+       height its own reading needs. */
+    host.style.height = `${flows.height}px`
+    host.setAttribute('role', 'img')
+    host.removeAttribute('aria-live')
+    const sub = root.querySelector('#sankey-sub')
+    if (sub) sub.textContent = `sign-ins → assistants → agents · ${rangeWord()} · ${tokenWord(flows.total)} tokens`
+    liveCharts.draw('sankey', routingOption({
+      flows, theme, dur: 420, entrance: !liveCharts.drawn('sankey'), reduced: reduced(),
+    }))
+    /* How many of the figures behind this diagram were added up from their own
+       parts rather than reported whole. Beside the picture, never inside it. */
+    panelAside('sankey', totals.derivedSentence || '')
+  }
+
+  /* Token flow: what each assistant used, bucket by bucket, over the window the
+     Range control chose -- the solid stacked bands this page is known for, with
+     the recorded-turn strip beneath them on the same axis. Only assistants this
+     computer actually ran get a band: a flat zero band for an account a person
+     has never signed into would be a claim about an account. */
+  function renderTokenFlow() {
+    if (!local) {
+      releaseChart('hero', 'strip')
+      renderAbsent('tokenflow', '#tokens-sub', 'tokens used',
+        LOCAL_USAGE_COPY.waiting, ['#hero-chart', '#strip-chart'])
+      return
+    }
+    const bands = liveSeries?.bands
+    const counts = liveSeries?.counts
+    if (!bands?.ok) {
+      releaseChart('hero', 'strip')
+      renderAbsent('tokenflow', '#tokens-sub', `tokens used · ${rangeWord()}`,
+        usageWindowAbsence(), ['#hero-chart', '#strip-chart'])
+      return
+    }
+    panelReady('tokenflow', '#tokens-sub',
+      `tokens used · ${rangeWord()} · ${tokenWord(bands.total)} tokens recorded here`)
+    if (!theme) return
+    const label = `Tokens used on this computer over the ${rangeWord()}: ${tokenWord(bands.total)} in total.`
+    const heroHost = chartHost('hero', '#hero-chart', label)
+    if (heroHost) {
+      liveCharts.draw('hero', tokenBandOption({
+        bands, window: liveSeries.window, theme,
+        dur: 420, entrance: !liveCharts.drawn('hero'), reduced: reduced(),
+      }))
+    }
+    const stripHost = chartHost('strip', '#strip-chart',
+      `Recorded turns on this computer over the ${rangeWord()}: ${counts?.total || 0} in total.`)
+    if (stripHost) {
+      /* The strip is a companion reading, and a companion with nothing in it is
+         not drawn -- the caption above it says what it would have shown. */
+      const option = turnStripOption({
+        counts, window: liveSeries.window, theme,
+        dur: 420, entrance: !liveCharts.drawn('strip'), reduced: reduced(),
+      })
+      if (option) liveCharts.draw('strip', option)
+      else releaseChart('strip')
+    }
+    const caption = root.querySelector('.m-band .band-cap')
+    if (caption) {
+      caption.replaceChildren()
+      const what = document.createElement('span')
+      what.textContent = 'recorded turns'
+      const how = document.createElement('span')
+      how.className = 'bc-note'
+      how.textContent = `same window · ${counts?.total || 0} ${counts?.total === 1 ? 'turn' : 'turns'}`
+      caption.append(what, how)
+    }
+    /* The window totals chip row above the chart names the four assistants the
+       DEMONSTRATION knows. On this face it names the ones that answered here. */
+    syncMeasuredTokenLegend(bands)
+  }
+
+  /* The legend chips over the token bands, rebuilt from the measured bands so a
+     chip cannot advertise an assistant with no band under it. */
+  function syncMeasuredTokenLegend(bands) {
+    const legend = root.querySelector('.token-legend')
+    if (!legend) return
+    legend.replaceChildren()
+    const caption = document.createElement('span')
+    caption.className = 'ck-cap'
+    caption.textContent = 'recorded here'
+    legend.appendChild(caption)
+    for (const band of bands.bands) {
+      const chip = document.createElement('span')
+      chip.className = 'ck'
+      chip.dataset.tokenProvider = band.key
+      chip.style.setProperty('--kc', provInk(band.key))
+      const mark = document.createElement('i')
+      const name = document.createElement('span')
+      name.className = 'ck-name'
+      name.textContent = band.label
+      const value = document.createElement('span')
+      value.className = 'ck-value'
+      value.textContent = tokenWord(band.tokens)
+      chip.append(mark, name, value)
+      chip.setAttribute('aria-label', `${band.label}, ${tokenWord(band.tokens)} tokens recorded in this range`)
+      legend.appendChild(chip)
+    }
+  }
+
+  /* Account pools: what each of the person's own sign-ins used. The panel keeps
+     its money sentence, because the product still holds no balances -- what
+     changed is that it is no longer the ONLY thing the panel can say. */
+  function renderPools() {
+    const reading = local?.usage?.byAccount
+    const host = root.querySelector('#pools')
+    if (!host) return
+    if (!local) {
+      renderAbsent('pools', null, null, LOCAL_USAGE_COPY.waiting, ['#pools'])
+      return
+    }
+    if (!reading || !reading.ok) {
+      renderUnmeasured('pools', null, null, `${reading?.absence || LOCAL_USAGE_COPY.unreadable} ${UNMEASURED.pools}`, ['#pools'])
+      return
+    }
+    const component = root.querySelector('[data-mc="pools"]')
+    component?.classList.remove('projection-unavailable')
+    component?.setAttribute('data-panel-state', 'reading')
+    host.classList.remove('projection-unavailable')
+    host.setAttribute('aria-label', `Tokens used per sign-in on this computer: ${tokenWord(reading.total)} in total.`)
+    const panel = document.createElement('div')
+    panel.className = 'm-pool-usage'
+    const heading = document.createElement('h4')
+    heading.textContent = 'Tokens by sign-in'
+    panel.appendChild(heading)
+    const body = document.createElement('div')
+    tokenRows(body, reading.rows.map(row => ({
+      label: row.label, tokens: row.tokens, note: `${row.runs} ${row.runs === 1 ? 'run' : 'runs'}`,
+    })))
+    panel.appendChild(body)
+    /* THE MONEY SENTENCE STAYS, under real figures. */
+    const note = document.createElement('p')
+    note.className = 'm-panel-note'
+    note.textContent = UNMEASURED.pools
+    panel.appendChild(note)
+    host.replaceChildren(panel)
+  }
+
+  /* Pool burn: the RATE, in tokens, and said in tokens. The panel used to draw a
+     spending rate against balances this product does not hold, and the sentence
+     under it still says so -- what is drawn now is the one rate this computer
+     can measure, which is how many tokens it has actually used per bucket of the
+     chosen range. */
+  function renderBurn() {
+    /* PAINT-COLD WHILE IT IS IN THE TRAY. Pool burn is a tray-first instrument:
+       the standard layout leaves it in the off-screen stash, and the
+       demonstration's engine already refuses to draw an instrument nobody has
+       placed (`placed.burn` in ../metrics-charts.js). The measured face was
+       building a full ECharts instance in that stash on every projection --
+       hidden SVG work and a live rAF for a panel nobody can see. Placing it
+       runs onArrange, which repaints this face, so it draws the instant it is
+       put on the page. */
+    if (!componentPlaced('burn')) { releaseChart('burn'); return }
+    if (!local) {
+      releaseChart('burn')
+      panelAside('burn', '')
+      renderAbsent('burn', '#burn-sub', 'tokens used', LOCAL_USAGE_COPY.waiting, ['#burn-chart'])
+      return
+    }
+    const bands = liveSeries?.bands
+    if (!bands?.ok) {
+      releaseChart('burn')
+      panelAside('burn', '')
+      renderAbsent('burn', '#burn-sub', `tokens used · ${rangeWord()}`,
+        usageWindowAbsence(), ['#burn-chart'])
+      return
+    }
+    const unit = liveSeries.window.unit === 'hour' ? 'hour' : 'day'
+    const used = bands.stacked.filter(value => value > 0).length
+    const perBucket = used > 0 ? Math.round(bands.total / used) : 0
+    panelReady('burn', '#burn-sub',
+      `tokens per ${unit} · ${tokenWord(perBucket)} on the ${used === 1 ? `one ${unit}` : `${used} ${unit}s`} you used it`)
+    const host = chartHost('burn', '#burn-chart',
+      `On this computer, ${tokenWord(perBucket)} tokens in an average ${unit} it was used.`)
+    if (!host || !theme) return
+    liveCharts.draw('burn', burnOption({
+      bands, window: liveSeries.window, theme,
+      dur: 420, entrance: !liveCharts.drawn('burn'), reduced: reduced(),
+    }))
+    /* NOT A COST, and never rendered as one. Beside the rate rather than instead
+       of it, which is the whole change: the panel has a real figure now and the
+       sentence that says the figure is not money stays exactly as it was. */
+    panelAside('burn', UNMEASURED.pools)
+  }
+
   function setSankeyUnavailable() {
-    liveSankey?.dispose()
-    liveSankey = null
     const component = root.querySelector('[data-mc="sankey"]')
     const host = root.querySelector('#sankey-chart')
+    /* Hand the panel's own height back: renderTokenRouting sizes it to the
+       reading, and a sentence must not inherit the last diagram's box. */
+    if (host) host.style.removeProperty('height')
     component?.classList.add('projection-unavailable')
     if (!host) return
 
-    const sentence = projection?.ok
-      ? 'Live token routing cannot be drawn: the measured usage does not say which pool, provider, or role it belongs to.'
-      : endSentence(`Live token routing cannot be drawn: ${projection?.reason || 'the live totals could not be read'}`)
+    /* THE DEFAULT THIS PANEL FALLS BACK TO WHEN NOBODY GIVES IT A SENTENCE.
+       It used to quote the projection's own refusal, which on every installed
+       copy is a statement about a file on the builder's machine -- so the widest
+       piece of copy on this page told a customer about a fleet host they have
+       never heard of and cannot obtain. The reading it wants exists only where a
+       signed usage audit does; where one does not, the honest sentence is the
+       product's, not the file's. */
+    /* THE DEFAULT WHEN NOBODY GIVES THIS PANEL A SENTENCE. It used to be the
+       product's statement that a token count never passes through here, and that
+       statement is now false: this computer records one per turn. The honest
+       default is the usage record's own absence -- which distinguishes a browser,
+       a shell too old to keep the record, a record that will not open, and a
+       record with nothing in it yet. */
+    const sentence = LOCAL_USAGE_COPY.empty
     const sub = root.querySelector('#sankey-sub')
-    if (sub) sub.textContent = 'pools → providers → roles · unavailable'
+    if (sub) sub.textContent = 'pools → providers → roles'
 
     const panel = el(`
       <div class="m-sankey-empty" data-sankey-empty="true">
         <div class="m-sankey-empty-copy">
           <span class="m-sankey-empty-mark" aria-hidden="true">—</span>
-          <span class="m-sankey-empty-label">live reading unavailable</span>
+          <span class="m-sankey-empty-label">not counted here</span>
           <p></p>
           <button type="button" class="m-sankey-sim">View the demonstration</button>
         </div>
@@ -1849,64 +2527,66 @@ export function metricsView() {
     if (host) host.setAttribute('aria-label', sentence)
   }
 
-  function applyLiveSankey() {
-    const usage = liveUsageAttribution()
-    if (usage.state === 'unavailable') {
-      setSankeyStatePanel(
-        'live reading unavailable',
-        endSentence(`Live token routing cannot be drawn: ${usage.reason}`),
-        'pools → providers → roles · unavailable',
-      )
-      return
+  /* EVERY TIME-SHAPED SERIES ON THE MEASURED FACE, RE-DERIVED FROM THE RECORDS.
+   *
+   * This is what the Range control now does. It used to do nothing at all here:
+   * retarget() returned immediately in live mode, so the pills lit up, the
+   * indicator slid, and not one mark on the page moved. A control that answers a
+   * press and changes nothing is worse than a control that is not there, and on
+   * a page a researcher reads a range off, it is a false reading.
+   *
+   * Called from applyLiveProjection rather than from the click handler, so what
+   * is drawn can never be a window other than the one state.range names. */
+  function projectLiveSeries() {
+    if (!records) { liveSeries = null; return }
+    const window = liveWindow(state.range)
+    const runs = records.sessions?.runs || []
+    const turns = records.usage?.turns || []
+    liveSeries = {
+      window,
+      bands: tokenBands(turns, window),
+      counts: turnCounts(turns, window),
+      activity: activityMatrix(runs, window),
+      flows: routingFlows(turnsInWindow(turns, window), { conversations: records.conversations }),
     }
-    if (usage.state === 'empty') {
-      setSankeyStatePanel(
-        'observed empty',
-        'The bounded signed audit window was completely observed and contains no attributed usage.',
-        'pools → providers → roles · observed empty',
-      )
-      return
-    }
-    if (usage.state === 'partial') {
-      const { totals } = usage.value
-      setSankeyStatePanel(
-        'partial reading',
-        `A complete total is unavailable. Measured lower bound: ${totals.measuredLowerBoundTokens.toLocaleString('en-US')} tokens across ${totals.calls.toLocaleString('en-US')} calls.`,
-        'pools → providers → roles · partial lower bound',
-      )
-      return
-    }
-
-    const component = root.querySelector('[data-mc="sankey"]')
-    const host = root.querySelector('#sankey-chart')
-    if (!host) return
-    component?.classList.remove('projection-unavailable')
-    host.classList.remove('projection-unavailable', 'm-sankey-empty-host')
-    host.setAttribute('role', 'img')
-    host.setAttribute('aria-live', 'polite')
-    host.setAttribute('aria-label', `Measured token routing: ${usage.value.totals.tokens.toLocaleString('en-US')} tokens across ${usage.value.totals.calls.toLocaleString('en-US')} calls.`)
-    root.querySelector('#sankey-sub').textContent = `pools → providers → roles · measured complete · ${usage.value.totals.tokens.toLocaleString('en-US')} tokens`
-    if (!liveSankey) {
-      host.replaceChildren()
-      theme = buildTheme(root.querySelector('.metrics'))
-      liveSankey = createLiveUsageSankey(host)
-    }
-    liveSankey.update({ rows: usage.value.rows, theme, dur: 240, reduced: reduced() })
   }
 
   function applyLiveProjection() {
+    projectLiveSeries()
     root.dataset.liveMode = 'live'
     metricsSurface.dataset.liveMode = 'live'
-    root.dataset.projectionState = projection?.ok ? 'aggregate' : 'unavailable'
+    /* The page's own state is now about the RECORD, not about a build-time file
+       that is absent on every install by construction. The packaged probes read
+       this attribute, so its two values still mean what they meant: there is a
+       reading, or there is not. */
+    const reading = local?.source
+    root.dataset.projectionState = reading?.ok ? 'aggregate' : 'unavailable'
     metricsSurface.dataset.projectionState = root.dataset.projectionState
-    /* Built with DOM calls rather than innerHTML because `projection.reason` is
-       read off a file on disk: it is the only untrusted string on this line, and
-       a textContent assignment cannot carry markup into the page. */
+    /* THE ONE PLACE THE ABSENCE IS SAID, AND IT IS SAID IN FULL.
+       Built with DOM calls rather than innerHTML: none of these sentences are
+       untrusted, but the door beside them is an element and a textContent
+       assignment cannot carry markup into the page either way. */
     const note = root.querySelector('#mf-note')
-    if (projection?.ok) {
-      note.textContent = 'live totals from this computer'
+    if (!local) {
+      /* Before the record answers. Not an absence -- a wait. */
+      note.textContent = 'reading this computer’s record of what has run here'
+    } else if (reading?.ok) {
+      /* The window is named first, because the four instruments below follow the
+         Range control and a person reading a chart is owed the window it covers
+         before the sentence about where the numbers came from. */
+      note.textContent = `${rangeWord()} · ${reading.sentence}`
+      if (reading.note) {
+        const extra = document.createElement('span')
+        extra.className = 'mf-extra'
+        extra.textContent = reading.note
+        note.appendChild(extra)
+      }
+      /* A record that no longer verifies is still shown, beside the fact that it
+         no longer verifies -- the same decision shell/spawn-record.cjs makes
+         about its own return value, and for the same reason: the runs happened. */
+      note.classList.toggle('is-unverified', reading.verified === false)
     } else {
-      note.textContent = `the live totals could not be read · ${projection?.reason || 'no reason given'} `
+      note.textContent = `${reading?.absence || LOCAL_METRICS_COPY.unreadable} `
       const door = document.createElement('a')
       door.className = 'host-absent-action'
       door.href = GUIDE_ACTION.href
@@ -1915,35 +2595,75 @@ export function metricsView() {
     }
     applyLiveTiles()
 
-    applyLiveSankey()
-    setProjectionUnavailable('tokenflow', '#tokens-sub',
-      projectionReason(null, 'the live totals keep no token-flow history'), ['#hero-chart', '#strip-chart'])
-    setProjectionUnavailable('heatmap', '#heat-sub',
-      projectionReason(null, 'the live totals keep no fleet-activity history'), ['#heat-chart'])
-    setProjectionUnavailable('verdicts', '#verdict-sub',
-      projectionReason('audit', 'audit unavailable'), ['#verdict-chart'])
-    setProjectionUnavailable('lanes', '#fail-sub',
-      projectionReason(null, 'the live totals keep no failure-lane reading'), ['#fail-chart'])
-    setProjectionUnavailable('heartbeat', '#heartbeat-sub',
-      projectionReason('fleetSupervisor', 'fleet supervisor unavailable'), ['#heartbeat-chart'])
-    setProjectionUnavailable('burn', '#burn-sub',
-      projectionReason('memory', 'durable memory unavailable'), ['#burn-chart'])
-    setProjectionUnavailable('gates', '#gates-sub',
-      projectionReason(null, 'aggregate projection has no checkpoint event timeline'))
-    setProjectionUnavailable('pools', null,
-      projectionReason(null, 'aggregate projection has no account-pool observation'), ['#pools'])
-    setProjectionUnavailable('agents', '#table-sub',
-      projectionReason(null, 'aggregate projection has no agent roster'), ['#agent-table'])
+    /* The four panels this computer genuinely has an answer for. */
+    renderActivity()
+    renderOutcomes()
+    renderRefusals()
+    renderRunTable()
 
-    /* The static optional-instrument labels originate in the simulation.
-       Clear them rather than let two simulated machine identities remain
-       beside the fleet-supervisor unavailable result. */
+    /* And the ones it does not, each said once, plainly, with no remedy offered
+       because none exists. See UNMEASURED in ../local-metrics.js for why each of
+       these is a property of the product rather than a gap in this page. */
+    /* The four token panels, from this computer's own record of what each turn
+       used. They were the loudest part of the defect: four panels telling a
+       person the product never sees a token count, while both engines reported
+       one on every turn. */
+    renderTokenRouting()
+    renderTokenFlow()
+    renderPools()
+    renderBurn()
+
+    /* And the two that genuinely remain unmeasured, each said once from the
+       shared table so two hand-written versions cannot drift apart. There is one
+       computer here and nothing on it holds a run back for a decision; no record
+       exists for either, and no setting turns one on. */
+    renderUnmeasured('heartbeat', '#heartbeat-sub', 'one computer',
+      UNMEASURED.heartbeat, ['#heartbeat-chart'])
+    renderUnmeasured('gates', '#gates-sub', 'nothing is held here', UNMEASURED.gates)
+
+    /* The static optional-instrument labels originate in the simulation. Clear
+       them rather than let two simulated machine identities stand beside a
+       sentence saying this is one computer. */
     root.querySelectorAll('.hb-meta').forEach(node => { node.textContent = '' })
     root.querySelectorAll('.hb-signal-tip').forEach(node => { node.hidden = true })
-    root.querySelector('.gate-track')?.replaceChildren(document.createTextNode(
-      projectionReason(null, 'aggregate projection has no checkpoint event timeline')))
+    /* The burn rows carry pool ids and em-dash placeholders from the SIMULATED
+       vocabulary. They are still cleared: the panel below them now draws this
+       computer's real token rate, and two invented pool names with two dashes
+       standing over a measured figure would be worse than they were standing
+       over a sentence. */
+    root.querySelectorAll('.burn-meta').forEach(node => { node.textContent = '' })
+    root.querySelector('.gate-track')?.replaceChildren()
     root.querySelector('.gate-legend')?.replaceChildren()
     root.querySelectorAll('.gate-axis-labels span').forEach(node => { node.textContent = '' })
+    root.querySelector('#gate-counts')?.replaceChildren()
+  }
+
+  /* THE READ THIS PAGE IS BUILT ON, and the order matters: the local record is
+     what every panel except token routing now draws, so it is asked for first
+     and painted the moment it answers. The projection is asked for separately
+     and only ever reaches the sankey; a copy without one is no longer a copy
+     without a metrics page. */
+  async function loadLocalMetrics() {
+    /* BOTH RECORDS, ASKED FOR TOGETHER. They are two chains in two files and
+       either can be empty without the other being -- a computer that has started
+       agents on a shell older than the usage channel has runs and no turn
+       figures, and the page must be able to say exactly that rather than
+       treating one absence as the other's. */
+    const [sessions, usage] = await Promise.all([readLocalRuns(), readLocalUsage()])
+    if (destroyed) return
+    /* The role a person gave each node, joined on the session id both sides
+       hold. Read once per load rather than per row; a page that cannot reach
+       storage gets null, which every reading below renders as "not named on this
+       computer" instead of as a name. */
+    const conversations = readSessionRoles()
+    /* KEPT, not consumed. describeLocalMetrics answers the whole-record
+       readings the stat strip and the run list are about; the time-shaped
+       charts re-derive from these raw records every time the Range changes. */
+    records = { sessions, usage, conversations }
+    local = describeLocalMetrics(sessions, { conversations, usage })
+    current = target = buildLiveData()
+    prevPeriod = current
+    applyLiveProjection()
   }
 
   async function loadLiveProjection() {
@@ -1951,13 +2671,13 @@ export function metricsView() {
     try {
       result = await fetchMetrics()
     } catch (err) {
-      result = { ok: false, reason: `metrics projection failed: ${err?.message || err}` }
+      result = { ok: false, reason: `the token reading could not be taken: ${err?.message || err}` }
     }
     if (destroyed) return
     projection = result
-    current = target = buildLiveData()
-    prevPeriod = current
-    applyLiveProjection()
+    /* Nothing is repainted. The projection reaches no panel any more -- see the
+       note over liveObservation() -- and a repaint here would overwrite the
+       measured routing this computer's own record just drew. */
   }
 
   /* ================= tween engine ================= */
@@ -1986,7 +2706,10 @@ export function metricsView() {
   }
 
   function retarget(dur) {
-    if (liveMode) return
+    /* THE MEASURED FACE RE-PROJECTS. This early return was the whole of the
+       "the pills move and nothing happens" defect: the click handler set
+       state.range, lit the pill, slid the indicator, and then landed here. */
+    if (liveMode) { applyLiveProjection(); return }
     const next = buildData()
     prevPeriod = buildData(1)
     if (!sessionBase) captureSessionBase(next)      // first settle, or post-filter rebaseline
@@ -2056,7 +2779,10 @@ export function metricsView() {
     })
     sessionBase = null                 // a new filter is a new baseline, not a jump
     liveExtras.length = 0; liveN = 0   // a new window restarts the live stream
-    applyChrome()
+    /* On the measured face retarget() below repaints the whole page from the new
+       window, so calling applyChrome here as well would build every chart twice
+       and replay each entrance animation. */
+    if (!liveMode) applyChrome()
     if (key === 'machine') relayoutRows(() => { applyTableFilter(); applySortOrder() })
     retarget(780)
   })
@@ -2100,22 +2826,59 @@ export function metricsView() {
      harmless. */
   buildTiles()
   let bootRaf = 0
+  /* The demonstration's arrival tween aims at THIS dataset. It is declared out
+     here because stage two is now shared by both faces and can no longer close
+     over a constant declared inside the demonstration's branch. */
+  let settled = null
 
   if (liveMode) {
     applyLiveProjection()
+    loadLocalMetrics()
     loadLiveProjection()
   } else {
     buildPools()
     captureSessionBase(current)
     applyChrome()
-    const settled = current
+    settled = current
     current = flattened(settled)
     applyAll(current)
+  }
 
-    bootRaf = requestAnimationFrame(() => {
+  /* STAGE TWO, AND IT NOW RUNS ON BOTH FACES.
+   *
+   * It used to live inside the `else` above, which is the whole of the owner's
+   * finding in one structural fact: buildTheme() and the chart engine were
+   * constructed ONLY on the demonstration, so the page that reads this computer
+   * had no chart engine at all and could not have drawn one if it had the data.
+   * The theme snapshot is shared -- it is a read of the page's own design
+   * tokens and has nothing to do with which face is showing -- and each face
+   * then builds ITS OWN engine: the demonstration's eight instruments, or the
+   * measured engine that refuses every option it did not mint.
+   *
+   * Still one post-paint frame late, for the reason it always was: buildTheme
+   * reads .metrics-scoped custom properties, and those only resolve once the
+   * view is in the document. */
+  bootRaf = requestAnimationFrame(() => {
     bootRaf = 0
-    buildVerdicts(); buildTable()
     theme = buildTheme(root.querySelector('.metrics'))
+
+    if (liveMode) {
+      liveCharts = createLiveCharts({ resolve: liveHost })
+      /* One observer for every measured host that exists. Hosts are CSS-sized,
+         so the engine only ever fills them. */
+      const liveRo = new ResizeObserver(() => liveCharts?.resize())
+      for (const selector of Object.values(LIVE_HOSTS)) {
+        const host = root.querySelector(selector)
+        if (host) liveRo.observe(host)
+      }
+      unsubs.push(() => liveRo.disconnect())
+      /* The panels were already painted as sentences on the first frame; this is
+         the pass that turns the ones with a reading into charts. */
+      applyLiveProjection()
+      return
+    }
+
+    buildVerdicts(); buildTable()
     charts = createCharts({
       hosts: {
         hero: root.querySelector('#hero-chart'),
@@ -2149,9 +2912,8 @@ export function metricsView() {
     tickTileNums(target)               // no-op if a gap retarget already ticked
     if (target === settled) tweenTo(settled, 900)
     schedulePulse()                    // the band starts breathing after arrival
-      after(heartbeatTick, HEART_CADENCE)
-    })
-  }
+    after(heartbeatTick, HEART_CADENCE)
+  })
 
   /* Theme switch: main.js writes documentElement.dataset.theme; rebuild the
      token snapshot from the NEW computed values, regenerate the heat key, and
@@ -2160,7 +2922,12 @@ export function metricsView() {
   if (typeof MutationObserver !== 'undefined') {
     const themeMO = new MutationObserver(() => {
       theme = buildTheme(root.querySelector('.metrics'))
-      if (liveMode) { applyLiveSankey(); return }
+      /* The measured charts hold literal colours from the OLD snapshot, exactly
+         as the demonstration's do, so the whole face is re-issued rather than
+         one panel of it. Before this, a theme flip on the measured page repainted
+         the routing panel and left every other chart wearing the previous
+         theme's inks. */
+      if (liveMode) { applyLiveProjection(); return }
       syncHeatKey()
       updateCharts(target, 240)
     })
@@ -2191,8 +2958,10 @@ export function metricsView() {
          tooltip) — dispose is what releases them on route cycling */
       charts?.dispose()
       charts = null
-      liveSankey?.dispose()
-      liveSankey = null
+      /* The measured instances hold their own rAF, DOM and body-appended
+         tooltip, exactly as the demonstration's do. */
+      liveCharts?.dispose()
+      liveCharts = null
     },
   }
 }
