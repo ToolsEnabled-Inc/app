@@ -36,7 +36,7 @@ import { chartableColumn, chartableColumns, readResults, readRun, readRuns, resu
 import { findingStateWord, readFindings, saveFinding } from '../research-findings.js'
 import { createResultChart } from '../research-result-charts.js'
 import { readLiveSession } from '../agent-session-registry.js'
-import { RESEARCH_SETTING_IDS } from '../research-settings.js'
+import { RESEARCH_MASTER_ID } from '../research-settings.js'
 import '../research.css'
 
 /* WHERE THE SWITCH IS, derived from the section that draws it rather than
@@ -54,7 +54,14 @@ import '../research.css'
    that test exists to catch. Read inside the function, the reference is only
    made when the page is genuinely rendering. */
 function pipelineSettingHref() {
-  return `#/settings?setting=${encodeURIComponent(RESEARCH_SETTING_IDS[0])}`
+  /* THE MASTER SWITCH BY NAME, NOT BY POSITION. This read
+     `RESEARCH_SETTING_IDS[0]` until 2026-08-20, which was the master only while
+     that list held research rows and nothing else. It now also holds the agent
+     tool-note row, so index 0 became a coincidence the order happens to
+     preserve -- and a reordering would have sent a person following "the
+     research pipeline is switched off in settings" to a different switch
+     entirely, with every test still green. */
+  return `#/settings?setting=${encodeURIComponent(RESEARCH_MASTER_ID)}`
 }
 
 const RESEARCH_QUEUE_URL = '/data/research-queue.json'

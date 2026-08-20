@@ -39,7 +39,11 @@ export const SETTINGS_GROUPS = Object.freeze([
     id: 'actions',
     label: 'Agents & actions',
     detail: 'What may run, and what may act without you',
-    sections: Object.freeze(['Research', 'Write']),
+    /* 'Research' became 'Research & Agents' on 2026-08-20. The name is the key
+       this map is looked up by, so the two must move together: a section whose
+       name is not in any group renders UNGROUPED, which on this page means it
+       is not on it. */
+    sections: Object.freeze(['Research & Agents', 'Write']),
   }),
   Object.freeze({
     id: 'appearance',
@@ -47,17 +51,25 @@ export const SETTINGS_GROUPS = Object.freeze([
     detail: 'Theme, text, and motion',
     sections: Object.freeze(['Appearance', 'Text & Reading', 'Motion & Effects']),
   }),
+  /* THIS GROUP LOST FOUR OF ITS SIX SECTIONS ON 2026-08-20, and the group after
+     it lost both of its own and is gone. Fleet Graph, Metrics, Chat & Threads,
+     Comms Board, Performance and Developer were inert top to bottom: every row
+     in them wrote a key nothing read. Their rows and headings were removed
+     (docs/design/UNBUILT-SETTINGS-ROWS-2026-08-20.md keeps the wording), and a
+     group whose every section is gone must go too -- a group line that opens
+     onto nothing is the same lie one level up. */
+  /* THE SUBTITLE CHANGED WITH THE CONTENTS, WHICH IS THE POINT OF THE WHOLE
+     EDIT. "Each page's own knobs, and what each page reads" was accurate over
+     six sections of per-page knobs. The knobs are precisely what was removed --
+     they were the rows nothing read -- so leaving that sentence would have made
+     the GROUP LINE the last surviving overclaim on the page, promising a person
+     something to adjust per screen and opening onto what each page reads plus
+     one archive button. A heading is a claim like any other. */
   Object.freeze({
     id: 'screens',
     label: 'Screen by screen',
-    detail: 'Each page’s own knobs, and what each page reads',
-    sections: Object.freeze(['Fleet Graph', 'Metrics', 'Chat & Threads', 'Comms Board', 'Ledger', 'Data & Sim']),
-  }),
-  Object.freeze({
-    id: 'advanced',
-    label: 'Advanced',
-    detail: 'Performance and developer readouts',
-    sections: Object.freeze(['Performance', 'Developer']),
+    detail: 'What each page reads, and clearing out old records',
+    sections: Object.freeze(['Ledger', 'Data & Sim']),
   }),
 ])
 
@@ -114,6 +126,15 @@ export function writeOpenGroups(openIds, storage) {
  * 246 controls had a box, and the footer said it in the product's own voice:
  *
  *     "116 settings · 0 shown · search finds the hidden ones too"
+ *
+ * THAT SENTENCE IS QUOTED AS MEASURED AND IS DELIBERATELY NOT UPDATED. It is
+ * what the footer said on the 1.0.20 cut, and it is the evidence for the defect
+ * described here; rewriting the number to today's would falsify a measurement to
+ * keep a comment tidy. The number has since changed on its own: 74 rows that
+ * wrote a key nothing read were removed on 2026-08-20, so the same footer now
+ * reads 43. The defect this section describes -- every control hidden behind a
+ * collapsed group on a first visit -- is unrelated to that, and the fix below
+ * still stands.
  *
  * The sharpest instance, and the one that started the hunt: `#/account` has
  * exactly ONE persistent door in this product -- the "Open sign-in" row in

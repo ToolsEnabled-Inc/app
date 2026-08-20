@@ -41,14 +41,27 @@ import {
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
-/* The seventeen sections the page renders today, in its own order. If the page
+/* The eleven sections the page renders today, in its own order. If the page
    gains or loses one, this list and the groups must move together -- the source
-   assertions below are what notice the drift. */
+   assertions below are what notice the drift.
+
+   IT WAS SEVENTEEN UNTIL 2026-08-20. Six went in one edit -- Fleet Graph,
+   Metrics, Chat & Threads, Comms Board, Performance and Developer -- because
+   every row in them wrote a `mc.set.<id>` key that nothing in the product read,
+   and removing their rows would otherwise have left six titled headings with
+   nothing under them. This list is edited here deliberately, not to make a red
+   go green: the source assertions further down cross-check it against
+   src/views/settings.js, so a list that disagreed with the page would fail
+   either way. The removed rows are kept verbatim in
+   docs/design/UNBUILT-SETTINGS-ROWS-2026-08-20.md.
+
+   'Research' became 'Research & Agents' in the same edit: it draws every
+   setting the installed application enforces, which stopped being only the
+   research family when `agent.tool_summary` joined it. */
 const SECTIONS = [
-  'Home screen', 'System', 'Setup', 'Data & Privacy', 'Research',
+  'Home screen', 'System', 'Setup', 'Data & Privacy', 'Research & Agents',
   'Appearance', 'Text & Reading', 'Motion & Effects',
-  'Fleet Graph', 'Metrics', 'Chat & Threads', 'Comms Board', 'Ledger',
-  'Performance', 'Data & Sim', 'Write', 'Developer',
+  'Ledger', 'Data & Sim', 'Write',
 ]
 
 test('every section lives in exactly one group', () => {
@@ -126,6 +139,15 @@ test('a corrupt store reads as the default, never as a throw', () => {
  *
  *     "116 settings · 0 shown · search finds the hidden ones too"
  *
+ * QUOTED AS MEASURED, AND DELIBERATELY LEFT AT 116. This is what the footer said
+ * on the 1.0.20 cut and it is the evidence for the defect above; editing the
+ * number to match today's build would be falsifying a measurement. For the
+ * record: 74 rows that wrote a key nothing read were removed on 2026-08-20 and
+ * the same footer now reads 43. Nothing in this suite asserts either number --
+ * the footer's total is computed in src/views/settings.js from the catalogue
+ * lengths, so it follows the catalogue and cannot be pinned here without
+ * pinning it in two places.
+ *
  * -- and the ancestor walk named the mechanism exactly:
  * DIV.settings-group-body#settings-group-start, hidden=true, display=none,
  * box 0x0, with `a.ctl-btn[href="#/account"]` inside it computing display:flex
@@ -171,9 +193,21 @@ test('a remembered posture wins over the arrival rule, in both directions', () =
 })
 
 test('a link that names a row still opens that row group, arrival rule or not', () => {
-  const open = groupsOpenOnArrival(memoryStorage(), 'Developer')
-  const developer = groupOfSection('Developer')
-  assert.ok(open.has(developer.id), 'following a link no longer opens the row it named')
+  /* The named section used to be 'Developer', which no longer exists. It has to
+     be one that is NOT the first-visit group, or the assertion passes on the
+     arrival rule alone and stops testing the landing clause at all. 'Data & Sim'
+     is in `screens`; the arrival default is the group holding the first-visit
+     section. The assertion below pins that difference rather than assuming it. */
+  const landing = 'Data & Sim'
+  const group = groupOfSection(landing)
+  assert.ok(group, `${landing} is in a group`)
+  assert.equal(
+    groupsOpenOnArrival(memoryStorage()).has(group.id),
+    false,
+    `${landing}'s group opens on arrival anyway, so this test proves nothing -- pick another section`,
+  )
+  const open = groupsOpenOnArrival(memoryStorage(), landing)
+  assert.ok(open.has(group.id), 'following a link no longer opens the row it named')
 })
 
 test('the remembered-posture store is not written by merely arriving', () => {

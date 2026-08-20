@@ -16,12 +16,18 @@
  * the write actually did. Nothing here decides anything.
  *
  * WHY IT DOES NOT LOOK LIKE THE ROWS AROUND IT UNDERNEATH. Every other row on
- * this page is a preference of this window, saved by this window. These four
- * are read by a different program and stored beside the program itself, so they
+ * this page is a preference of this window, saved by this window. These are
+ * read by a different program and stored beside the program itself, so they
  * are asked for and set through the installed application rather than through
  * the window's own store. A person cannot tell the difference, which is the
  * point; the difference matters only to what has to be true for the switch to
  * mean anything.
+ *
+ * IT IS NOT A RESEARCH SECTION, WHICH IS WHY IT IS NO LONGER CALLED ONE. It
+ * draws every setting the installed application will let this window write, and
+ * on 2026-08-20 that stopped being only the research family. What binds these
+ * rows together is where they live and who enforces them, not what they are
+ * about.
  *
  * WHAT IT SAYS WHEN IT CANNOT DRAW A SWITCH. A copy with no research part
  * carries no register to read and nothing that would act on an answer. It says
@@ -29,29 +35,90 @@
  * explanation is still a dead control, and this page has shipped one of those
  * before.
  *
- * THE FIRST SWITCH IS A FENCE, NOT A HINT. With it off, none of the three below
- * it grants anything, whatever they say -- which is what the part that runs the
- * work does, so it is what the section shows: the three read as held, and each
- * says the first one is why.
+ * THE FIRST SWITCH IS A FENCE, NOT A HINT -- AND IT FENCES THREE ROWS, NOT
+ * EVERYTHING UNDER IT. With it off, none of the three research runner rows
+ * grants anything, whatever they say, which is what the part that runs the work
+ * does; so it is what the section shows, and each of the three says the first
+ * one is why. It has no authority over anything outside the research family,
+ * and until 2026-08-20 this section claimed otherwise about a row it did not
+ * govern. See RESEARCH_FENCED_IDS.
  */
 
-/* Four rows in the footer's count: the master and the three kinds of work. */
-export const RESEARCH_SETTING_COUNT = 4
+/* THE SECTION IS NAMED FOR WHAT IT IS, NOT FOR WHAT IT FIRST HELD.
+ *
+ * It was called "Research" because the four research rows were all the
+ * installed application would let this window write when it was built. It is
+ * not a research section; it is every setting that is stored beside the program
+ * and enforced by it rather than by this window, and a fifth row -- what each
+ * new agent is told about the tools it can reach -- has been in it, drawn and
+ * uncounted, the whole time. A person hunting for the agent tool note would not
+ * have looked under "Research", and search could not find it either. */
+export const RESEARCH_SECTION = 'Research & Agents'
 
-export const RESEARCH_SECTION = 'Research'
-
-/* The ids this section draws, in the order a person meets them: the fence
-   first, then what it fences. They are IDENTIFIERS, never shown as a sentence
-   -- each row is titled with the register's own plain label and only carries
-   its id in a data attribute, where a person never reads it. */
-export const RESEARCH_SETTING_IDS = Object.freeze([
+/* EVERY ROW THIS SECTION DRAWS, in the order a person meets them. This must
+ * match `WRITABLE_IDS` in shell/product-settings.cjs, which decides what the
+ * installed application will actually hand back;
+ * tools/test/product-setting-rows.test.mjs asserts the two agree, because the
+ * list being SHORT is exactly the defect this replaces: it held four of the
+ * five, so the footer's total was one low and `requestedSetting` in
+ * src/views/settings.js could not land on the fifth -- making it the one row on
+ * the settings page that search could not find.
+ *
+ * They are IDENTIFIERS, never shown as a sentence: each row is titled with the
+ * register's own plain name and carries its id only in a data attribute. */
+export const PRODUCT_SETTING_IDS = Object.freeze([
   'research.pipeline',
   'research.runner_agent',
   'research.runner_process',
   'research.runner_http',
+  'agent.tool_summary',
 ])
 
-const MASTER_ID = RESEARCH_SETTING_IDS[0]
+/* Derived, never counted by hand. The old constant was written as `4` beside a
+   list of four and stayed `4` when the list became five. */
+export const RESEARCH_SETTING_COUNT = PRODUCT_SETTING_IDS.length
+
+/* THE MASTER SWITCH, EXPORTED BY NAME because two files need to point at it and
+ * one of them was pointing at an INDEX. src/views/research.js built its
+ * "the research pipeline is switched off in settings" link from
+ * `RESEARCH_SETTING_IDS[0]`, which was the master only for as long as this list
+ * held nothing but research rows. It now holds a fifth row that is not one, so
+ * index 0 became a coincidence the order happens to preserve -- and a reordering
+ * would have sent a person to the wrong switch with every test still green,
+ * because nothing anywhere asserted which row that link lands on.
+ *
+ * DECLARED ABOVE RESEARCH_FENCED_IDS, not below it: that list is built at module
+ * evaluation and reads this, so the other order is a temporal-dead-zone
+ * ReferenceError that takes the whole page down on import. */
+export const RESEARCH_MASTER_ID = 'research.pipeline'
+
+const MASTER_ID = RESEARCH_MASTER_ID
+
+/* WHAT THE FIRST SWITCH ACTUALLY FENCES, which is not "everything below it".
+ *
+ * `heldByMaster` used to mean "any row that is not the master", and the section
+ * drew a fifth row the master has no authority over. Measured on a fresh
+ * install, where `research.pipeline` is off by default and `agent.tool_summary`
+ * ships ON, the agent row rendered with its switch reading on and the sentence
+ * "Held back: the first switch in this section is off, so nothing runs for a
+ * research project yet." That is a false statement about an unrelated setting,
+ * in the default state, and a person would reasonably conclude their tool note
+ * was disabled when it was being injected into every session.
+ *
+ * The registry declares no dependency between them and there is no shared
+ * enforcer: `agent.tool_summary` is enforced by src/lib/agent-tool-summary.js,
+ * and the research rows by src/lib/research/settings-gate.js, which never
+ * mentions it. The fence is a fact about the research family, so it is named as
+ * one -- by the register's own namespace, which is the thing that actually
+ * decides -- rather than by "is not the first row". */
+export const RESEARCH_FENCED_IDS = Object.freeze(
+  PRODUCT_SETTING_IDS.filter(id => id.startsWith('research.') && id !== RESEARCH_MASTER_ID),
+)
+
+/* Which rows the research settings gate governs -- the ones whose provenance
+   rule is real. Same namespace test as the fence, for the same reason: the
+   register's own prefix is what decides, not this file's opinion. */
+const underResearchGate = id => String(id).startsWith('research.')
 
 const esc = value => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -79,6 +146,16 @@ function provenanceLine(row) {
   const source = row.provenance && typeof row.provenance.source === 'string' ? row.provenance.source : 'default'
   if (source === 'user') return 'You turned this on.'
   if (source === 'installer') return 'This was turned on when the program was set up.'
+  /* THE THIRD SENTENCE IS NOT TRUE OF EVERY ROW HERE, and saying it where it is
+     false is the same defect as the master fence was.
+     src/lib/research/settings-gate.js withholds research work whose value reads
+     as on with `default` provenance -- "a control enforcing an agent-invented
+     value is a software failure". src/lib/agent-tool-summary.js applies no such
+     rule: it enables on `!== false`, so its row shipping ON with nobody having
+     chosen it is ON, and the note is being injected. Telling that person their
+     setting is "held back" would send them to turn a working switch off and on
+     to fix nothing. */
+  if (!underResearchGate(row.id)) return 'This is on because it ships on. You have not changed it.'
   return 'This reads as on, but nobody chose it, so the work is still held back. Turn it off and on again to choose it.'
 }
 
@@ -96,7 +173,7 @@ export function createResearchSettings({ shell = typeof window === 'undefined' ?
   }
 
   function heldByMaster(row) {
-    if (row.id === MASTER_ID) return false
+    if (!RESEARCH_FENCED_IDS.includes(row.id)) return false
     const master = rowFor(MASTER_ID)
     return Boolean(master && master.present && master.value !== true)
   }
@@ -196,13 +273,17 @@ export function createResearchSettings({ shell = typeof window === 'undefined' ?
     if (state.available !== true) {
       return `<p class="settings-section-note host-absent-body" data-research-settings-absent>${esc(state.reason || 'This copy does not carry the part that runs research work, so there is nothing to switch on.')}</p>`
     }
-    return `<p class="settings-section-note host-absent-body">The first switch decides whether anything runs for a research project on this computer. The three under it decide what kind of work is allowed. With the first one off, none of the three grants anything.</p>
+    /* THE SENTENCE STOPS AT THE ROWS IT IS TRUE OF. It used to say the first
+       switch governs what is under it, full stop, with a fifth row underneath
+       that it does not govern at all. Each family is now described as its own,
+       and the last one is called separate in so many words. */
+    return `<p class="settings-section-note host-absent-body">These are set on this computer itself, and the part of the program that does the work reads them. The first switch decides whether anything runs for a research project. The three under it decide what kind of work is allowed, and with the first one off none of the three grants anything. The last switch is separate from those four: it decides what every new agent is told about the tools it can reach here.</p>
       ${state.rows.map(rowMarkup).join('')}`
   }
 
   function markup({ searchResult = false } = {}) {
     return `<section class="settings-section" data-settings-section="${esc(RESEARCH_SECTION)}" data-research-settings>
-      ${searchResult ? '<div class="settings-prefix">Research, what may run on this computer</div>' : ''}
+      ${searchResult ? '<div class="settings-prefix">Research and agents, what may run on this computer</div>' : ''}
       <h2 class="settings-section-title">${esc(RESEARCH_SECTION)}</h2>
       <div class="settings-section-rows">${bodyMarkup()}</div>
     </section>`
@@ -272,7 +353,12 @@ export function createResearchSettings({ shell = typeof window === 'undefined' ?
     const normalized = String(query || '').trim().toLowerCase()
     if (!normalized) return true
     const haystack = [
+      /* The words a person types when they are hunting for one of these and do
+         not know its name. The agent half is here for the same reason the
+         research half is: the tool-note switch was unfindable by search for as
+         long as this list described only research. */
       'research runs jobs projects experiments queue pipeline assistants programs web services on this computer',
+      'agent agents tool tools note summary what tools exist introduction new session',
       ...(state?.rows || []).flatMap(row => [
         titleOf(row), row.consequence || '', ...(row.capabilities || []), ...(row.risks || []),
       ]),

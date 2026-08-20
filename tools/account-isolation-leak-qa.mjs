@@ -62,9 +62,34 @@ const TESTER = Object.freeze({
 })
 
 /* Settings each of them changes. Different ids, so "the stranger sees the
-   default" and "the stranger sees the owner's value" cannot be confused. */
-const OWNER_SETTING = Object.freeze({ id: 'board_mode', value: 'channels', def: 'timeline' })
-const TESTER_SETTING = Object.freeze({ id: 'thread_sort', value: 'priority', def: 'recent' })
+   default" and "the stranger sees the owner's value" cannot be confused.
+
+   THESE WERE `board_mode` AND `thread_sort` UNTIL 2026-08-20, and both were
+   removed from the page that day: they wrote a `mc.set.<id>` key nothing read.
+   That did not make this probe wrong -- account isolation is about the KEY being
+   partitioned, not about anything consuming it -- but a probe cannot click a
+   control that is no longer on the screen, and a probe whose subject is a dead
+   row is measuring storage rather than the product. Both are now rows that
+   genuinely act, so a leak shows up as behaviour and not only as a stored
+   string.
+
+   THE STORAGE KEY IS NAMED, NOT DERIVED, because it is not `mc.set.<id>` for
+   every row and this file used to assume it was. `theme` writes `mc.theme`, and
+   public/durable-storage.js `isAccountScoped()` partitions exactly three
+   things: `mc.theme`, `mc.checkout.v1`, and anything under `mc.set.`. A subject
+   whose key falls outside that set is not account-scoped at all, so choosing one
+   would make this probe pass by testing nothing. That is also why neither
+   subject is a `live_*` or `write_*` flag: those store under `mc.live.` and
+   `mc.write.`, which `isAccountScoped()` does not cover.
+
+   BOTH ARE SEGMENTED CONTROLS on purpose -- the click path below addresses
+   `button[data-setting-value=...]`, which only a seg has. Of the rows that
+   survive, act, and are account-scoped, `theme` and `uninstall_data` are the
+   two segs. `uninstall_data` is only ever set to "keep my data" here: this
+   stores a preference that the uninstaller reads, and nothing in this probe
+   uninstalls anything. */
+const OWNER_SETTING = Object.freeze({ id: 'theme', key: 'mc.theme', value: 'black', def: 'white' })
+const TESTER_SETTING = Object.freeze({ id: 'uninstall_data', key: 'mc.set.uninstall_data', value: 'keep-my-data', def: 'ask' })
 
 /* A purchase list that is nobody's. Invented vendors, invented reasons. It
    exists so the checkout screen is on the ring and has something to tick. */
@@ -445,12 +470,16 @@ async function main() {
     const prefs = readPrefs(profile)
     writeEvidence(scratch, 'prefs-at-end.json', prefs)
     const themeKey = prefValue(prefs, 'mc.theme')
-    const ownerKey = prefValue(prefs, `mc.set.${OWNER_SETTING.id}`)
-    const testerKey = prefValue(prefs, `mc.set.${TESTER_SETTING.id}`)
+    /* Each subject's OWN key. This built `mc.set.<id>` for both until
+       2026-08-20, which was true of the two rows it then used and is not true
+       in general -- `theme` stores under `mc.theme`. A probe that reads a key
+       nothing writes finds nothing and reports a clean partition. */
+    const ownerKey = prefValue(prefs, OWNER_SETTING.key)
+    const testerKey = prefValue(prefs, TESTER_SETTING.key)
     const selectionKey = prefValue(prefs, 'mc.checkout.v1')
     ledger.note(`the preferences file holds: mc.theme=${JSON.stringify(themeKey)} `
-      + `mc.set.${OWNER_SETTING.id}=${JSON.stringify(ownerKey)} `
-      + `mc.set.${TESTER_SETTING.id}=${JSON.stringify(testerKey)} `
+      + `${OWNER_SETTING.key}=${JSON.stringify(ownerKey)} `
+      + `${TESTER_SETTING.key}=${JSON.stringify(testerKey)} `
       + `mc.checkout.v1=${selectionKey ? `${String(selectionKey).length} bytes` : 'absent'}`)
 
     /* THE PARTITION, ASKED OF THE FILE RATHER THAN OF THE SCREEN.
