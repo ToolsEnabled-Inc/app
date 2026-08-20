@@ -164,7 +164,12 @@
     "",
     "src/job-runner.js is spawned by src/lib/providers/scheduler.js to execute a",
     "scheduled action; tools/lane-run.js by src/lib/agent-wake.js; the local-coder",
-    "sidecar worker by src/lib/providers/overnight-advisory-runtime.js. Every one",
+    "sidecar worker by src/lib/providers/overnight-advisory-runtime.js; the",
+    "local-node lane runner by src/lib/mission-bridge/actions.js for every",
+    "local-model dispatch (its absence from this list is why a customer with a",
+    "working Ollama got a child that died on MODULE_NOT_FOUND -- measured",
+    "2026-08-19 against the sealed build; the engine now also refuses that",
+    "dispatch honestly with BRIDGE_LOCAL_RUNNER_MISSING). Every one",
     "is reached through a computed path, so the walk cannot see them, and every",
     "one has its own require() graph, so copying them verbatim like a helper",
     "program would ship an entrypoint whose first require() throws.",
@@ -177,6 +182,7 @@
   "spawnedPrograms": [
     "src/job-runner.js",
     "tools/lane-run.js",
+    "tools/local-node-lane-runner.js",
     "sidecars/local-coder/bin/overnight-advisory-worker.js",
     "tools/research-runs-worker.js"
   ],
