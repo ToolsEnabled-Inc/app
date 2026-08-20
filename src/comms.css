@@ -662,6 +662,9 @@
   display: grid; place-items: center;
   transition: background 0.2s, color 0.2s;
 }
+/* The grid rule beats the UA's `[hidden] { display: none }`; comms.js ships
+   this button hidden. Gate: tools/test/hidden-display-honesty.test.mjs. */
+.wb-btn[hidden] { display: none; }
 .wb-btn svg { width: 15px; height: 15px; }
 .wb-btn:hover { background: rgba(127, 127, 127, 0.13); color: var(--ink); }
 .wb-btn.wb-branch.on { color: var(--c-coordinator); }

@@ -360,6 +360,11 @@ body[data-route="guide"] .fleet-profile-notice:not(.is-serious) { display: none;
   display: grid;
   gap: var(--s2);
 }
+/* The grid rules on this panel and on .guide-signin beat the UA's
+   `[hidden] { display: none }`; guide.js ships both hidden until their state
+   is known. Gate: tools/test/hidden-display-honesty.test.mjs. */
+.guide-accounts-panel[hidden],
+.guide-signin[hidden] { display: none; }
 .guide-accounts-head {
   margin: 0;
   color: var(--ink);

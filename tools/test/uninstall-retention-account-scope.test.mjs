@@ -63,7 +63,16 @@ const NO_FILE = '(no policy file)'
    deletes. It is never printed. */
 const TEST_PASSWORD = 'this-is-not-a-real-password'
 
-function withStores(run) {
+/* AWAITED, AND THE REASON IS A DEFECT THIS HELPER ALREADY HAD.
+   Written first as a plain `try { return run(...) } finally { rmSync(root) }`,
+   which is correct for a synchronous body and silently wrong for every async
+   one: `run` returns a promise, the `finally` fires immediately, and the scratch
+   directory is deleted WHILE the test is still writing to it. The assertions
+   still passed -- the stores recreate what they need -- so the only visible
+   symptom was 81 leaked directories under %TEMP%, and the isolation each test
+   believed it had was accidental. Awaiting is what makes the cleanup mean
+   what it says. Every caller awaits in turn. */
+async function withStores(run) {
   const root = mkdtempSync(join(tmpdir(), 'te-retention-account-'))
   const userDataDir = join(root, 'ToolsEnabled')
   fs.mkdirSync(userDataDir, { recursive: true })
@@ -76,7 +85,7 @@ function withStores(run) {
     account: createAccountStore({ safeStorage: undefined, directory: userDataDir }),
   }
   try {
-    return run(stores)
+    return await run(stores)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -178,12 +187,46 @@ test('a "remove everything" chosen WHILE SIGNED IN reaches the uninstaller at al
   })
 })
 
+/* THE acct: KEY ON ITS OWN HAS TO BE ENOUGH, and mutation testing is why this
+   test exists. Restoring the bare-literal key match -- the shipped defect --
+   left the two tests above GREEN, because a settings click also sends the bare
+   name through `mc-account:setting-put`, which now mirrors too. The redundancy
+   is real and wanted, but it means neither of those tests actually binds the
+   `acct:<id>:` match.
+
+   And the partition write is the half that can silently not happen:
+   public/durable-storage.js calls it best-effort and swallows a rejection on
+   purpose ("the bridge went away; the device mirror already holds it"). So this
+   is the click where only the synchronous slot write lands. */
+test('the account-scoped key alone carries the decision when the partition write is lost', async () => {
+  await withStores(async (stores) => {
+    const id = await signInAsNewPerson(stores, 'partition-write-lost')
+    mirror(stores)
+
+    stores.prefs.set(accountScopedRetentionKey(id), CHOICE_REMOVE)
+    // and nothing else: no putSetting, exactly as a rejected invoke leaves it.
+    assert.equal(isRetentionPrefKey(accountScopedRetentionKey(id)), true, 'precondition: the key is recognised')
+    mirror(stores)
+
+    assert.equal(
+      token(stores),
+      CHOICE_REMOVE,
+      'the only write that landed was the namespaced one, and the person still asked for their '
+        + 'data to be removed',
+    )
+
+    stores.prefs.remove(accountScopedRetentionKey(id))
+    mirror(stores)
+    assert.equal(token(stores), NO_FILE, 'and withdrawing it through that same key clears the token')
+  })
+})
+
 // ---------------------------------------------------------------------------
 // WHICH COPY WINS. The rule is: the value the settings page is showing.
 // ---------------------------------------------------------------------------
 
-test('signed out, the device record still decides, exactly as it always did', () => {
-  withStores((stores) => {
+test('signed out, the device record still decides, exactly as it always did', async () => {
+  await withStores((stores) => {
     settingsPageChoice(stores, CHOICE_REMOVE, null)
     assert.equal(token(stores), CHOICE_REMOVE)
 
@@ -296,8 +339,8 @@ const BROKEN_ACCOUNT_STORES = Object.freeze([
 ])
 
 for (const [label, account] of BROKEN_ACCOUNT_STORES) {
-  test(`${label} clears the token rather than acting on the device's`, () => {
-    withStores((stores) => {
+  test(`${label} clears the token rather than acting on the device's`, async () => {
+    await withStores((stores) => {
       settingsPageChoice(stores, CHOICE_REMOVE, null)
       assert.equal(token(stores), CHOICE_REMOVE, 'precondition: the computer carries a destructive decision')
 
@@ -315,8 +358,8 @@ for (const [label, account] of BROKEN_ACCOUNT_STORES) {
   })
 }
 
-test('settings that cannot be read clear the token too', () => {
-  withStores((stores) => {
+test('settings that cannot be read clear the token too', async () => {
+  await withStores((stores) => {
     settingsPageChoice(stores, CHOICE_REMOVE, null)
     assert.equal(token(stores), CHOICE_REMOVE)
 
@@ -332,8 +375,8 @@ test('settings that cannot be read clear the token too', () => {
   })
 })
 
-test('a mirror failure is reported, never thrown at the caller that was saving a setting', () => {
-  withStores((stores) => {
+test('a mirror failure is reported, never thrown at the caller that was saving a setting', async () => {
+  await withStores((stores) => {
     const result = mirrorRetentionChoice({
       userDataDir: stores.userDataDir,
       prefs: { snapshot() { return { values: {} } } },

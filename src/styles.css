@@ -722,6 +722,11 @@
 }
 .rail-prose:last-child { margin-bottom: 0; }
 .rail-prose:empty { display: none; }
+/* The block above beats the UA's `[hidden] { display: none }` (author origin
+   wins), so the rail's conditional prose lines — status notes, activity,
+   usage — painted as empty blocks while marked hidden. Same convention as
+   .ctl-btn[hidden] below; gate: tools/test/hidden-display-honesty.test.mjs. */
+.rail-prose[hidden] { display: none; }
 
 .comms .projection-unavailable {
   color: var(--ink-2);
@@ -1743,7 +1748,19 @@ body[data-route="computers"] { --page-max: 1680px; }
 .comp-body { min-height: 520px; }
 .computers { overflow-y: auto; }
 
-@media (max-width: 1080px) {
+/* THE STACK STARTS BELOW 1024, NOT AT 1080, because 1024 is the owner's
+   stated floor for this page and the stack at 1024x800 put the ENTIRE rail
+   below the fold — proven on the packaged build (tools/tree-panel-audit-drive
+   .mjs shot 10-details-1024, 2026-08-20): a person at the minimum width saw
+   only the canvas, with no cue that the whole right panel existed one scroll
+   away. The rail already has a narrow dress (board.css caps it at 320px and
+   tightens box padding under 1180px), so side-by-side holds the full 1024-1920
+   range: at 1024 the canvas keeps ~650px beside a 320px rail, and the tree's
+   vertical fitter (src/tree-layout.js) and zoom own making the tree fit it.
+   Below 1024 the window is narrower than the page's own floor, and there the
+   stack-and-scroll cure this block has always applied is still the honest
+   answer. */
+@media (max-width: 1023px) {
   /* 340px was not a minimum, it was the height at which this page breaks.
      Stacked, the canvas measured 339px at 1024x768 and the tree drew its
      three tiers 85px apart while carrying 114px of circle: six overlapping
@@ -1791,7 +1808,7 @@ body[data-route="computers"] { --page-max: 1680px; }
      half of a page that failed to draw. */
   align-content: center;
 }
-@media (max-width: 1080px) {
+@media (max-width: 1023px) {
   .computers[data-projection-state="unavailable"] .comp-body {
     grid-template-rows: minmax(280px, auto) minmax(200px, auto);
   }
@@ -2370,6 +2387,14 @@ body[data-route="computers"] { --page-max: 1680px; }
 .ctl-btn.danger:hover { color: var(--s-serious); border-color: color-mix(in oklab, var(--s-serious) 30%, white); }
 
 .ctl-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); padding: var(--s2) 2px; }
+/* Without this, the flex rule above beats [hidden] and the tree rail's Setup
+   box painted BOTH of its conditional rows: "Restart it in the new folder"
+   with no folder change, and an empty Reports-to menu with a Save button
+   directly above the sentence saying there is nowhere to move the agent —
+   the product contradicting itself in one viewport (proven on the packaged
+   build, tools/tree-panel-audit-drive.mjs shot 07, 2026-08-20). Same rule as
+   .ctl-btn[hidden] below; gate: tools/test/hidden-display-honesty.test.mjs. */
+.ctl-row[hidden] { display: none; }
 .ctl-row .cl { font-size: 12.5px; color: var(--ink-2); font-weight: 550; white-space: nowrap; }
 .ctl-row .cv { font-size: 12.5px; color: var(--ink-25); font-variant-numeric: tabular-nums; font-family: var(--font-mono); flex: none; }
 /* 130 → 118px: the label ("Context budget") and the mono value both grew,

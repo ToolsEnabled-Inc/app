@@ -810,6 +810,9 @@
   cursor: pointer;
   transition: color .22s var(--ease), border-color .22s var(--ease);
 }
+/* The inline-flex rule beats the UA's `[hidden] { display: none }`; metrics.js
+   ships this control hidden. Gate: tools/test/hidden-display-honesty.test.mjs. */
+.lane-clear[hidden] { display: none; }
 .lane-clear b { font-weight: 640; color: var(--ink); }
 .lane-clear .lc-x { font-size: 13px; line-height: 1; color: var(--ink-3); }
 .lane-clear:hover { color: var(--ink); border-color: var(--ink-3); }

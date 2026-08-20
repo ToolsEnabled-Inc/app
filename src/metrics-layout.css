@@ -43,6 +43,10 @@
   white-space: nowrap;
   transition: color .22s var(--ease), border-color .22s var(--ease), background .25s var(--ease);
 }
+/* The inline-flex rule beats the UA's `[hidden] { display: none }`; the
+   research page ships its "New project" button hidden until projects load.
+   Gate: tools/test/hidden-display-honesty.test.mjs. */
+.m-edit-btn[hidden] { display: none; }
 .m-edit-btn:hover { color: var(--ink); border-color: var(--ink-3); }
 .m-edit-btn:active { transform: scale(0.96); }
 .m-edit-btn:focus-visible { outline: 3px solid var(--focus-ring, #0079a8); outline-offset: 1px; }
