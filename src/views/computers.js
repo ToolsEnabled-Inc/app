@@ -810,6 +810,13 @@ const RUN_SESSION_NODES = new Map()
  * node on a later visit that nobody asked for. */
 let composeToRestore = null
 
+/* The Role library's unsaved wording, carried across the write-flag remount.
+ * Declared here beside composeToRestore because the two survive the same
+ * teardown. Restored by the coordinator 2026-08-20: a partial hunk set landed
+ * its USES at ed7a10a without this line, and HEAD's fleet board died with
+ * "roleLibraryToRestore is not defined". */
+let roleLibraryToRestore = null
+
 /* WHERE A COMPUTER'S RECORD CAME FROM, in words rather than in the word the
    program uses. `computer.note` is `sourceKind`, which the fleet schema pins to
    exactly two values, so this is a lookup and not a guess -- and an unexpected
