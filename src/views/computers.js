@@ -121,6 +121,10 @@ import { createFleetTreeStore, FLEET_TREE_LIMITS, markTreeStoreLive, NODE_REMOVE
    circle above it (owner, 2026-08-18). See that file's header for why this
    rides in the message text rather than in an engine option. */
 import { composeNodeBrief, nodeManagerContext, readTreeAddress } from '../tree-node-brief.js'
+/* The scopes a circle's agents are under, derived in ONE place: this view puts
+   them on every start as requestKeys, and the rail reads the same list back —
+   see src/tree-standing-requests.js for why that derivation is shared. */
+import { REQUEST_PANEL, standingRequestScopesFor } from '../tree-standing-requests.js'
 import { mountAgentComposePanel } from '../agent-compose-panel.js'
 import { WRITE_FLAGS_EVENT, isWriteEnabled, setWriteEnabled } from '../write-flags.js'
 import { START_CONTROL_FLAG, START_CONTROL_ON, startControlOffBecause } from '../setup-profile.js'
@@ -4383,6 +4387,18 @@ export function computersView({ initialComputer = null, navigate }) {
           </div>
           <output class="rail-prose" role="status" data-tree-move-out></output>
         </div>
+        <!-- THE RULES THESE AGENTS ARE ALREADY BEING TOLD, read back. The
+             /Request family has been able to WRITE per-tree instructions for
+             a while and every start carries them, but nothing could read them
+             back: a person filed a rule, got a confirmation, and then had no
+             way to see what this circle carries while every agent in it was
+             being told at boot. Mounted after the start-work controls
+             because it describes what these agents are, not what to do next.
+             See mountStandingRequests(). -->
+        <div class="board-box board-ctl-box" data-requests-slot>
+          <div class="board-box-h"><span class="bh-t">${escapeMarkup(REQUEST_PANEL.title)}</span></div>
+          <div data-requests-body><p class="rail-prose is-dim">${escapeMarkup(REQUEST_PANEL.reading)}</p></div>
+        </div>
         <!-- Launch, Team, Loop and Codex Cloud. See mountStartWorkControls():
              this is the rail a person actually reaches for an agent they
              started on this computer, and until 2026-08-18 those four controls
@@ -4394,6 +4410,7 @@ export function computersView({ initialComputer = null, navigate }) {
       { id: node.id, name: treeNodeName(node) },
       controlsPage.querySelector('.board-start-work-slot'),
     )
+    void mountStandingRequests(node, controlsPage.querySelector('[data-requests-slot]'))
     /* Filing this session under a research project. The projects list was read
        once at mount; a refusal renders as its sentence, never as an empty
        select. The session reference is the OBSERVED id — the one identity a
@@ -6064,6 +6081,73 @@ export function computersView({ initialComputer = null, navigate }) {
 
   function nodeRequestKeys(node) {
     return { treeAnchors: treeAnchorsFor(node), threadId: node.id }
+  }
+
+  /* THE RULES THIS CIRCLE'S AGENTS CARRY, SHOWN WHERE THEY APPLY.
+   *
+   * The scopes come from src/tree-standing-requests.js, which derives them
+   * from the SAME anchors nodeRequestKeys() puts on every start — so what a
+   * person is shown here and what an agent is told at boot cannot disagree.
+   * That is the whole reason the derivation is a shared module with a test
+   * rather than a second expression written next to the panel.
+   *
+   * READ ONLY, DELIBERATELY. The ledger files carry the owner's own design in
+   * their header — "edit or delete any entry by hand ... no tool rewrites
+   * them" — so this panel names the command that writes one and says plainly
+   * that removing one is a hand edit. A Remove button here would contradict
+   * the file it edited.
+   *
+   * A REFUSAL IS NOT AN EMPTY LIST. A copy that could not read its ledgers
+   * says so in its own sentence; painting that as "no rules" would be the
+   * absence-as-zero lie this page has already fixed twice (see
+   * paintAgentsOnRecord). */
+  async function mountStandingRequests(node, slot) {
+    if (!slot) return
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    const scopes = standingRequestScopesFor(node, { anchors: treeAnchorsFor(node) })
+    /* The BOX and its heading are already on the page (see the markup): only
+       the body below them is written here, so the panel never flashes in as a
+       new box under the person's eye, and no class this function invents has
+       to be styled into looking like its siblings. */
+    const body = slot.querySelector('[data-requests-body]')
+    if (!body) return
+    if (!bridge || typeof bridge.requests !== 'function') {
+      body.innerHTML = `<p class="rail-prose is-dim">${escapeMarkup(REQUEST_PANEL.unavailable)}</p>`
+      return
+    }
+    const readings = await Promise.all(scopes.map(async ({ scope, key }) => {
+      const answer = await bridge.requests({ scope, ...(key ? { key } : {}) }).catch(() => null)
+      return { scope, answer }
+    }))
+    if (destroyed || !slot.isConnected) return
+    const refused = readings.some(({ answer }) => !answer || answer.ok !== true)
+    const groups = readings
+      .filter(({ answer }) => answer && answer.ok === true && answer.entries.length > 0)
+      /* One heading per SCOPE, not per anchor: two tree anchors both read as
+         "This tree" to a person, and printing that phrase twice would look
+         like a repeat rather than like two ledgers. */
+      .reduce((into, { scope, answer }) => {
+        const found = into.find(group => group.scope === scope)
+        if (found) found.entries.push(...answer.entries)
+        else into.push({ scope, entries: [...answer.entries] })
+        return into
+      }, [])
+    const total = groups.reduce((count, group) => count + group.entries.length, 0)
+    const written = total === 0
+      ? `<p class="rail-prose is-dim">${escapeMarkup(REQUEST_PANEL.empty)}</p>`
+      : `${groups.map(group => `
+          <div class="rail-sec">${escapeMarkup(REQUEST_PANEL.scopeLabel[group.scope] || group.scope)}</div>
+          ${group.entries.map(entry => `
+            <p class="rail-prose request-words">${escapeMarkup(entry.words)}</p>
+            <p class="rail-prose is-dim request-id">${escapeMarkup(REQUEST_PANEL.entryHint(entry.id))}</p>`).join('')}`).join('')}
+        <p class="rail-prose is-dim">${escapeMarkup(REQUEST_PANEL.precedence)}</p>`
+    /* The refusal rides WITH whatever was read rather than replacing it: some
+       ledgers answering and one refusing is a real state, and hiding the rules
+       that did arrive would be worse than saying both things. */
+    body.innerHTML = `${written}
+      ${refused ? `<p class="rail-prose is-dim">${escapeMarkup(REQUEST_PANEL.unavailable)}</p>` : ''}
+      <p class="rail-prose is-dim">${escapeMarkup(REQUEST_PANEL.howToAdd)}</p>
+      <p class="rail-prose is-dim">${escapeMarkup(REQUEST_PANEL.howToRemove)}</p>`
   }
 
   const REQUEST_FILE_FAILED = 'That rule was not filed. Try it once more; if it keeps happening, the ledger file could not be written.'

@@ -73,6 +73,11 @@ contextBridge.exposeInMainWorld('mcAgent', Object.freeze({
      both directions: the reply is {ok, id, scope, key} for the confirmation
      sentence, and no path crosses this bridge. */
   request: request => ipcRenderer.invoke('mc-agent:request', request),
+  /* Read one scope's standing requests back. The same vocabulary and the same
+     silence about paths: {scope, key} in, {ok, exists, entries:[{id, words}]}
+     out. A READ ONLY -- removing a rule is a hand edit of the person's own
+     ledger file, which is the design recorded in the file's own header. */
+  requests: request => ipcRenderer.invoke('mc-agent:requests', request),
   /* Native dialogs, driven by the person. pickAttachment issues the chosen
      path to that session's image allowlist in main; pickMention returns a
      path the renderer inserts as TEXT. Both answer {ok, path|null}. */

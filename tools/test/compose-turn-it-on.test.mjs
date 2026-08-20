@@ -224,7 +224,11 @@ test('the write goes through the one writer these rows have', () => {
   /* setWriteEnabled is the single writer (src/write-flags.js), which is what
      makes this panel and the Settings control incapable of disagreeing. A
      second write path here would be the "user setting that is a lie" defect. */
-  assert.match(view, /import \{ isWriteEnabled, setWriteEnabled \} from '\.\.\/write-flags\.js'/, 'the view writes the flag some other way')
+  /* The import may carry more names from the same module (WRITE_FLAGS_EVENT
+     arrived 2026-08-20 so the view can hear the teardown its own switch
+     causes); what this test pins is that the WRITER is write-flags.js's, and
+     the count below still pins that there is exactly one call to it. */
+  assert.match(view, /import \{ [^}]*\bsetWriteEnabled\b[^}]* \} from '\.\.\/write-flags\.js'/, 'the view writes the flag some other way')
   const writes = view.match(/setWriteEnabled\(/g) || []
   assert.equal(writes.length, 1, 'a second write path appeared; the two surfaces can now disagree')
 })

@@ -51,6 +51,10 @@ import {
   seedMachineRecord,
   stage,
 } from './test-account-harness.mjs'
+/* The panel's own words, so this drive asserts against the copy the product
+   ships rather than against a phrase typed into a harness. Importable because
+   src/tree-standing-requests.js deliberately has no DOM and no stylesheet. */
+import { REQUEST_PANEL } from '../src/tree-standing-requests.js'
 
 const KEEP = process.argv.includes('--keep')
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -394,6 +398,73 @@ async function drive(executable, scratch, appRoot) {
     note('INFO', worksIn
       ? `the folder control today: a "Works in" menu offering ${JSON.stringify(worksIn.options)}`
       : 'no Works in menu on the Details tab')
+
+    /* -- 5b · the rules this circle carries, WRITTEN THEN READ BACK -------- */
+    /* The whole point of the panel: file a real rule through the product's own
+       /RequestTree command in the chat box, then prove the rail reads it back.
+       Nothing is seeded — the ledger entry this reads is one this drive made
+       the product write, through the same path a person uses. */
+    const chatTab = await press(window, '[data-rail-tab="chat"]')
+    if (!chatTab.pressed) note('FAIL', `the Chat tab would not press (${chatTab.why})`)
+    else {
+      const RULE = 'Never write outside this folder.'
+      const typedRule = await typeInto(window, '[data-rail-chat-host] .chat-input input', `/RequestTree ${RULE}`)
+      if (!typedRule.pressed) note('FAIL', `the message box would not take the command (${typedRule.why})`)
+      else {
+        await key(window, 'Enter', 13)
+        await delay(2500)
+        const filed = readOrThrow(await window.evaluate(`(() => {
+          const notes = [...document.querySelectorAll('[data-rail-chat-host] .msg')]
+          return notes.map(n => n.textContent.trim()).filter(Boolean).slice(-3)
+        })()`), 'the filing confirmation')
+        record['request-filed'] = filed
+        const confirmed = filed.some(line => /\bRT\d+\b/.test(line))
+        note(confirmed ? 'PASS' : 'FAIL',
+          confirmed ? `/RequestTree filed a rule and the chat named its id (${JSON.stringify(filed.slice(-1))})`
+            : `/RequestTree did not confirm a filing; the chat last said ${JSON.stringify(filed)}`)
+        /* Now the read-back, on the Details tab, by real press. */
+        await press(window, '[data-rail-tab="details"]')
+        await delay(1200)
+        /* The panel is built on mount, so reopen the circle to re-read. */
+        await press(window, '.computers .rail-back')
+        await delay(600)
+        await press(window, '.node[data-agent-id]')
+        await delay(1200)
+        await press(window, '[data-rail-tab="details"]')
+        await delay(1200)
+        await window.evaluate(`document.querySelector('[data-requests-slot]')?.scrollIntoView({ block: 'center' })`)
+        await delay(600)
+        await shoot(window, '05b-standing-requests.png')
+        const shown = readOrThrow(await window.evaluate(`(() => {
+          const slot = document.querySelector('[data-requests-slot]')
+          if (!slot) return null
+          const box = slot.getBoundingClientRect()
+          const x = Math.min(Math.max(box.x + box.width / 2, 0), innerWidth - 1)
+          const y = Math.min(Math.max(box.y + box.height / 2, 0), innerHeight - 1)
+          const hit = document.elementFromPoint(x, y)
+          return {
+            painted: box.width > 0 && box.height > 0,
+            reachable: Boolean(hit && slot.contains(hit)),
+            words: [...slot.querySelectorAll('.request-words')].map(n => n.textContent.trim()),
+            ids: [...slot.querySelectorAll('.request-id')].map(n => n.textContent.trim()),
+            text: slot.textContent.replace(/\\s+/g, ' ').trim().slice(0, 400),
+          }
+        })()`), 'the standing-requests panel')
+        record['standing-requests-panel'] = shown
+        const readBack = Boolean(shown && shown.painted && shown.reachable && shown.words.includes(RULE))
+        note(readBack ? 'PASS' : 'FAIL',
+          readBack
+            ? `the rail read the rule back where it applies: ${JSON.stringify(shown.words)} ${JSON.stringify(shown.ids)}`
+            : `the filed rule did not come back on the rail; the panel said ${JSON.stringify(shown)}`)
+        /* Read from the copy module, never retyped here: an assertion that
+           quotes a sentence goes red the next time the sentence is improved,
+           and that red reads as the product losing the feature. */
+        const statesPrecedence = Boolean(shown && shown.text.includes(REQUEST_PANEL.precedence))
+        note(statesPrecedence ? 'PASS' : 'FAIL',
+          statesPrecedence ? 'the panel states which layer wins, in one sentence'
+            : 'the panel does not state the precedence')
+      }
+    }
 
     /* -- 6 · the roles editor --------------------------------------------- */
     const back = await press(window, '.computers .rail-back')

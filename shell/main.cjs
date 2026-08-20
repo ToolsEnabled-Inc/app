@@ -80,6 +80,7 @@ const { createGoogleSignIn } = require('./google-signin.cjs')
 const { resolveGoogleSignInConfig } = require('./google-signin-config.cjs')
 const { vaultRecordPresence: readVaultRecordPresence } = require('./vault-presence.cjs')
 const { readBridgeProof } = require('./bridge-proof.cjs')
+const { readStandingRequests } = require('./standing-requests-read.cjs')
 const { resolveEnvBridgeProof, recordEnvProofRefusal } = require('./bridge-env-path.cjs')
 const {
   guiEnvironment,
@@ -1872,6 +1873,37 @@ ipcMain.handle('mc-agent:request', async (event, value) => {
       ? null
       : boundedAgentString(payload.key, 'key', 128)
     return await getAgentHost().fileStandingRequest({ scope, key, words })
+  } catch (error) {
+    throw rendererSafeAgentError(error)
+  }
+})
+
+/* READ BACK THE STANDING REQUESTS ONE SCOPE CARRIES -- the other half of the
+   handler above, which was write-only. A person could file a rule with
+   /RequestTree, see the confirmation, and then had no way to learn what rules
+   this tree carries while every agent in it was being told them at boot.
+
+   IT IS A READ AND NOTHING MORE. No delete, no edit: the ledger file's own
+   header states the owner's design -- "edit or delete any entry by hand ...
+   no tool rewrites them" -- so the product reads those files and never
+   rewrites them. See shell/standing-requests-read.cjs.
+
+   THE SAME BOUNDS AS THE WRITE, because it is the same vocabulary: scope and
+   key are bounded identifiers, never paths, and the reply carries words and
+   ids only -- readLedger's own `path` is dropped in the reader and never
+   reaches this process's answer. No session and no engine process is needed;
+   a scope's rules are a file parse, so this does not go through
+   getAgentHost() and cannot be blocked by an agent runtime that will not
+   construct. */
+ipcMain.handle('mc-agent:requests', (event, value) => {
+  assertTrustedAgentSender(event)
+  try {
+    const payload = agentPayload(value === undefined || value === null ? {} : value, ['scope', 'key'])
+    const scope = boundedAgentString(payload.scope, 'scope', 16)
+    const key = payload.key === undefined || payload.key === null
+      ? null
+      : boundedAgentString(payload.key, 'key', 128)
+    return readStandingRequests({ scope, key })
   } catch (error) {
     throw rendererSafeAgentError(error)
   }
