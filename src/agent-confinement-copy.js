@@ -72,6 +72,30 @@ export const SANDBOX_EFFECT = Object.freeze({
   'danger-full-access': 'Nothing narrows it: it can read, change and delete any file on this computer and run any program, without asking.',
 })
 
+/* WHAT EACH LEVEL SAYS ABOUT CREDENTIALS, keyed by the tier name.
+ *
+ * THE FIRST OUTSIDE USER'S CASE, and the reason this table exists. Their
+ * agents "weren't able to use credential manager or vault" -- on the
+ * recommended (Guided) level, where the credential requester is withheld BY
+ * DESIGN: the read-only tool surface carries system.doctor and the presence
+ * checks, and system.credential_request starts at Standard. That is the
+ * legal/consent architecture working; what failed was VISIBILITY. Nothing on
+ * any screen said so, so a deliberate limit read as a breakage, to the person
+ * and to their agent alike. The agent's own copy of this sentence now rides
+ * the standard tool note (engine src/lib/agent-tool-summary.js); this is the
+ * person's copy, at the moment of pressing Start.
+ *
+ * MEASURED, not assumed: real stdio sessions against the staged payload
+ * (tools/agent-tools-matrix-qa.mjs, 2026-08-19) advertise no
+ * system.credential_request at guided (111 tools) and do advertise it at
+ * standard and above, where the driven flow queues the guarded owner form and
+ * the entered value never reaches the agent. */
+export const CREDENTIAL_CLAUSE = Object.freeze({
+  guided: 'It can see what is already set up, but it cannot ask you for credentials or store any — asking starts at the Standard level.',
+  standard: 'It can ask you to add a credential through a guarded form. What you type goes into this computer\'s encrypted store and is never shown to the assistant.',
+  unrestricted: 'It can ask you to add a credential through a guarded form. What you type goes into this computer\'s encrypted store and is never shown to the assistant.',
+})
+
 /* The clause that is still true, and the only one carried over unedited.
    Precision matters here and the wording is deliberately not stronger: this is
    the app's own signed, hash-chained local ledger, and the signing key lives on
@@ -165,9 +189,10 @@ export function confinementNote(reading) {
      questions -- "where does it work" and "what stops it leaving" -- and a person
      deciding to press Start is owed both. At `unrestricted` they collapse into
      the same statement, so only one is shown rather than saying it twice. */
+  const credentials = CREDENTIAL_CLAUSE[tier] || null
   const sentences = tier === 'unrestricted'
-    ? [level, effect, ...(note ? [note] : []), ...(tools ? [tools] : []), RECORD_CLAUSE]
-    : [level, detail, effect, ...(note ? [note] : []), ...(tools ? [tools] : []), RECORD_CLAUSE]
+    ? [level, effect, ...(credentials ? [credentials] : []), ...(note ? [note] : []), ...(tools ? [tools] : []), RECORD_CLAUSE]
+    : [level, detail, effect, ...(credentials ? [credentials] : []), ...(note ? [note] : []), ...(tools ? [tools] : []), RECORD_CLAUSE]
 
   return Object.freeze({
     level,

@@ -96,8 +96,13 @@ test('the host passes images and narrowed options to the adapter, and the plan i
   const send = host.slice(host.indexOf('async function sendTurn'))
   assert.match(send.slice(0, 1200), /narrowTurn\(session\.planThreadOptions, options\)/,
     'per-turn options are no longer narrowed against the SAME plan that bound the thread')
-  assert.match(send.slice(0, 2000), /images: turnImages/, 'picked images no longer reach the adapter')
-  assert.ok(!/images: \[\]/.test(send.slice(0, 2000)), 'the images: [] literal is back — the pipe is cut again')
+  /* The window grew from 2000 with the first-turn tool-note assembly (the
+     introduction block between the turn bookkeeping and the adapter call --
+     see "THE INTRODUCTION RIDES THE FIRST TURN" in shell/agent-host.cjs).
+     Wider on BOTH assertions, so the negative pin covers at least everything
+     the positive one does. */
+  assert.match(send.slice(0, 3200), /images: turnImages/, 'picked images no longer reach the adapter')
+  assert.ok(!/images: \[\]/.test(send.slice(0, 3200)), 'the images: [] literal is back — the pipe is cut again')
 })
 
 test('effort is a start-time property: boundary-validated, tier-defaulted, bound at spawn', () => {

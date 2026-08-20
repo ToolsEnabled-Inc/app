@@ -636,6 +636,38 @@ function codexCommandIsMissing() {
   }
 }
 
+/* WHICH PROVIDER A START WITH NO TIER SHOULD RESOLVE TO, from what this
+ * machine actually has.
+ *
+ * THE DEFECT, driven by the cross-machine lane on a Claude-only foreign
+ * machine: with no ~/.codex/auth.json anywhere, the no-tier start path kept a
+ * CODEX confinement plan regardless of the machine, so pressing Start refused
+ * on a computer whose only agent program -- Claude, installed and signed in --
+ * could have served it. The provider-login lane fixed the refusal's words
+ * (6a3ab66); this resolves the routing.
+ *
+ * CODEX KEEPS THE DEFAULT WHENEVER IT CAN SERVE. A machine with a codex
+ * sign-in behaves byte-for-byte as before -- the probe only reroutes when
+ * codex demonstrably cannot serve (its program missing, or no sign-in file to
+ * link) AND Claude demonstrably can. Every uncertain answer falls back to
+ * codex, whose refusal already names the fix; a probe that reroutes on a
+ * guess would turn one person's flaky PATH into a silent provider switch.
+ *
+ * FILESYSTEM FACTS ONLY, the same rule providerCliPresence() states: the
+ * sign-in answer is "a file is where that program keeps its sign-in", never a
+ * byte of what is in it, and no child process is spawned at a press. */
+function defaultStartProviderProbe() {
+  const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex')
+  const codexSignedIn = fs.existsSync(path.join(codexHome, 'auth.json'))
+  if (codexSignedIn && !codexCommandIsMissing()) return 'codex'
+  const presence = providerCliPresence()
+  const claude = presence && Array.isArray(presence.providers)
+    ? presence.providers.find(row => row.id === 'claude')
+    : null
+  if (claude && claude.installed === 'yes') return 'claude'
+  return 'codex'
+}
+
 /* The environment an agent child is allowed to inherit, at EVERY level.
  *
  * BOTH BRANCHES, DELIBERATELY, because the asymmetry WAS the defect. Handling
@@ -1148,7 +1180,7 @@ function confinementPlanFor(planner, { provider = 'codex', account = null } = {}
  * beside the machine record, the accounts page writes it, and a host that went
  * looking for it would be a second reader that could answer differently from
  * the surface the person is looking at. */
-function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPlanner = null, sessionEnvironmentExtras = null, accountResolver = null } = {}) {
+function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPlanner = null, sessionEnvironmentExtras = null, accountResolver = null, startProviderProbe = null } = {}) {
   const { startCodexSession, resumeCodexSession, engineRoot } = loadEngine(enginePath)
   /* Loaded ONCE beside the Codex engine, and allowed to be absent. See the note
      above loadClaudeEngine(): a payload cut before that module existed keeps
@@ -1590,12 +1622,21 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
      * security input treated as consent. A session that cannot be confined to
      * the level the user chose is not a session that runs at a wider level; it
      * is a session that does not run. */
-    /* THE PROVIDER THIS SESSION IS ABOUT TO RUN ON, not a default. An absent
-     * tier is the agent page's own start, which is Codex, so it keeps the Codex
-     * plan -- the tier is the only thing that can move it off that. See
-     * confinementPlanFor(): a Claude tier is no longer gated on a Codex
-     * credential it never reads. */
-    const sessionProvider = (startTier && startTier.provider) || 'codex'
+    /* THE PROVIDER THIS SESSION IS ABOUT TO RUN ON. An explicit tier decides
+     * outright. An ABSENT tier -- the agent page's own start -- resolves from
+     * what this machine actually has, per defaultStartProviderProbe(): codex
+     * whenever codex can serve (unchanged default), claude only when codex
+     * demonstrably cannot and the payload carries the claude engine. A probe
+     * fault degrades to codex, the path this host has always taken, never to
+     * a refusal of its own. */
+    const sessionProvider = (startTier && startTier.provider) || (() => {
+      try {
+        const probed = (startProviderProbe || defaultStartProviderProbe)()
+        return probed === 'claude' && claudeEngine ? 'claude' : 'codex'
+      } catch {
+        return 'codex'
+      }
+    })()
 
     /* THE RECORDED LEVEL, BINDING THIS SESSION -- RESOLVED SYNCHRONOUSLY, AND
      * THE TIMING IS THE SECURITY PROPERTY.
@@ -1800,7 +1841,10 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
          * environment, the working directory and the event callback are computed
          * once, above, and neither engine gets a private path through this
          * function where a refusal could be skipped. */
-        const useClaude = startTier && startTier.provider === 'claude'
+        /* From the RESOLVED provider, not from the tier alone: a no-tier start
+           on a claude-only machine is a claude session with no chosen model,
+           and the CLI's own default model serves it. */
+        const useClaude = sessionProvider === 'claude'
         const engineStart = useClaude
           ? (resumeId && claudeEngine.resumeClaudeSession
             ? (request) => claudeEngine.resumeClaudeSession({ ...request, threadId: resumeId })
