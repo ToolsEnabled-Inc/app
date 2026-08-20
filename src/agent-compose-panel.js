@@ -541,6 +541,24 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, fo
   actions.appendChild(submit)
   root.appendChild(actions)
 
+  /* WHAT THE SESSION THIS BUTTON STARTS WOULD BE ALLOWED TO DO.
+     UNDER Start and never above it. The comment on the action row above records
+     Start being pushed below the fold as an owner-reported defect twice, and a
+     block added ahead of the button moves the button down by exactly its own
+     height. Under it, the button does not move at all -- and this is still
+     outside the scroller, so it cannot be scrolled away from the control it
+     qualifies. It is also where src/agent-session.js puts the same reading,
+     under the OTHER Start button in this product, so the two agree by shape as
+     well as by wording.
+     THE WORDS ARE THE CALLER'S, from src/agent-confinement-copy.js. Empty until
+     a caller has actually read this computer: an unanswered question renders
+     nothing rather than something comfortable. */
+  const confinement = doc.createElement('p')
+  confinement.className = 'agent-compose-confinement'
+  confinement.setAttribute('data-compose-confinement', 'panel')
+  confinement.setAttribute('hidden', 'hidden')
+  root.appendChild(confinement)
+
   /* Progress, not problems, and polite on purpose. The wait is the part people
      distrust: a start crosses a background service and a program that is not
      this one, and a button that goes quiet is where somebody presses it a
@@ -557,7 +575,7 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, fo
 
   /* folderSelect is null for a start under an existing agent -- every reader of
      it is written for that, so a missing folder menu is a state, not a fault. */
-  return { root, roleSelect, tierSelect, effortSelect, folderSelect, messageInput, roleSummary, roleProblem, messageProblem, notice, unavailableAction, status, submit, cancel }
+  return { root, roleSelect, tierSelect, effortSelect, folderSelect, messageInput, roleSummary, roleProblem, messageProblem, notice, unavailableAction, confinement, status, submit, cancel }
 }
 
 /**
@@ -624,6 +642,14 @@ export function mountAgentComposePanel({
   /* Which row the menu opens on -- the folder this person used last. Pre-fill,
      not permission. */
   folderSelectedId = null,
+  /* WHAT A SESSION STARTED HERE WOULD BE ALLOWED TO DO, as one line the caller
+     has already composed -- startControlLine() in src/agent-confinement-copy.js,
+     from the reading mcAgent.confinement() gives it.
+     ARRIVES THE SAME WAY THE REFUSAL SENTENCE DOES (header rule 4), and for the
+     same reason: this panel does not know what the recorded permission level is
+     and must not guess. Empty is the honest default for a caller that has not
+     asked yet -- the line stays empty rather than reassuring. */
+  confinementLine = '',
 } = {}) {
   if (!doc || typeof doc.createElement !== 'function' || !container) return null
 
@@ -635,6 +661,7 @@ export function mountAgentComposePanel({
     folderSelectedId: asTrimmed(folderSelectedId) || null,
     unavailableReason: asTrimmed(unavailableReason),
     unavailableAction: isRecord(unavailableAction) ? unavailableAction : null,
+    confinementLine: asTrimmed(confinementLine),
   }
   let nodes = null
   let destroyed = false
@@ -925,6 +952,12 @@ export function mountAgentComposePanel({
 
     container.appendChild(nodes.root)
 
+    /* Not marked as a live region. It is a standing fact about this computer,
+       rendered with the panel; an assertive role here would make a screen
+       reader interrupt whatever the person was reading every time the panel is
+       re-opened. */
+    setLine(nodes.confinement, current.confinementLine)
+
     if (current.unavailableReason) {
       showNotice(current.unavailableReason, 'status')
       nodes.submit.disabled = true
@@ -957,6 +990,11 @@ export function mountAgentComposePanel({
         unavailableAction: 'unavailableAction' in next
           ? (isRecord(next.unavailableAction) ? next.unavailableAction : null)
           : current.unavailableAction,
+        /* CARRIED FORWARD WHEN NOT RESTATED, for the same reason the folders
+           are: a caller that re-opens this panel with `{ parent }` alone -- the
+           ordinary case, pressing a different empty node -- must not lose the
+           reading of this computer and start describing nothing. */
+        confinementLine: 'confinementLine' in next ? asTrimmed(next.confinementLine) : current.confinementLine,
       }
       return render()
     },

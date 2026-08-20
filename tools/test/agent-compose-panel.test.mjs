@@ -58,6 +58,17 @@ import {
   composeDraftProblems,
   mountAgentComposePanel,
 } from '../../src/agent-compose-panel.js'
+/* The confinement sentences are NOT this flow's copy and are deliberately not
+   added to APPROVED_WORDS: they arrive as a caller-supplied line, the same door
+   the refusal sentence uses, and the panel renders nothing of them by default.
+   Imported here so the assertions run the real copy module rather than a
+   literal that could drift away from what ships. */
+import {
+  FAIL_CLOSED_CLAUSE,
+  SANDBOX_EFFECT,
+  UNKNOWN_CONFINEMENT,
+  startControlLine,
+} from '../../src/agent-confinement-copy.js'
 
 const MODULE_PATH = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -199,6 +210,7 @@ const problemFor = (handle, name) => handle.element().find(node => node.getAttri
 const actionNamed = (handle, name) => handle.element().find(node => node.getAttribute('data-compose-action') === name)
 const noticeLine = handle => handle.element().find(node => node.getAttribute('data-compose-notice') === 'panel')
 const statusLine = handle => handle.element().find(node => node.getAttribute('data-compose-status') === 'panel')
+const confinementLineOf = handle => handle.element().find(node => node.getAttribute('data-compose-confinement') === 'panel')
 const summaryLine = handle => handle.element().find(node => node.getAttribute('data-compose-summary') === 'role')
 
 function fill(handle, { role, tier, message }) {
@@ -1057,4 +1069,86 @@ test('re-opening with only tiers keeps the folder menu that was already read', (
   const folder = fieldNamed(handle, 'profile')
   assert.equal(folder.children.length, 3, 'the folders survived a re-open that did not mention them')
   assert.equal(folder.value, 'p-1', 'and so did the remembered choice')
+})
+
+/* ---------- WHAT A SESSION STARTED HERE WOULD ACTUALLY BE ALLOWED TO DO ------
+ *
+ * THE DEFECT THESE PIN. A driver walked the whole happy path on a scratch
+ * install at the RECOMMENDED level and the last step failed: the agent's first
+ * write was refused by the operating system, and the only thing on screen about
+ * it was the agent's own prose. src/agent-confinement-copy.js has owned the
+ * honest sentence for that state since it was written -- SANDBOX_EFFECT
+ * 'read-only', "It can read files, and this computer refuses any attempt it
+ * makes to change one" -- and src/agent-session.js renders it under ITS Start
+ * button. This panel is the OTHER Start button, the one a first-time person
+ * actually presses, and it said nothing at all.
+ *
+ * THE PANEL STILL WRITES NO WORDS OF ITS OWN. The sentence arrives as a
+ * caller-supplied line, which is the same door the refusal sentence already
+ * comes through (header rule 4). So these assertions run the REAL copy module
+ * rather than a literal: a panel that rendered an invented sentence, or a copy
+ * module that started saying something reassuring, both fail here.
+ *
+ * BOTH DIRECTIONS, because a line that always says "it cannot write" would
+ * satisfy the first assertion and be a new lie at the two levels that do ask
+ * for write access. */
+
+test('the start control says what a session started here would be allowed to do', () => {
+  const line = startControlLine({
+    ok: true, tier: 'guided', sandbox: 'read-only', failedClosed: false,
+  })
+  const { handle } = open({ confinementLine: line })
+  const said = confinementLineOf(handle)
+
+  assert.ok(said, 'the panel a first-time person presses Start on must carry this line')
+  assert.equal(said.textContent, line)
+  assert.ok(
+    said.textContent.includes(SANDBOX_EFFECT['read-only']),
+    'the refusal a person is about to meet must be stated in the confinement module’s own words',
+  )
+})
+
+test('the line is pinned with Start, so it cannot be scrolled away from the button it qualifies', () => {
+  const { handle } = open({
+    confinementLine: startControlLine({ ok: true, tier: 'guided', sandbox: 'read-only', failedClosed: false }),
+  })
+  const said = confinementLineOf(handle)
+  const scroller = handle.element().find(node => node.className.includes('agent-compose-body'))
+
+  assert.ok(scroller, 'the form still scrolls')
+  assert.equal(scroller.findAll(node => node === said).length, 0, 'a disclosure inside the scroller is a disclosure nobody reads')
+  /* AFTER the action row, never before it: the panel's own header records that
+     Start below the fold was an owner-reported defect twice, and a block added
+     ABOVE the button moves the button down. */
+  const root = handle.element()
+  const actions = root.find(node => node.className.includes('agent-compose-actions'))
+  assert.ok(root.children.indexOf(said) > root.children.indexOf(actions), 'Start must not move down to make room for this')
+})
+
+test('a panel with no reading of this computer says nothing, rather than something reassuring', () => {
+  const { handle } = open()
+  const said = confinementLineOf(handle)
+  assert.ok(said, 'the element exists so a later answer has somewhere to land')
+  assert.equal(said.textContent, '')
+  assert.equal(said.getAttribute('hidden'), 'hidden', 'an empty line must not leave a gap that reads as a fault')
+  assert.deepEqual(wordsOnScreen(handle).filter(words => !APPROVED_WORDS.has(words)), [], 'and it must not invent a sentence of its own')
+})
+
+test('an unreadable computer is answered as unreadable, never as read-only and never as write', () => {
+  for (const reading of [null, undefined, { ok: false, code: 'AGENT_CONFINEMENT_UNAVAILABLE' }, { ok: true, tier: 'guided', sandbox: 'nonsense' }]) {
+    const line = startControlLine(reading)
+    assert.ok(line.includes(UNKNOWN_CONFINEMENT), `${JSON.stringify(reading)} must be answered as unknown`)
+    assert.equal(line.includes(SANDBOX_EFFECT['read-only']), false)
+    assert.equal(line.includes(SANDBOX_EFFECT['workspace-write']), false)
+    assert.equal(line.includes(SANDBOX_EFFECT['danger-full-access']), false)
+  }
+})
+
+test('a level that asks for write access says so, and the fail-closed case says why', () => {
+  const writing = startControlLine({ ok: true, tier: 'standard', sandbox: 'workspace-write', failedClosed: false })
+  assert.ok(writing.includes(SANDBOX_EFFECT['workspace-write']))
+  assert.equal(writing.includes(SANDBOX_EFFECT['read-only']), false, 'a hardcoded refusal sentence would be a new lie here')
+
+  const unrecorded = startControlLine({ ok: true, tier: 'guided', sandbox: 'read-only', failedClosed: true })
+  assert.ok(unrecorded.includes(FAIL_CLOSED_CLAUSE), 'a person whose answer was never recorded is entitled to know that')
 })

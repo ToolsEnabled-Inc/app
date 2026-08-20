@@ -243,3 +243,31 @@ export function confinementNote(reading) {
 export function confinementLine(reading) {
   return confinementNote(reading).sentences.join(' ')
 }
+
+/* THE SHORT FORM, FOR THE OTHER START BUTTON.
+ *
+ * WHY A SECOND SHAPE RATHER THAN confinementLine(). There are two controls in
+ * this product that start an agent, and only one of them was ever told what a
+ * session may do. The agent page has a whole column to spend and renders every
+ * sentence above. The fleet tree's compose panel is a narrow rail whose own
+ * design notes record Start being pushed below the fold TWICE as an
+ * owner-reported defect -- so a block the height of confinementLine() is not
+ * something that surface can carry, and "carry all of it or none of it" is how
+ * it ended up carrying none.
+ *
+ * WHAT IS KEPT IS THE HALF ABOUT THIS PERSON'S DISK: which level is in force,
+ * what the operating system will do to a file, and -- when nothing was ever
+ * recorded -- that the answer came from a fail-closed default rather than from
+ * them. That is the part a person is about to find out the hard way. The tool
+ * count, the credential rule and the recording clause are not dropped from the
+ * product; they stay on the surface that has room for them.
+ *
+ * IT NEVER INVENTS. Everything here comes from confinementNote(), which
+ * collapses an absent, unreadable or unfamiliar reading to UNKNOWN_CONFINEMENT
+ * -- so the worst this can say is that it does not know, which is the one
+ * honest answer when nothing could be read.
+ */
+export function startControlLine(reading) {
+  const note = confinementNote(reading)
+  return [note.level, note.effect, note.note].filter(Boolean).join(' ')
+}

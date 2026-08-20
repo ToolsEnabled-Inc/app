@@ -229,6 +229,7 @@
 
 .agent-compose-problem[hidden],
 .agent-compose-notice[hidden],
+.agent-compose-confinement[hidden],
 .agent-compose-status[hidden] {
   display: none;
 }
@@ -276,6 +277,20 @@
   font-size: 12.5px;
   line-height: 1.45;
   color: var(--ink-3);
+}
+
+/* WHAT THE SESSION THIS BUTTON STARTS MAY DO, sitting under Start where the
+   same reading sits under the other Start button in this product. Quiet on
+   purpose: it is a standing fact about this computer, not a warning and not a
+   refusal, and dressing it as either would teach people to dismiss it. It is
+   OUTSIDE the scroller, pinned with the action row above it, so it cannot be
+   scrolled away from the control it describes. */
+.agent-compose-confinement {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
 }
 
 /* PINNED UNDER THE SCROLLER, NEVER INSIDE IT. The panel is a column: nav row,

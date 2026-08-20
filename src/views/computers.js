@@ -126,6 +126,10 @@ import { composeNodeBrief, nodeManagerContext, readTreeAddress } from '../tree-n
    see src/tree-standing-requests.js for why that derivation is shared. */
 import { REQUEST_PANEL, standingRequestScopesFor } from '../tree-standing-requests.js'
 import { mountAgentComposePanel } from '../agent-compose-panel.js'
+/* The sentences about what a session started here would be allowed to do. The
+   copy module already owned them and src/agent-session.js already rendered them
+   under ITS Start button; this view is how they reach the OTHER one. */
+import { startControlLine } from '../agent-confinement-copy.js'
 import { WRITE_FLAGS_EVENT, isWriteEnabled, setWriteEnabled } from '../write-flags.js'
 import { START_CONTROL_FLAG, START_CONTROL_ON, startControlOffBecause } from '../setup-profile.js'
 /* The one rule for "is there still an agent behind this circle", shared by every
@@ -2826,6 +2830,38 @@ export function computersView({ initialComputer = null, navigate }) {
     if (composePanel?.isOpen?.()) composePanel.open({ tiers: startableTierChoices })
   }
 
+  /* WHAT A SESSION STARTED FROM THIS PANEL WOULD BE ALLOWED TO DO.
+   *
+   * THE DEFECT THIS CLOSES, measured end to end on a scratch install at the
+   * RECOMMENDED permission level: a person walked the whole walkthrough, pressed
+   * an empty node here, wrote "create a file in this folder", and the operating
+   * system refused the write. The only thing on screen about it was the agent's
+   * own prose. src/agent-confinement-copy.js has owned the honest sentence for
+   * that state since it was written, and src/agent-session.js renders it under
+   * the agent page's Start button -- but this panel is the Start button a
+   * first-time person actually reaches, and it said nothing at all.
+   *
+   * READ ONCE PER MOUNT, exactly like readStartableTiers() and
+   * readComposeFolders() above, and for the same reason: the recorded permission
+   * level is a property of this computer, not of the press.
+   *
+   * A BRIDGE THAT CANNOT ANSWER IS STILL ANSWERED. startControlLine() collapses
+   * an absent or unreadable reading to "this page cannot tell", never to
+   * something reassuring -- so the one case this must not produce is the one it
+   * structurally cannot. It is the SAME channel and the SAME function the agent
+   * page uses, so the two Start controls cannot describe one computer two ways.
+   */
+  let composeConfinementLine = ''
+  async function readComposeConfinement() {
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    if (!bridge || typeof bridge.confinement !== 'function') return
+    let reading = null
+    try { reading = await bridge.confinement() } catch { reading = null }
+    if (destroyed) return
+    composeConfinementLine = startControlLine(reading)
+    if (composePanel?.isOpen?.()) composePanel.open({ confinementLine: composeConfinementLine })
+  }
+
   function openComposeFor(detail) {
     if (destroyed || !computer) return
     syncTreeStore()
@@ -2860,6 +2896,10 @@ export function computersView({ initialComputer = null, navigate }) {
          second register of folders kept beside the first. */
       folders: composeFolders,
       folderSelectedId: lastComposeFolder(),
+      /* WHAT THE SESSION THIS BUTTON STARTS MAY DO -- see
+         readComposeConfinement(). Empty until that read answers, and empty
+         renders nothing rather than something comfortable. */
+      confinementLine: composeConfinementLine,
       onSubmit: draft => submitCompose(draft, detail),
       onCancel: () => closeComposePanel(),
     })
@@ -3200,6 +3240,7 @@ export function computersView({ initialComputer = null, navigate }) {
        first empty node is pressed. */
     void readStartableTiers()
     void readComposeFolders()
+    void readComposeConfinement()
     /* THE PANEL THE PERSON WAS IN, REOPENED AFTER THE SWITCH THEY PRESSED IN IT
        tore this view down. Read once and cleared, so an ordinary visit never
        inherits it. See composeToRestore for the measurement. */
