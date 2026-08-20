@@ -134,28 +134,53 @@ export function assignableRoles(source = ROLE_CHOICES) {
 }
 
 /**
+ * The role a draft actually carries, out of what the menu is offering.
+ *
+ * THE ROLE IS OPTIONAL AND THIS IS WHAT MAKES THAT SAFE. Owner, 2026-08-19:
+ * "users shouldnt be forced to choose a role". The panel no longer refuses a
+ * draft with no role -- so the question stopped being "may this press through"
+ * and became "what does this draft say the role is", which is a different
+ * function and belongs in its own.
+ *
+ * ANYTHING NOT ON THE MENU RESOLVES TO NO ROLE. That case was already handled
+ * by refusing the press, and refusing is gone; letting it through instead would
+ * put a key nobody offered into the store, where roleLabel() has no word for it
+ * and every surface would print the product's fallback over it. Resolving it to
+ * the same honest absence a person gets by leaving the first row alone means
+ * there is one no-role state in this flow rather than two that look alike.
+ *
+ * It is only reachable when a caller assigns a value from outside the menu: a
+ * real <select> handed a value with no matching option reports '' by itself.
+ */
+export function composeDraftRole(role = '', roles = ROLE_CHOICES) {
+  const picked = asTrimmed(role)
+  return assignableRoles(roles).some(choice => choice.id === picked) ? picked : ''
+}
+
+/**
  * What is wrong with the draft, as one sentence per problem.
  *
  * A pure function, separate from the DOM on purpose: refusals are the part of a
  * form that a screenshot never proves and a unit test proves exactly. Returns an
  * empty list when the draft may be handed over.
  *
- * Both sentences are START_PANEL's, so this file cannot drift from the rest of
- * the flow's voice. A role that is not on the list gets the same sentence as no
- * role at all: it is only reachable when a caller sets a value from outside the
- * menu, the person's next move is identical, and a second sentence for a state
- * nobody can reach by pressing things is a sentence nobody has proofread.
+ * THE ROLE IS NOT ONE OF THEM ANY MORE (owner, 2026-08-19: "users shouldnt be
+ * forced to choose a role"). It is not softened, not deferred and not hidden
+ * behind a hover -- the refusal is gone, and START_PANEL.needRole went with it.
+ * A start with no role is a real start: fleet-trees.js stores an empty role by
+ * design, startingLine() and runningLine() drop the role clause rather than
+ * printing a vague one, treeNodeName() answers with the product's own word for
+ * an agent it cannot name, and the role is never sent to the engine at all.
+ * composeDraftRole() above is what keeps that absence honest.
  *
- * @returns [{ field: 'role'|'message', sentence: string }]
+ * THE BRIEF IS STILL REQUIRED. The sentence is START_PANEL's, so this file
+ * cannot drift from the rest of the flow's voice.
+ *
+ * @returns [{ field: 'message', sentence: string }]
  */
-export function composeDraftProblems({ role = '', message = '', roles = ROLE_CHOICES } = {}) {
-  const choices = assignableRoles(roles)
-  const picked = asTrimmed(role)
+export function composeDraftProblems({ message = '' } = {}) {
   const problems = []
 
-  if (!picked || !choices.some(choice => choice.id === picked)) {
-    problems.push({ field: 'role', sentence: START_PANEL.needRole })
-  }
   if (!asTrimmed(message)) {
     problems.push({ field: 'message', sentence: START_PANEL.needMessage })
   }
@@ -307,15 +332,19 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, fo
   roleSelect.className = 'agent-compose-select'
   roleSelect.setAttribute('id', `${id}-role`)
   roleSelect.setAttribute('data-compose-field', 'role')
-  /* The problem line is named as a description from the start, empty or not. An
-     empty description is ignored by a screen reader, and swapping the attribute
-     in and out is one more piece of state to get wrong. */
-  roleSelect.setAttribute('aria-describedby', `${id}-role-hint ${id}-role-problem`)
-  /* THE FIRST ROW CARRIES NO ROLE. A menu must have something selected, and
-     pre-selecting a real role would answer the panel's own question for the
-     person and let a role nobody chose through on one press. So the first row
-     is the copy module's prompt, its value is empty, and composeDraftProblems()
-     below refuses it -- it is a place to stand, never an answer. */
+  /* THE HINT ALONE. The brief's description names a problem line as well, empty
+     or not, because the brief can be refused; this field cannot be, so there is
+     no problem element to name. Pointing a description at an element nothing
+     will ever write into would be describing a control by a sentence that does
+     not exist. */
+  roleSelect.setAttribute('aria-describedby', `${id}-role-hint`)
+  /* THE FIRST ROW CARRIES NO ROLE, AND IT IS A REAL ANSWER. A menu must have
+     something selected, and pre-selecting a real role would answer the panel's
+     own question for the person and let a role nobody chose through on one
+     press. So the first row is the copy module's own row for no role and its
+     value is empty. It used to be refused on Start; since 2026-08-19 (owner:
+     "users shouldnt be forced to choose a role") it starts, and the row says
+     what it leaves the agent as rather than telling a person to choose. */
   const placeholder = doc.createElement('option')
   placeholder.value = ''
   placeholder.textContent = START_PANEL.rolePrompt
@@ -338,16 +367,16 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, fo
   roleSummary.className = 'agent-compose-summary'
   roleSummary.setAttribute('data-compose-summary', 'role')
   roleSummary.setAttribute('hidden', 'hidden')
-  const roleProblem = doc.createElement('p')
-  roleProblem.className = 'agent-compose-problem'
-  roleProblem.setAttribute('id', `${id}-role-problem`)
-  roleProblem.setAttribute('data-compose-problem', 'role')
-  roleProblem.setAttribute('role', 'alert')
+  /* NO PROBLEM LINE UNDER THIS FIELD. There was one, and it carried exactly one
+     sentence -- "Pick a role first, then press Start." -- which the owner
+     retired on 2026-08-19. An alert element that nothing can ever fill is not
+     harmless: it is a slot the next lane finds and fills with something this
+     flow never proofread, and it keeps a marked-invalid state alive for a
+     control that can no longer be wrong. */
   roleField.appendChild(roleLabelNode)
   roleField.appendChild(roleHint)
   roleField.appendChild(roleSelect)
   roleField.appendChild(roleSummary)
-  roleField.appendChild(roleProblem)
   body.appendChild(roleField)
 
   /* THE MODEL MENU. Unlike the role menu it arrives ANSWERED -- the engine has
@@ -582,7 +611,7 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, fo
 
   /* folderSelect is null for a start under an existing agent -- every reader of
      it is written for that, so a missing folder menu is a state, not a fault. */
-  return { root, roleSelect, tierSelect, effortSelect, folderSelect, messageInput, roleSummary, roleProblem, messageProblem, notice, unavailableAction, confinement, status, submit, cancel }
+  return { root, roleSelect, tierSelect, effortSelect, folderSelect, messageInput, roleSummary, messageProblem, notice, unavailableAction, confinement, status, submit, cancel }
 }
 
 /**
@@ -713,24 +742,24 @@ export function mountAgentComposePanel({
 
   const clearProblems = () => {
     if (!nodes) return
-    setLine(nodes.roleProblem, '')
     setLine(nodes.messageProblem, '')
-    markInvalid(nodes.roleSelect, false)
     markInvalid(nodes.messageInput, false)
   }
 
+  /* ONE FIELD CAN BE REFUSED, so this reads the map rather than assuming the
+     shape: composeDraftProblems() still answers `{ field, sentence }` and a
+     future refusal about another field would arrive the same way. What it does
+     NOT do any more is paint the role, because that refusal was retired with
+     the requirement (owner, 2026-08-19). */
   const paintProblems = (problems) => {
     if (!nodes) return
     const byField = new Map(problems.map(problem => [problem.field, problem.sentence]))
-    setLine(nodes.roleProblem, byField.get('role') || '')
     setLine(nodes.messageProblem, byField.get('message') || '')
-    markInvalid(nodes.roleSelect, byField.has('role'))
     markInvalid(nodes.messageInput, byField.has('message'))
-    /* Focus goes to the first field a person has to fix, in reading order. A
-       refusal a keyboard user has to go looking for is a refusal they will read
-       as the button being broken. */
-    if (byField.has('role')) nodes.roleSelect.focus?.()
-    else if (byField.has('message')) nodes.messageInput.focus?.()
+    /* Focus goes to the field a person has to fix. A refusal a keyboard user
+       has to go looking for is a refusal they will read as the button being
+       broken. */
+    if (byField.has('message')) nodes.messageInput.focus?.()
   }
 
   const paintRoleSummary = () => {
@@ -763,7 +792,11 @@ export function mountAgentComposePanel({
   }
 
   const currentDraft = () => ({
-    role: asTrimmed(nodes?.roleSelect?.value),
+    /* RESOLVED AGAINST THE MENU, never taken raw. Empty is a real answer -- the
+       person left the first row alone -- and anything the menu does not offer
+       resolves to that same empty rather than travelling into the store. See
+       composeDraftRole(). */
+    role: composeDraftRole(nodes?.roleSelect?.value, current.roles),
     /* Always a real row: the menu preselects DEFAULT_TIER and has no empty
        first row. The fallback below is for a hand-broken DOM only, and it
        falls back to the same default the engine would apply, never to
@@ -862,7 +895,9 @@ export function mountAgentComposePanel({
       return
     }
     const draft = currentDraft()
-    const problems = composeDraftProblems({ ...draft, roles: current.roles })
+    /* The draft is already resolved against the menu by currentDraft(), so the
+       role list is no longer part of deciding whether this press may go. */
+    const problems = composeDraftProblems(draft)
     clearProblems()
     showNotice('')
     if (problems.length > 0) {
@@ -953,13 +988,13 @@ export function mountAgentComposePanel({
         cancel()
       }
     })
+    /* Choosing a role only changes the line under the menu now. It must NOT
+       clear the refusal about the brief: answering a different question is not
+       answering that one, and wiping the sentence would leave a person who
+       pressed Start with nothing on screen explaining why nothing happened. */
+    nodes.roleSelect.addEventListener('change', () => { paintRoleSummary() })
     /* A refusal about a field stops being true the moment the person edits that
        field. Leaving it on screen teaches people to ignore the red line. */
-    nodes.roleSelect.addEventListener('change', () => {
-      setLine(nodes.roleProblem, '')
-      markInvalid(nodes.roleSelect, false)
-      paintRoleSummary()
-    })
     nodes.messageInput.addEventListener('input', () => {
       setLine(nodes.messageProblem, '')
       markInvalid(nodes.messageInput, false)

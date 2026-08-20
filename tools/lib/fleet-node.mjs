@@ -110,8 +110,18 @@ export async function startFleetNode({ session, evaluate, delay, brief = 'Say ok
     const slot = await press('.computers .tree-empty-node')
     if (slot !== 'clicked') return stop('the empty slot on the canvas', slot)
 
-    /* The panel refuses without a role and SAYS so ("Pick a role first, then
-       press Start"), which is how this walk learned it was skipping a step. */
+    /* THIS WALK STILL CHOOSES A ROLE, AND IT NO LONGER HAS TO.
+       The panel used to refuse a start with no role and say so ("Pick a role
+       first, then press Start"), which is how this walk learned it was skipping
+       a step. That requirement was retired on 2026-08-19 (owner: "users
+       shouldnt be forced to choose a role") -- the first row of the menu is now
+       a real answer meaning no role, and Start works on it.
+       The step is KEPT anyway, deliberately: these drivers exist to walk the
+       path a person walks, and the menu is still offered first, so exercising
+       it measures more of the panel than skipping it would. What changed is
+       what a failure here MEANS. An empty role is no longer a product refusal;
+       if the arrows below never take a value, that is this harness failing to
+       drive a native <select>, and the stop sentence says so. */
     /* THE DISABLED-SELECT TRAP, MEASURED 2026-08-20, and it made this helper
        accuse the product of a defect it did not have.
 ​
@@ -175,7 +185,12 @@ export async function startFleetNode({ session, evaluate, delay, brief = 'Say ok
           focused: active ? (active.tagName + '/' + (active.getAttribute('data-compose-field') || active.className || '')) : null,
         })
       })()`)
-      return stop('choosing a role with the keyboard', `the selector still has no value; ${where}`)
+      /* NOT A PRODUCT REFUSAL. An empty role is a valid draft since 2026-08-19;
+         what failed is this harness's own way of answering a native <select>. */
+      return stop('choosing a role with the keyboard',
+        `the arrows never moved the selector off its first row, which is a harness failure`
+        + ` driving a native select and NOT the panel refusing an empty role -- an empty role`
+        + ` starts fine now; ${where}`)
     }
 
     const messageField = await press('[data-compose-field="message"]')

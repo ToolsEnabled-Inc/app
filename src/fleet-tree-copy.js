@@ -148,15 +148,23 @@ export const EMPTY_NODE = Object.freeze({
    The panel on the right.
    --------------------------------------------------------------- */
 
-/* TWO FIELDS AND A BUTTON, AND THE INTRO SAYS SO. A person looking at a new
+/* ONE QUESTION AND A BUTTON, AND THE INTRO SAYS SO. A person looking at a new
    panel is deciding whether this is a form they can finish; telling them how
    short it is answers that before they start reading the labels.
    The field labels are questions rather than nouns. "Role" and "Message" are
    what the fields are called in the code; "What kind of agent is this?" is what
-   a person is actually being asked. */
+   a person is actually being asked.
+
+   IT SAID "TWO ANSWERS AND IT RUNS" UNTIL THE ROLE STOPPED BEING REQUIRED.
+   Owner, 2026-08-19: "users shouldnt be forced to choose a role". Exactly one
+   question on this panel has no answer until a person gives one, and that is
+   the brief; the role, the model, the effort and the folder all arrive
+   answered. An intro that goes on claiming two are needed would be the panel
+   contradicting its own button, which is the defect the tier help text was
+   fixed for two days earlier. */
 export const START_PANEL = Object.freeze({
   title: 'Start an agent here',
-  intro: 'Two answers and it runs: what this agent is, and what you want done.',
+  intro: 'Say what you want done and press Start. Everything else already has an answer.',
   /* WHERE THE NEW AGENT IS GOING, and there are two of these because a node's
      name is not always known. The named form is a FUNCTION rather than a
      fragment a caller glues a name onto: a fragment invites `${name}` at the
@@ -168,7 +176,16 @@ export const START_PANEL = Object.freeze({
   underNamed: (name) => `This agent will work under ${name}.`,
   underUnnamed: 'This agent joins your tree under the spot you pressed.',
   roleLabel: 'What kind of agent is this?',
-  roleHelp: 'Pick where it sits in your tree. You can change this later.',
+  /* THE ROLE IS OFFERED, NOT DEMANDED (owner, 2026-08-19: "users shouldnt be
+     forced to choose a role"). The help has to say BOTH halves, because a menu
+     that no longer refuses looks exactly like a menu that still does: what a
+     role is for, and what leaving it alone actually means. The second half is
+     not a reassurance -- it is the measured behaviour. A start with no role
+     stores no role, and every surface that has to put a word on that agent
+     already has one: the canvas draws it in the neutral role, the circle is
+     called "Agent", and the brief tells it the same address it would have had.
+     Nothing is invented for it and nothing is left blank. */
+  roleHelp: 'Optional. Pick where it sits in your tree, or leave it and this agent just does the job you describe.',
   /* THE FOLDER, ASKED WHERE THE OWNER SAID IT SHOULD BE ASKED.
    *
    * Owner, 2026-08-16: "when a user starts a tree they should select a folder,
@@ -218,14 +235,17 @@ export const START_PANEL = Object.freeze({
      a person can go find it. */
   folderNone: 'No folders set up yet — these agents will work in the product’s own workspace. Add one under “Folders your agents work in” on this page.',
   folderNoneChosen: (folder) => `No named folders yet — these agents work in the folder you chose in setup, ${folder}. Name one under “Folders your agents work in” on this page to keep different kinds of work apart.`,
-  /* THE FIRST ROW OF THE ROLE MENU. A menu must have something selected, and
-     pre-selecting a real role would answer the panel's own question for the
-     person and let a role nobody chose through on a single press. So the first
-     row is this prompt, it carries no role, and it is never a valid answer --
-     pressing Start on it gets needRole below. A blank first row would do the
-     same job for a screen reader, which reads the label, and would read as a
-     rendering fault to everybody else. */
-  rolePrompt: 'Choose a role',
+  /* THE FIRST ROW OF THE ROLE MENU, AND IT IS NOW AN ANSWER RATHER THAN A
+     PROMPT. A menu must have something selected, and pre-selecting a real role
+     would answer the panel's own question for the person and let a role nobody
+     chose through on a single press. So the first row still carries no role and
+     is still what the menu opens on -- what changed is that pressing Start on it
+     now WORKS, so the row has to say what it means instead of nagging.
+     "Choose a role" was an instruction to do something the panel no longer
+     requires; this is the state it leaves the agent in. A blank first row would
+     do the same job for a screen reader, which reads the label, and would read
+     as a rendering fault to everybody else. */
+  rolePrompt: 'No particular role',
   /* THE MODEL QUESTION, and it is worded as one. "Tier" is what the wire calls
      it; a person is being asked what their agent runs on. Unlike the role menu
      this one arrives answered: the product has a default engine, so the menu
@@ -261,9 +281,19 @@ export const START_PANEL = Object.freeze({
   messagePlaceholder: 'Read the notes in my documents folder and list what is unfinished.',
   submit: 'Start this agent',
   cancel: 'Not now',
-  /* The two ways to press Start too early. Each says what is missing and what
-     to do, in that order, and neither of them scolds. */
-  needRole: 'Pick a role first, then press Start.',
+  /* THE ONE WAY LEFT TO PRESS START TOO EARLY. It says what is missing and what
+     to do, in that order, and it does not scold.
+
+     THERE WERE TWO. `needRole` -- "Pick a role first, then press Start." -- was
+     removed on 2026-08-19 on the owner's words: "users shouldnt be forced to
+     choose a role". It is not moved, softened or hidden behind anything; the
+     refusal it belonged to is gone, so the sentence is gone with it. The role
+     menu keeps its place at the top of the form and rolePrompt above says what
+     the untouched row means.
+
+     THE BRIEF IS STILL REQUIRED, and that is not an oversight. A start with no
+     role has a real answer at every surface that must name it; a start with no
+     brief has nothing to send, so it would open a session and hand it silence. */
   needMessage: 'Say what you want done first, then press Start.',
 })
 

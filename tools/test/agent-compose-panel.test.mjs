@@ -58,6 +58,7 @@ import {
 import {
   assignableRoles,
   composeDraftProblems,
+  composeDraftRole,
   mountAgentComposePanel,
 } from '../../src/agent-compose-panel.js'
 /* The confinement sentences are NOT this flow's copy and are deliberately not
@@ -243,7 +244,10 @@ test('the refusals and the picked role’s line are the copy module’s too', ()
   const { handle } = open()
   actionNamed(handle, 'submit').dispatch('click')
 
-  assert.equal(problemFor(handle, 'role').textContent, START_PANEL.needRole)
+  /* ONE REFUSAL, NOT TWO. The role stopped being required on 2026-08-19
+     (owner: "users shouldnt be forced to choose a role"), so the role field has
+     no problem line at all any more -- not an empty one. */
+  assert.equal(problemFor(handle, 'role'), null, 'the role field can no longer be refused, so it must not carry a refusal line')
   assert.equal(problemFor(handle, 'message').textContent, START_PANEL.needMessage)
   assert.deepEqual(wordsOnScreen(handle).filter(words => !APPROVED_WORDS.has(words)), [])
 
@@ -479,16 +483,51 @@ test('re-opening over another node starts from an empty draft', () => {
 
 /* ---------- refusing an incomplete draft ---------- */
 
-test('an empty role is refused with the flow’s sentence, and the message is not accused', () => {
+/* OWNER, 2026-08-19: "users shouldnt be forced to choose a role."
+ *
+ * This test is the inversion of the one that stood here, and the inversion is
+ * the point: the panel used to refuse a draft with no role and now hands it
+ * over. WHAT MAKES THAT SAFE is traced rather than assumed -- the role never
+ * leaves the renderer. src/views/computers.js passes it to fleet-trees.js
+ * addNode(), which documents an empty role as a supported state and stores it
+ * as ''; to startingLine()/runningLine(), which drop the role clause for a role
+ * they have no words for; and to treeNodeName(), which answers with the
+ * product's own UNKNOWN_ROLE_LABEL. startAgentForNode() is never told a role at
+ * all, so nothing about the session, the engine, the confinement or the
+ * permission level turns on it. */
+test('an empty role is handed over rather than refused, and nothing else is accused', () => {
   const { handle, calls } = open()
   fill(handle, { role: '', message: 'Take the packaging work.' })
   actionNamed(handle, 'submit').dispatch('click')
 
-  assert.deepEqual(calls.submitted, [], 'nothing is handed over')
-  assert.equal(problemFor(handle, 'role').textContent, START_PANEL.needRole)
-  assert.equal(problemFor(handle, 'message').textContent, '')
-  assert.equal(fieldNamed(handle, 'role').getAttribute('aria-invalid'), 'true')
-  assert.equal(fieldNamed(handle, 'message').getAttribute('aria-invalid'), null)
+  assert.deepEqual(calls.submitted, [{
+    role: '',
+    tier: DEFAULT_TIER,
+    effort: 'medium',
+    message: 'Take the packaging work.',
+    parentId: null,
+    profileId: null,
+  }], 'the draft is handed over carrying no role, which is an answer and not a gap')
+  /* A handover the caller accepted closes the panel, which is the same ending a
+     draft WITH a role has always had. Nothing is left standing to be refused. */
+  assert.equal(handle.element(), null, 'the panel is still open, so the press was refused after all')
+})
+
+test('the role menu is still offered first and still opens on nothing', () => {
+  /* Optional is not hidden (and not demoted). The menu keeps its place at the
+     top of the form, keeps every role on it, and still opens with none chosen
+     -- a pre-picked role would answer the panel's question for the person, and
+     that reasoning survived the refusal being removed. */
+  const { handle } = open()
+  const roleOptions = fieldNamed(handle, 'role').children
+
+  assert.equal(roleOptions[0].value, '')
+  assert.equal(roleOptions[0].textContent, START_PANEL.rolePrompt)
+  assert.equal(fieldNamed(handle, 'role').value, '')
+  assert.equal(roleOptions.length, ROLE_CHOICES.length + 1)
+  /* The row a person leaves alone must not read as an instruction to do
+     something the panel no longer requires. */
+  assert.doesNotMatch(START_PANEL.rolePrompt, /choose|pick|select/i)
 })
 
 test('an empty message is refused by its own sentence', () => {
@@ -498,16 +537,18 @@ test('an empty message is refused by its own sentence', () => {
 
   assert.deepEqual(calls.submitted, [])
   assert.equal(problemFor(handle, 'message').textContent, START_PANEL.needMessage)
-  assert.equal(problemFor(handle, 'role').textContent, '')
+  assert.equal(fieldNamed(handle, 'role').getAttribute('aria-invalid'), null, 'a role that was chosen must not be marked wrong by the brief’s refusal')
 })
 
-test('both missing means both sentences, and focus lands on the first thing to fix', () => {
-  const { doc, handle } = open()
+test('an empty panel is refused for the brief alone, and focus lands there', () => {
+  const { doc, handle, calls } = open()
   actionNamed(handle, 'submit').dispatch('click')
 
-  assert.equal(problemFor(handle, 'role').textContent, START_PANEL.needRole)
+  assert.deepEqual(calls.submitted, [])
   assert.equal(problemFor(handle, 'message').textContent, START_PANEL.needMessage)
-  assert.equal(doc.activeElement, fieldNamed(handle, 'role'))
+  /* Focus goes to the ONE thing a person has to fix. It used to land on the
+     role menu, which is now already answered by its first row. */
+  assert.equal(doc.activeElement, fieldNamed(handle, 'message'))
 })
 
 test('with only the message missing, focus goes to the message box', () => {
@@ -518,16 +559,28 @@ test('with only the message missing, focus goes to the message box', () => {
   assert.equal(doc.activeElement, fieldNamed(handle, 'message'))
 })
 
-test('a role that is not on the list is refused rather than handed on', () => {
-  assert.deepEqual(composeDraftProblems({ role: 'admiral', message: 'Do the thing.' }), [{
-    field: 'role',
-    sentence: START_PANEL.needRole,
-  }])
+/* A ROLE OFF THE MENU IS STILL NEVER HANDED ON, and dropping the refusal is
+   what made that worth a function of its own. The old answer was to refuse the
+   press; refusing is no longer available, and the wrong answer would be to let
+   `admiral` through to the store, where roleLabel() has no word for it and
+   every surface would print the product's fallback over a key somebody set from
+   outside the menu. So the panel resolves the draft's role to the roles it
+   actually offers, and anything else resolves to NO role -- the same honest
+   absence a person gets by leaving the first row alone. In a real browser this
+   is unreachable (a <select> assigned a value with no matching option reports
+   ''), which is exactly why it is pinned by a unit test rather than a drive. */
+test('a role that is not on the list resolves to no role rather than travelling', () => {
+  assert.equal(composeDraftRole('admiral'), '')
+  assert.equal(composeDraftRole('manager'), 'manager')
+  assert.equal(composeDraftRole(''), '')
+  assert.equal(composeDraftRole('  manager  '), 'manager')
+  assert.equal(composeDraftRole('manager', ['helper']), '', 'a caller may narrow the list, and the narrowing is what counts')
 
   const { handle, calls } = open()
   fill(handle, { role: 'admiral', message: 'Do the thing.' })
   actionNamed(handle, 'submit').dispatch('click')
-  assert.deepEqual(calls.submitted, [])
+  assert.deepEqual(calls.submitted.map(draft => draft.role), [''])
+  assert.deepEqual(calls.submitted.map(draft => draft.message), ['Do the thing.'])
 })
 
 test('a complete draft has nothing to say about it', () => {
@@ -537,14 +590,18 @@ test('a complete draft has nothing to say about it', () => {
 test('editing a field clears the refusal about that field only', () => {
   const { handle } = open()
   actionNamed(handle, 'submit').dispatch('click')
-  assert.notEqual(problemFor(handle, 'role').textContent, '')
+  assert.notEqual(problemFor(handle, 'message').textContent, '')
 
+  /* Choosing a role is not an answer to the refusal about the BRIEF, and it
+     must not clear it. */
   fieldNamed(handle, 'role').value = 'manager'
   fieldNamed(handle, 'role').dispatch('change')
-
-  assert.equal(problemFor(handle, 'role').textContent, '')
-  assert.equal(fieldNamed(handle, 'role').getAttribute('aria-invalid'), null)
   assert.equal(problemFor(handle, 'message').textContent, START_PANEL.needMessage, 'the message is still empty and still says so')
+
+  fieldNamed(handle, 'message').value = 'Take the packaging work.'
+  fieldNamed(handle, 'message').dispatch('input')
+  assert.equal(problemFor(handle, 'message').textContent, '')
+  assert.equal(fieldNamed(handle, 'message').getAttribute('aria-invalid'), null)
 })
 
 /* ---------- discarding the draft ---------- */
@@ -708,19 +765,17 @@ test('with nothing wired to receive the draft, the person is told it is a fault 
   assert.doesNotMatch(noticeLine(handle).textContent, /Try once more/)
 })
 
-test('the prompt row is a place to stand and never an answer', () => {
+test('the first row is a real answer now, and its own words are still not a role', () => {
   const { handle, calls } = open()
-  // The prompt is what a person sees before they choose; choosing it back again
-  // must not become a way past the refusal.
+  // Leaving the first row alone is a way THROUGH, not a way past a refusal.
   fill(handle, { role: '', message: 'Take the packaging work.' })
   actionNamed(handle, 'submit').dispatch('click')
 
-  assert.deepEqual(calls.submitted, [])
-  assert.equal(problemFor(handle, 'role').textContent, START_PANEL.needRole)
-  assert.deepEqual(composeDraftProblems({ role: START_PANEL.rolePrompt, message: 'x' }), [{
-    field: 'role',
-    sentence: START_PANEL.needRole,
-  }], 'the prompt’s own words are not a role either')
+  assert.deepEqual(calls.submitted.map(draft => draft.role), [''])
+  // The row's own words are copy, not a role key: a caller that echoed them
+  // back would still be handing over something no role list contains.
+  assert.equal(composeDraftRole(START_PANEL.rolePrompt), '', 'the row’s own words are not a role either')
+  assert.deepEqual(composeDraftProblems({ role: START_PANEL.rolePrompt, message: 'x' }), [])
 })
 
 test('a caller may report a failure later, through the handle', () => {
@@ -804,12 +859,22 @@ test('every field is a real control with its own label bound by id', () => {
     const label = labels.find(entry => entry.getAttribute('for') === id)
     assert.ok(label, `${name} has no label bound to it`)
     assert.notEqual(label.textContent.trim(), '', `${name} has an empty label`)
-    // The description carries the hint AND the refusal line, so a screen reader
-    // reads the problem when focus lands on the field that has it.
-    assert.equal(field.getAttribute('aria-describedby'), `${id}-hint ${id}-problem`)
-    assert.equal(problemFor(handle, name).getAttribute('id'), `${id}-problem`)
-    assert.equal(problemFor(handle, name).getAttribute('role'), 'alert')
   }
+
+  /* THE BRIEF IS THE ONLY FIELD THAT CAN BE REFUSED, so it is the only one
+     whose description carries a refusal line. A screen reader reads the problem
+     when focus lands on the field that has it. The role menu names its hint
+     alone -- pointing it at a problem element that can never be filled would be
+     describing a field by a sentence nothing will ever write. */
+  const message = fieldNamed(handle, 'message')
+  const messageId = message.getAttribute('id')
+  assert.equal(message.getAttribute('aria-describedby'), `${messageId}-hint ${messageId}-problem`)
+  assert.equal(problemFor(handle, 'message').getAttribute('id'), `${messageId}-problem`)
+  assert.equal(problemFor(handle, 'message').getAttribute('role'), 'alert')
+
+  const role = fieldNamed(handle, 'role')
+  assert.equal(role.getAttribute('aria-describedby'), `${role.getAttribute('id')}-hint`)
+  assert.equal(problemFor(handle, 'role'), null)
 
   assert.equal(fieldNamed(handle, 'role').tagName, 'SELECT')
   assert.equal(fieldNamed(handle, 'message').tagName, 'TEXTAREA')
