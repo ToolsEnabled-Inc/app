@@ -51,13 +51,20 @@ test('real public data is discovered and every file validates', () => {
   assert.match(run.stdout, new RegExp(`Discovered ${present.length} JSON data files; validated ${present.length}\\.`))
 })
 
+/* The host, peer and repo values below are FIXTURES, not a captured machine.
+   They were a real builder's LAN addresses and home-directory checkout, which
+   is owner data sitting in a file that publishes; the shapes are what this
+   test exercises, and the shapes are identical. Addresses are RFC 5737
+   documentation range (192.0.2.0/24, matching the neutral ranges used in
+   tools/test/no-owner-data.test.mjs) with the last octet preserved so local
+   and peer stay distinguishable. Do not "restore" real values here. */
 test('historical populated status output validates', () => {
   const statusSchema = JSON.parse(readFileSync(join(REAL_DATA, 'schema', 'status.schema.json'), 'utf8'))
   const populatedStatus = {
     schemaVersion: 1,
     generatedAt: '2026-08-04T15:45:03.011Z',
-    generatedByHost: 'Machine A (192.168.214.2, retired compatibility host)',
-    sourceRepo: 'C:/Users/joshp/Desktop/ToolsEnabled',
+    generatedByHost: 'Machine A (192.0.2.2, retired compatibility host)',
+    sourceRepo: 'C:/ToolsEnabled',
     health: {
       available: true,
       path: 'state/health-snapshot.json',
@@ -121,16 +128,16 @@ test('historical populated status output validates', () => {
         path: 'state/full-remote-access-peer-liveness.json',
         authenticatedAt: '2026-08-04T15:42:30.660Z',
         authenticatedAtMs: 1_785_858_150_660,
-        localHost: '192.168.214.2',
-        peerHost: '192.168.214.1',
+        localHost: '192.0.2.2',
+        peerHost: '192.0.2.1',
       },
       inbound: {
         available: true,
         path: 'state/full-remote-access-inbound-liveness.json',
         authenticatedAt: '2026-08-04T15:43:09.962Z',
         authenticatedAtMs: 1_785_858_189_962,
-        localHost: '192.168.214.2',
-        peerHost: '192.168.214.1',
+        localHost: '192.0.2.2',
+        peerHost: '192.0.2.1',
       },
     },
     recentLanes: {
@@ -154,7 +161,7 @@ test('historical populated status output validates', () => {
     hostUptime: {
       available: true,
       seconds: 382680.625,
-      hostLabel: 'Machine A (192.168.214.2, retired compatibility host)',
+      hostLabel: 'Machine A (192.0.2.2, retired compatibility host)',
     },
   }
   assert.equal(populatedStatus.health.subsystems[5].reason.length, 466)

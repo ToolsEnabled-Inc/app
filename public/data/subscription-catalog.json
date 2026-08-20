@@ -5,11 +5,11 @@
   "derivedFrom": "src/lib/entitlement.js",
   "paidProduct": "ToolsEnabled Anywhere",
   "unlicensedInstall": "full-function",
-  "unlicensedInstallStatement": "This installation is fully functional without a licence, permanently. The local runtime, direct machine-to-machine transport, a relay you host yourself, and every safety control are free and are never licence-checked. A licence pays only for infrastructure we operate on your behalf.",
+  "unlicensedInstallStatement": "This installation is fully functional without a licence, permanently. The local runtime, direct machine-to-machine transport, and every safety control are free and are never licence-checked. Hosting the relay yourself is planned and not available yet; when it lands it will be free and never licence-checked too. A licence pays only for infrastructure we operate on your behalf.",
   "neverGated": [
     "the local runtime and every tool it dispatches",
     "direct machine-to-machine transport on your own network",
-    "a relay you host yourself",
+    "hosting the relay yourself (planned, not available yet)",
     "pairing a second computer (peer enrollment and key rotation)",
     "the audit ledger, the kill switch, approvals, and every other safety control",
     "reading, exporting, or deleting your own data"
@@ -25,7 +25,7 @@
       ],
       "freeAlternatives": [
         "direct: both machines on one private network, no server, no account",
-        "self-hosted-relay: run the same relay yourself on any host you control"
+        "self-hosted-relay (planned, not yet available): run the same relay yourself on any host you control"
       ]
     }
   },

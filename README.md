@@ -29,15 +29,18 @@ approvals, the spend ledger and the audit trail in one place. The interface does
 a separate name, because it is not a separate product — it is what ToolsEnabled looks
 like.
 
-It is one free, open-source product. You can run it three ways:
+It is one free product, licensed under the MIT license. You can run it two ways today:
 
 - **Locally**, on one machine.
 - **Over your own LAN**, from one machine to another you already control.
-- **Self-hosted**, on infrastructure you operate.
 
-None of those require an account with us, and none of them are time-limited or
-feature-gated. The free product is the whole product for anyone who can reach their own
-machines.
+Neither requires an account with us, and neither is time-limited or feature-gated. The
+free product is the whole product for anyone who can reach their own machines.
+
+**Self-hosting** — running the relay yourself, on infrastructure you operate, so that
+machines on *different* networks reach each other without us — is planned and is not
+available yet. The relay's source publishes under the same MIT license when it lands. We
+would rather tell you it is coming than imply it is here.
 
 ## The paid product
 
@@ -51,9 +54,10 @@ to sell it. The free product launches first; Anywhere follows as an invite-only 
 
 ## Governance
 
-The official project lives under the ToolsEnabled GitHub organization. ToolsEnabled, Inc.
-controls the official repository, the releases, the project's names and marks, and the
-signed installers.
+The official project will live under the ToolsEnabled GitHub organization, which today
+holds only the organization's profile page — no product repository, no releases, no issue
+tracker. ToolsEnabled, Inc. controls the official repository, the releases, the project's
+names and marks, and the signed installers.
 
 Anyone may fork this project and propose changes. Only approved code enters the official
 build. A fork is your own; it is not the official product and must not present itself as

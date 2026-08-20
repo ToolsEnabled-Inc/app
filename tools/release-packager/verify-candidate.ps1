@@ -24,9 +24,12 @@
   "Evidence methods that are not sufficient."
 
 .EXAMPLE
-  # Network pull from Machine A:
+  # Network pull from Machine A. Use the exact -Uri and -Token that
+  # serve-candidate.mjs printed on A -- that URI is built from A's own
+  # direct-link address (TOOLSENABLED_DIRECT_LINK_ADDRESSES there), so it is
+  # not a fixed value and 192.0.2.2 below is only a documentation stand-in.
   powershell -File verify-candidate.ps1 `
-    -Uri "http://192.168.214.2:4787/candidate" -Token "<token from A>" `
+    -Uri "http://192.0.2.2:4787/candidate" -Token "<token from A>" `
     -OutFile "Mission Control Setup 1.0.2.exe" `
     -ExpectedBytes 100286107 -ExpectedSha256 "68082E56818047665EAD88CABD41C0843F535E1F77057C8DB428EFF6C7554560"
 

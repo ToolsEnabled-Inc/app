@@ -167,9 +167,16 @@ const BUILT_IN_PATTERNS = [
 //
 // The alternative was to drop the surname from the identity profile. That is the
 // dangerous fix, and it is the one this file's own history argues against: it
-// would silently stop catching jpinckard21@gmail.com and every future incidental
-// occurrence, and the loss would be invisible -- the guard would go on reporting
-// clean while looking for less than it used to. Absence-as-emptiness again.
+// would silently stop catching a personal address of the form
+// <surname><digits>@<provider> -- and every future incidental occurrence -- and
+// the loss would be invisible: the guard would go on reporting clean while
+// looking for less than it used to. Absence-as-emptiness again.
+//
+// (The worked examples below use pinckard99@example.com, a reserved
+// documentation address. An earlier version of this comment used a REAL personal
+// address to make the same point, which meant the file that exists to stop
+// personal data from publishing was itself carrying some. The example has to be
+// structurally identical to be worth anything; it does not have to be real.)
 //
 // So the string stays matched and the ATTRIBUTION is excused, narrowly:
 //
@@ -179,7 +186,7 @@ const BUILT_IN_PATTERNS = [
 //     laundered by putting the creator's name next to it.
 //   - A match is excused only when it lies WHOLLY INSIDE an occurrence of one of the
 //     exact strings below, in the same file. "Pinckard" inside "Joshua Pinckard" is
-//     excused. "Pinckard" inside "jpinckard21@gmail.com" is not, because the
+//     excused. "Pinckard" inside "pinckard99@example.com" is not, because the
 //     attribution string does not occur there. "Josh Pinckard" is not a substring of
 //     "Joshua Pinckard", so the informal-name pattern keeps catching what it caught.
 //   - Excused matches are COUNTED AND PRINTED, never silently dropped. An excusal
