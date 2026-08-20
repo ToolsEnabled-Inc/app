@@ -886,6 +886,141 @@ test('every field is a real control with its own label bound by id', () => {
   }
 })
 
+/* ---------- the tips went behind hover; the facts did not -----------------
+ *
+ * Owner, 2026-08-19, on this panel for the second time: "pg 2 right pnel STILL
+ * reads ugly and messy. Make some of the tips only show on hover ... so it
+ * isnt so messy".
+ *
+ * THE LINE THESE TESTS DEFEND is not "fewer paragraphs". It is which paragraph
+ * is allowed to go: text that EXPLAINS a control may hide, text that states a
+ * FACT about this computer may not. Hiding a warning behind a gesture would
+ * undo the honesty work this whole panel is made of, and it is exactly the
+ * mistake a later "tidy it up further" pass would make -- so the classification
+ * is pinned here rather than described in a commit message nobody re-reads.
+ *
+ * WHAT THESE PROVE AND WHAT THEY CANNOT. They prove the DOM contract: which
+ * elements are marked as tips, which are not, and that a hidden tip is still in
+ * the page and still named by its field's description so a screen reader is
+ * unaffected. They cannot prove a pointer can summon one -- opacity, hover and
+ * the 1s delay live in src/agent-compose-panel.css and are proven by driving a
+ * real window with a real mouse.
+ * ------------------------------------------------------------------------- */
+
+const tipped = handle => handle.element()
+  .findAll(node => node.getAttribute('data-compose-tip') === 'hover')
+const markedLabels = handle => handle.element()
+  .findAll(node => node.className === 'tip-mark')
+
+test('the five field hints are the only things behind hover, and they are all tips', () => {
+  const { handle } = open({ folders: [{ id: 'f1', name: 'Work' }] })
+  const behindHover = tipped(handle).map(node => node.textContent)
+
+  assert.deepEqual(behindHover.sort(), [
+    START_PANEL.effortHelp,
+    START_PANEL.folderHelp,
+    START_PANEL.messageHelp,
+    START_PANEL.roleHelp,
+    START_PANEL.tierHelp,
+  ].sort(), 'the set of hidden sentences changed; every one of them must be text that EXPLAINS a control')
+
+  // Each one is offered rather than merely gone: its label carries the mark.
+  assert.equal(markedLabels(handle).length, behindHover.length)
+  for (const mark of markedLabels(handle)) {
+    assert.equal(mark.textContent, START_PANEL.tipMark)
+    assert.equal(mark.getAttribute('aria-hidden'), 'true', 'the mark is decoration, and a screen reader must not read it as a control')
+  }
+})
+
+test('a hidden tip is still in the page and still describes its own field', () => {
+  /* THE HALF THAT IS NOT VISUAL. These paragraphs are named by
+     aria-describedby, so a screen reader reads them when focus lands on the
+     field -- exactly as it did before they were hidden. If a later pass ever
+     reaches for `display: none` or `visibility: hidden` the sentence leaves the
+     accessibility tree too, and this is what says so out loud. */
+  const { handle } = open()
+  for (const name of ['role', 'tier', 'effort', 'message']) {
+    const field = fieldNamed(handle, name)
+    const hintId = `${field.getAttribute('id')}-hint`
+    const hint = handle.element().find(node => node.getAttribute('id') === hintId)
+    assert.ok(hint, `${name} has no hint element, so its description points at nothing`)
+    assert.equal(hint.getAttribute('data-compose-tip'), 'hover')
+    assert.notEqual(hint.textContent.trim(), '', `${name}'s tip was emptied instead of hidden`)
+    assert.ok(String(field.getAttribute('aria-describedby')).includes(hintId),
+      `${name} no longer names its own explanation, so a screen reader lost it`)
+    assert.ok(hint.getAttribute('hidden') === null, 'a hidden attribute takes it out of the accessibility tree too')
+  }
+})
+
+test('every sentence that states a fact about this computer stays on the page', () => {
+  /* THE ONE THAT MUST NOT REGRESS. Each of these is a fact rather than a
+     lesson: a stated absence, a refusal, what a session would be allowed to do,
+     what is happening right now. None of them may be behind a gesture. */
+  const { handle } = open({
+    unavailableReason: START_REFUSAL.assistantProgramMissing,
+    confinementLine: startControlLine({ ok: true, level: 'recommended' }),
+  })
+  const facts = [
+    noticeLine(handle),
+    confinementLineOf(handle),
+    statusLine(handle),
+    problemFor(handle, 'message'),
+  ]
+  for (const element of facts) {
+    assert.ok(element, 'a fact-bearing line is missing from the panel entirely')
+    assert.equal(element.getAttribute('data-compose-tip'), null,
+      `this line states something about THIS computer and was put behind hover: ${element.textContent}`)
+    assert.ok(!String(element.className).includes('tip-box'),
+      `this line states something about THIS computer and was given the tip treatment: ${element.textContent}`)
+  }
+
+  const under = open({ parent: { id: 'node-17', name: PRESSED_NODE_NAME } }).handle
+    .element().find(node => node.getAttribute('data-compose-under') === 'parent')
+  assert.equal(under.getAttribute('data-compose-tip'), null, 'where this agent is going is a fact about the press, not a lesson')
+})
+
+test('the folder line hides only while it is help, and never while it is an empty state', () => {
+  /* ONE ELEMENT, TWO KINDS OF SENTENCE. With named folders it explains the
+     menu. With none it says none exist and names where a start would really
+     land -- an honest empty state, and an empty state a person must hover to
+     find is one that is not being told. */
+  const withFolders = open({ folders: [{ id: 'f1', name: 'Work' }] }).handle
+  const folderHint = handle => handle.element().find(node => node.getAttribute('id')?.endsWith('-folder-hint'))
+  assert.equal(folderHint(withFolders).textContent, START_PANEL.folderHelp)
+  assert.equal(folderHint(withFolders).getAttribute('data-compose-tip'), 'hover')
+
+  const noFolders = open({ folders: [] }).handle
+  assert.equal(folderHint(noFolders).textContent, START_PANEL.folderNone)
+  assert.equal(folderHint(noFolders).getAttribute('data-compose-tip'), null,
+    'the empty state was put behind hover, so nobody is told there are no folders')
+  assert.ok(!String(folderHint(noFolders).className).includes('tip-box'))
+
+  const setupFolder = open({ folders: [], defaultFolder: 'C:\\Work' }).handle
+  assert.equal(folderHint(setupFolder).textContent, START_PANEL.folderNoneChosen('C:\\Work'))
+  assert.equal(folderHint(setupFolder).getAttribute('data-compose-tip'), null,
+    'where a start would actually land was put behind hover')
+})
+
+test('a tipped hint comes after its control, because the reveal is a sibling rule', () => {
+  /* NOT COSMETIC. src/agent-compose-panel.css reveals a tip with
+     `.cl:hover ~ .agent-compose-hint` and `select:focus-visible ~ ...`, and a
+     sibling combinator only reaches LATER siblings. Move the hint back above
+     the control and the tip becomes unreachable by pointer AND by keyboard,
+     with every unit test still green -- which is exactly the kind of silent
+     break this assertion exists to stop. */
+  const { handle } = open()
+  for (const name of ['role', 'tier', 'effort', 'message']) {
+    const field = fieldNamed(handle, name).parentNode
+    const order = field.children.map(child => child.getAttribute('data-compose-field')
+      || child.getAttribute('data-compose-tip')
+      || child.tagName)
+    const control = order.indexOf(name)
+    const hint = order.indexOf('hover')
+    assert.ok(control !== -1 && hint !== -1, `${name}: control or hint missing from the field`)
+    assert.ok(hint > control, `${name}: the hint sits before its control, so no sibling rule can reveal it`)
+  }
+})
+
 test('the panel is named for a screen reader by its own title', () => {
   const { handle } = open()
   const root = handle.element()

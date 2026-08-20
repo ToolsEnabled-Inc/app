@@ -163,6 +163,8 @@
 .agent-compose-field {
   display: grid;
   gap: var(--s1);
+  /* The frame a tipped hint is positioned against. See .tip-box below. */
+  position: relative;
 }
 
 .agent-compose-field .cl {
@@ -176,6 +178,120 @@
   font-size: 12px;
   line-height: 1.4;
   color: var(--ink-3);
+}
+
+/* ---------------------------------------------------------------
+   THE TIPS, BEHIND THE LABEL THEY BELONG TO
+   --------------------------------------------------------------- */
+
+/* Owner, 2026-08-19, on this panel for the second time: "pg 2 right pnel STILL
+   reads ugly and messy. Make some of the tips only show on hover (give it a
+   nice clean box in theme and give it a slightly longer delay like 1s) so it
+   isnt so messy".
+
+   FIVE PARAGRAPHS OF FIELD HELP CAME OUT OF THE RESTING LAYOUT. Which five and
+   why those five is argued in src/agent-compose-panel.js, above buildPanel():
+   only text that EXPLAINS a control moves. Every sentence that states a fact
+   about this computer -- the refusals, the sign-in and not-installed rows, the
+   folder empty state, the confinement line, the progress line -- is still on
+   the glass at rest, and hiding one would have undone the work that put it
+   there.
+
+   IT IS FADED AND TAKEN OUT OF THE FLOW, NEVER `display: none` AND NEVER
+   `visibility: hidden`. Both of those remove an element from the accessibility
+   tree, and these paragraphs are still named by their field's aria-describedby
+   -- a screen reader must read exactly what it read before this change. Opacity
+   and absolute positioning change what a sighted person sees at rest and
+   nothing else.
+
+   NO NEW COLOUR OR SPACING. The box is the same recipe .agent-compose-notice
+   already uses (a token tint over --sheet with a --line-2 border), which is
+   proven in both themes, plus the overlay shadow the chart tooltip in
+   src/styles.css uses -- because unlike the notice this one floats over the
+   form and needs to read as a layer rather than as another row. */
+.agent-compose-hint.tip-box {
+  /* BELOW THE WHOLE FIELD, never on top of it. The label is the hover target
+     and the control sits between them, so a person travelling from the
+     question down to the menu never has a box open across their path. */
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 6;
+  margin-top: var(--s1);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: color-mix(in oklab, var(--ink) 3%, var(--sheet));
+  box-shadow: 0 10px 26px -10px rgba(var(--shadow-rgb), calc(0.3 * var(--shadow-k)));
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  /* IT MUST NEVER INTERCEPT A PRESS. Every driver on this tree checks
+     document.elementFromPoint before pressing and refuses a press the target
+     would not feel; a floating box over a control would turn a working control
+     into "covered by" in four harnesses at once. It is also why hovering the
+     BOX does not hold it open -- it cannot be hovered at all, and it does not
+     need to be: the label under the pointer is what keeps it up. */
+  pointer-events: none;
+  opacity: 0;
+  /* LEAVING IS IMMEDIATE, ARRIVING WAITS A SECOND (the owner's "slightly
+     longer delay like 1s"). The delay is on the reveal rule, not here, so a
+     tip that is on screen disappears the moment the pointer leaves rather than
+     hanging over the next field for another second. */
+  transition: opacity var(--dur-2) var(--ease);
+}
+
+/* THE MARK, so a hidden tip is offered rather than merely gone. A character
+   and a ring drawn in tokens: this product ships no icon set, and five hints
+   are not a reason for this module to introduce one. `aria-hidden` where it is
+   built -- it is not the tip and not a control. */
+.agent-compose-field .cl .tip-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: var(--s1);
+  border: 1px solid var(--line-2);
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1;
+  color: var(--ink-3);
+  vertical-align: text-bottom;
+  transition: color var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease);
+}
+
+/* TWO WAYS IN, AND THE SECOND ONE IS THE POINT. Hovering the label is the
+   pointer's way. `:focus-visible` on the field's OWN control is the keyboard's:
+   tabbing onto the menu shows the sentence about the menu, with no extra tab
+   stop invented to hold a tip and nothing for a keyboard user to discover.
+   Sibling combinators, which is why buildPanel() appends the hint AFTER the
+   control -- they can only reach a later sibling. */
+.agent-compose-field > .cl:hover ~ .agent-compose-hint.tip-box,
+.agent-compose-field > .agent-compose-select:focus-visible ~ .agent-compose-hint.tip-box,
+.agent-compose-field > .agent-compose-text:focus-visible ~ .agent-compose-hint.tip-box {
+  opacity: 1;
+  transition-delay: 1s;
+}
+
+.agent-compose-field > .cl:hover .tip-mark {
+  color: var(--ink);
+  border-color: var(--ink-3);
+}
+
+/* A SWITCHED-OFF FORM OFFERS NOTHING TO READ ABOUT. When the panel ships with
+   its fields disabled the whole question is moot and the panel's own notice is
+   what a person needs; a tip floating over a dead form is noise. */
+/* Written to match the reveal rules' specificity exactly and placed after them,
+   so it wins on order. A shorter selector here would LOSE to the hover rule
+   above and the tip would still open over a dead form. */
+.agent-compose-field > .agent-compose-select:disabled ~ .agent-compose-hint.tip-box,
+.agent-compose-field > .agent-compose-text:disabled ~ .agent-compose-hint.tip-box {
+  opacity: 0;
+  transition-delay: 0s;
 }
 
 .agent-compose-select,

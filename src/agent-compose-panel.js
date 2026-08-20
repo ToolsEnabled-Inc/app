@@ -188,10 +188,88 @@ export function composeDraftProblems({ message = '' } = {}) {
   return Object.freeze(problems.map(problem => Object.freeze(problem)))
 }
 
+/* THE FIVE PARAGRAPHS THAT TAUGHT, AND WHERE THEY WENT.
+ *
+ * Owner, 2026-08-19, on this panel for the second time: "pg 2 right pnel STILL
+ * reads ugly and messy. Make some of the tips only show on hover (give it a
+ * nice clean box in theme and give it a slightly longer delay like 1s) so it
+ * isnt so messy".
+ *
+ * THE LINE THIS DRAWS, AND IT IS THE ONLY ONE THAT MATTERS HERE. A tip EXPLAINS
+ * a control: it is true on every computer, it says the same thing whatever this
+ * machine happens to be, and a person who already knows the product never needs
+ * to read it again. A FACT states something about THIS computer or THIS press --
+ * a refusal, a warning, a permission level, an honest empty state -- and hiding
+ * one behind a gesture would be undoing the work that put it on the glass. So
+ * exactly five strings move and they are all field help:
+ *
+ *   HIDDEN (tips)   roleHelp, tierHelp, effortHelp, messageHelp, and folderHelp
+ *                   -- but only when the folder hint is really folderHelp
+ *   VISIBLE (facts) folderNone / folderNoneChosen (this computer has no named
+ *                   folders, and where a start would actually land), the
+ *                   under-line naming the pressed node, the panel notice
+ *                   (every refusal and stated absence), the confinement line,
+ *                   the progress line, the brief's refusal, and every tier row
+ *                   that says nobody is signed in or the program is not here
+ *   VISIBLE (kept)  the intro and the empty-tree suggestion: one short line
+ *                   each, they orient rather than teach, and the owner asked
+ *                   for SOME of the tips. The chosen role's summary stays too
+ *                   -- it appears only after a deliberate choice and is the
+ *                   answer to that choice.
+ *
+ * HOW IT IS HIDDEN, AND WHAT IS NOT HIDDEN WITH IT. The paragraph stays in the
+ * page and stays named by its field's aria-describedby: it is taken out of the
+ * FLOW (absolutely positioned) and faded, never `display: none` and never
+ * `visibility: hidden`, both of which would take it out of the accessibility
+ * tree as well. A screen reader reads exactly what it read yesterday. What
+ * changed is only what a sighted person sees at rest.
+ *
+ * AND IT COMES BACK FOR A KEYBOARD. The reveal is the LABEL being hovered or
+ * THE FIELD'S OWN CONTROL taking a visible focus -- so tabbing onto the menu
+ * shows its explanation, with no new tab stop invented to hold a tip. See
+ * src/agent-compose-panel.css for both selectors and the 1s delay. */
+
 /* Built element by element, never from a markup string, and every string in it
    comes from src/fleet-tree-copy.js. `underLine` is the one place a name the
    caller supplied reaches the page, already wrapped in the copy module's own
    sentence before it gets here. */
+
+/* A FIELD LABEL, AND WHETHER IT SAYS ITS FIELD HAS A TIP BEHIND IT.
+ *
+ * The mark is `aria-hidden` and lives INSIDE the label rather than beside it,
+ * so it adds no tab stop, no accessible name and no second control -- and it
+ * cannot be pressed into doing nothing, which is what a decorative button is.
+ * Its hover is what reveals the tip, and the label is the right target: a
+ * person reading the question is exactly the person who wants the sentence
+ * under it, and the tip opens BELOW the whole field so it never lands on top
+ * of the control they are travelling towards. */
+function fieldLabel(doc, { forId, words, tipped }) {
+  const label = doc.createElement('label')
+  label.className = 'cl'
+  label.setAttribute('for', forId)
+  label.textContent = words
+  if (tipped) {
+    const mark = doc.createElement('span')
+    mark.className = 'tip-mark'
+    mark.setAttribute('aria-hidden', 'true')
+    mark.textContent = START_PANEL.tipMark
+    label.appendChild(mark)
+  }
+  return label
+}
+
+/* THE HELP UNDER A FIELD. `tipped` decides whether it stands on the page or
+   waits behind the label -- and it is a parameter rather than a rule because
+   one of these elements carries a TIP in one state and a FACT about this
+   computer in another (see the folder field). */
+function fieldHint(doc, { id, words, tipped }) {
+  const hint = doc.createElement('p')
+  hint.className = tipped ? 'agent-compose-hint tip-box' : 'agent-compose-hint'
+  hint.setAttribute('id', id)
+  if (tipped) hint.setAttribute('data-compose-tip', 'hover')
+  hint.textContent = words
+  return hint
+}
 function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, folders = [], folderSelectedId = null, defaultFolder = '' }) {
   const id = `agent-compose-${panelSequence += 1}`
 
@@ -320,14 +398,8 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, fo
 
   const roleField = doc.createElement('div')
   roleField.className = 'agent-compose-field'
-  const roleLabelNode = doc.createElement('label')
-  roleLabelNode.className = 'cl'
-  roleLabelNode.setAttribute('for', `${id}-role`)
-  roleLabelNode.textContent = START_PANEL.roleLabel
-  const roleHint = doc.createElement('p')
-  roleHint.className = 'agent-compose-hint'
-  roleHint.setAttribute('id', `${id}-role-hint`)
-  roleHint.textContent = START_PANEL.roleHelp
+  const roleLabelNode = fieldLabel(doc, { forId: `${id}-role`, words: START_PANEL.roleLabel, tipped: true })
+  const roleHint = fieldHint(doc, { id: `${id}-role-hint`, words: START_PANEL.roleHelp, tipped: true })
   const roleSelect = doc.createElement('select')
   roleSelect.className = 'agent-compose-select'
   roleSelect.setAttribute('id', `${id}-role`)
@@ -373,9 +445,14 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, fo
      harmless: it is a slot the next lane finds and fills with something this
      flow never proofread, and it keeps a marked-invalid state alive for a
      control that can no longer be wrong. */
+  /* THE HINT NOW COMES AFTER THE CONTROL, and the order is load-bearing rather
+     than cosmetic: the reveal rules in the stylesheet are sibling combinators
+     (`.cl:hover ~ .agent-compose-hint`, `select:focus-visible ~ ...`), which can
+     only reach a LATER sibling. Nothing moves on screen -- a tipped hint is out
+     of the flow entirely and is positioned under the whole field. */
   roleField.appendChild(roleLabelNode)
-  roleField.appendChild(roleHint)
   roleField.appendChild(roleSelect)
+  roleField.appendChild(roleHint)
   roleField.appendChild(roleSummary)
   body.appendChild(roleField)
 
@@ -386,14 +463,13 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, fo
      the honest version of a model this build cannot start. */
   const tierField = doc.createElement('div')
   tierField.className = 'agent-compose-field'
-  const tierLabelNode = doc.createElement('label')
-  tierLabelNode.className = 'cl'
-  tierLabelNode.setAttribute('for', `${id}-tier`)
-  tierLabelNode.textContent = START_PANEL.tierLabel
-  const tierHint = doc.createElement('p')
-  tierHint.className = 'agent-compose-hint'
-  tierHint.setAttribute('id', `${id}-tier-hint`)
-  tierHint.textContent = START_PANEL.tierHelp
+  const tierLabelNode = fieldLabel(doc, { forId: `${id}-tier`, words: START_PANEL.tierLabel, tipped: true })
+  /* THE HELP GOES BEHIND HOVER; THE ROWS DO NOT. tierHelp says which row is a
+     good default, which is true on every computer. What a given row CANNOT do
+     -- "nobody is signed in to Codex on this computer", "Codex is not installed
+     on this computer" -- is a fact about this machine and it is written on the
+     row itself, in the menu, where it stays visible and unhidden. */
+  const tierHint = fieldHint(doc, { id: `${id}-tier-hint`, words: START_PANEL.tierHelp, tipped: true })
   const tierSelect = doc.createElement('select')
   tierSelect.className = 'agent-compose-select'
   tierSelect.setAttribute('id', `${id}-tier`)
@@ -409,8 +485,8 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, fo
   }
   tierSelect.value = DEFAULT_TIER
   tierField.appendChild(tierLabelNode)
-  tierField.appendChild(tierHint)
   tierField.appendChild(tierSelect)
+  tierField.appendChild(tierHint)
 
   /* EFFORT RIDES BESIDE THE TIER (owner, iteration 5: "I need to be able to
      choose effort levels when starting an agent … just like vscode"). The
@@ -419,14 +495,8 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, fo
      by choosing. */
   const effortField = doc.createElement('div')
   effortField.className = 'agent-compose-field'
-  const effortLabelNode = doc.createElement('label')
-  effortLabelNode.className = 'cl'
-  effortLabelNode.setAttribute('for', `${id}-effort`)
-  effortLabelNode.textContent = START_PANEL.effortLabel
-  const effortHint = doc.createElement('p')
-  effortHint.className = 'agent-compose-hint'
-  effortHint.setAttribute('id', `${id}-effort-hint`)
-  effortHint.textContent = START_PANEL.effortHelp
+  const effortLabelNode = fieldLabel(doc, { forId: `${id}-effort`, words: START_PANEL.effortLabel, tipped: true })
+  const effortHint = fieldHint(doc, { id: `${id}-effort-hint`, words: START_PANEL.effortHelp, tipped: true })
   const effortSelect = doc.createElement('select')
   effortSelect.className = 'agent-compose-select'
   effortSelect.setAttribute('id', `${id}-effort`)
@@ -444,8 +514,8 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, fo
   effortSelect.value = tierEffort(DEFAULT_TIER)
   tierSelect.addEventListener('change', () => { effortSelect.value = tierEffort(tierSelect.value) })
   effortField.appendChild(effortLabelNode)
-  effortField.appendChild(effortHint)
   effortField.appendChild(effortSelect)
+  effortField.appendChild(effortHint)
 
   /* THE FOLDER THIS TREE'S AGENTS WORK IN, ASKED AT THE MOMENT THE TREE STARTS.
    *
@@ -467,16 +537,31 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, fo
   if (newTree) {
     folderField = doc.createElement('div')
     folderField.className = 'agent-compose-field'
-    const folderLabelNode = doc.createElement('label')
-    folderLabelNode.className = 'cl'
-    folderLabelNode.setAttribute('for', `${id}-folder`)
-    folderLabelNode.textContent = START_PANEL.folderLabel
-    const folderHint = doc.createElement('p')
-    folderHint.className = 'agent-compose-hint'
-    folderHint.setAttribute('id', `${id}-folder-hint`)
-    folderHint.textContent = folders.length > 0
-      ? START_PANEL.folderHelp
-      : (defaultFolder ? START_PANEL.folderNoneChosen(defaultFolder) : START_PANEL.folderNone)
+    /* ONE ELEMENT, TWO KINDS OF SENTENCE, AND ONLY ONE OF THEM MAY HIDE.
+     *
+     * With named folders on this computer this line is folderHelp -- it
+     * explains what the menu does and is true everywhere, so it goes behind
+     * the label with the rest of the field help.
+     *
+     * With NO named folders it is folderNone or folderNoneChosen, and those
+     * are facts read off this machine: that none exist, where a start with no
+     * folder would actually land, and where to go and make one. That is an
+     * honest empty state, and an honest empty state a person has to hover to
+     * find is an empty state that is not being told. It stays on the page and
+     * the label carries no mark, because there is nothing behind it. */
+    const folderHelpIsTip = folders.length > 0
+    const folderLabelNode = fieldLabel(doc, {
+      forId: `${id}-folder`,
+      words: START_PANEL.folderLabel,
+      tipped: folderHelpIsTip,
+    })
+    const folderHint = fieldHint(doc, {
+      id: `${id}-folder-hint`,
+      words: folderHelpIsTip
+        ? START_PANEL.folderHelp
+        : (defaultFolder ? START_PANEL.folderNoneChosen(defaultFolder) : START_PANEL.folderNone),
+      tipped: folderHelpIsTip,
+    })
     folderSelect = doc.createElement('select')
     folderSelect.className = 'agent-compose-select'
     folderSelect.setAttribute('id', `${id}-folder`)
@@ -503,20 +588,14 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, fo
       folderSelect.value = folderSelectedId
     }
     folderField.appendChild(folderLabelNode)
-    folderField.appendChild(folderHint)
     folderField.appendChild(folderSelect)
+    folderField.appendChild(folderHint)
   }
 
   const messageField = doc.createElement('div')
   messageField.className = 'agent-compose-field'
-  const messageLabel = doc.createElement('label')
-  messageLabel.className = 'cl'
-  messageLabel.setAttribute('for', `${id}-message`)
-  messageLabel.textContent = START_PANEL.messageLabel
-  const messageHint = doc.createElement('p')
-  messageHint.className = 'agent-compose-hint'
-  messageHint.setAttribute('id', `${id}-message-hint`)
-  messageHint.textContent = START_PANEL.messageHelp
+  const messageLabel = fieldLabel(doc, { forId: `${id}-message`, words: START_PANEL.messageLabel, tipped: true })
+  const messageHint = fieldHint(doc, { id: `${id}-message-hint`, words: START_PANEL.messageHelp, tipped: true })
   const messageInput = doc.createElement('textarea')
   messageInput.className = 'agent-compose-text'
   messageInput.setAttribute('id', `${id}-message`)
@@ -533,8 +612,10 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, fo
   messageProblem.setAttribute('data-compose-problem', 'message')
   messageProblem.setAttribute('role', 'alert')
   messageField.appendChild(messageLabel)
-  messageField.appendChild(messageHint)
   messageField.appendChild(messageInput)
+  messageField.appendChild(messageHint)
+  /* THE REFUSAL IS NOT A TIP AND STAYS LAST IN THE FLOW, under the box it is
+     about. It is the answer to a press this person just made. */
   messageField.appendChild(messageProblem)
   /* THE TWO ANSWERS FIRST. This file's own header calls the panel "two fields
      and two buttons": a role and a brief. The assistant and effort choices were

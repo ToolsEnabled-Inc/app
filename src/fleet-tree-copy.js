@@ -281,6 +281,22 @@ export const START_PANEL = Object.freeze({
   messagePlaceholder: 'Read the notes in my documents folder and list what is unfinished.',
   submit: 'Start this agent',
   cancel: 'Not now',
+  /* THE MARK THAT SAYS THERE IS MORE TO READ, AND WHY IT IS A CHARACTER.
+   *
+   * Owner, 2026-08-19, on this panel for the second time: "pg 2 right pnel
+   * STILL reads ugly and messy. Make some of the tips only show on hover ...
+   * so it isnt so messy". A tip that is hidden with nothing standing where it
+   * was is not tidier, it is gone -- so each field that HAS one says so, right
+   * after the question it belongs to.
+   *
+   * It is one character because this product has no icon set: every glyph on
+   * this rail today is either a typographic character or a CSS shape, and
+   * introducing an image for five hints would be new visual vocabulary from
+   * the one module whose whole promise is that it adds none. It is marked
+   * aria-hidden where it is drawn, because it is not the tip and it is not a
+   * control -- a screen reader gets the tip itself, unchanged, through the
+   * field's own aria-describedby, which is exactly where it got it before. */
+  tipMark: '?',
   /* THE ONE WAY LEFT TO PRESS START TOO EARLY. It says what is missing and what
      to do, in that order, and it does not scold.
 
