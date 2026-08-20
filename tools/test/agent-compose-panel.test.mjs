@@ -49,6 +49,7 @@ import {
   startableTierIds,
   tierChoicesFor,
   signedOutProviderIds,
+  notInstalledProviderIds,
   EFFORT_CHOICES,
   effortOptionLabel,
   roleLabel,
@@ -1063,6 +1064,76 @@ test('the panel puts the sign-in warning on the glass, where the person reads it
   assert.deepEqual(labels, handed.map(choice => choice.label))
   assert.ok(labels.some(label => /nobody is signed in to Codex/.test(label)),
     'the warning was computed and never reached the screen')
+})
+
+/* ---- AND THE MACHINE THAT NEVER HAD THE PROGRAM AT ALL ---------------------
+ *
+ * The warning above is right for a computer that HAS Codex and nobody signed
+ * in. On a computer that never had it, the same warning is a dead end: `codex
+ * login` is a SUBCOMMAND OF THE PROGRAM THAT IS MISSING, so a person who
+ * follows it gets "'codex' is not recognized" -- which is, verbatim, what the
+ * product's first external user hit on 1.0.20.
+ *
+ * IT IS NOT A HYPOTHETICAL SHAPE. shell/provider-cli-presence.cjs gives Codex
+ * `signInProves: 'absence'`, so a machine with no Codex reports BOTH
+ * installed:'no' AND signedIn:'no' -- the sign-in file cannot be there when the
+ * program never was. Measured against the landed rows, that machine drew
+ * "Luna · Codex — nobody is signed in to Codex on this computer" and said
+ * nothing about installing anything.
+ *
+ * THE ORDER IS THE FIX, AND IT IS ALREADY THIS CODEBASE'S RULE.
+ * codexCommandIsMissing() in shell/agent-host.cjs checks the program BEFORE the
+ * sign-in and says why: "Reporting the CLI first yields the only sequence that
+ * terminates: install, then sign in, each step true when it is shown." The row
+ * now follows the same order as the refusal a press would give.
+ * ------------------------------------------------------------------------- */
+
+const NO_CODEX_AT_ALL = Object.freeze({
+  ok: true,
+  providers: Object.freeze([Object.freeze({ id: 'codex', installed: 'no', signedIn: 'no' })]),
+})
+
+test('a computer that never had the program is told to install it, not to sign in', () => {
+  const rows = tierChoicesFor(ALL_START, signedOutProviderIds(NO_CODEX_AT_ALL),
+    notInstalledProviderIds(NO_CODEX_AT_ALL))
+  for (const id of ['luna', 'terra', 'sol']) {
+    const label = rows.find(row => row.id === id).label
+    assert.match(label, /Codex is not installed on this computer/, label)
+    assert.ok(!/nobody is signed in/.test(label),
+      `the row sent a person to a subcommand of a program that is not there: ${label}`)
+  }
+})
+
+test('a program that IS installed still gets the sign-in sentence, not the install one', () => {
+  /* The discriminating arm for the pair above: without it, "install" could be
+     printed on every unstartable Codex row and this suite would not notice. */
+  const installed = { ok: true, providers: [{ id: 'codex', installed: 'yes', signedIn: 'no' }] }
+  const label = tierChoicesFor(ALL_START, signedOutProviderIds(installed),
+    notInstalledProviderIds(installed)).find(row => row.id === 'luna').label
+  assert.match(label, /nobody is signed in to Codex/, label)
+  assert.ok(!/not installed/.test(label), label)
+})
+
+test('an install reading that proves nothing puts no install warning on a row', () => {
+  /* 'unknown' means this copy could not read PATH, which is not the same as an
+     empty PATH -- turning it into "you have not installed it" would tell a
+     person to redo an install that worked. The rule presence() already states. */
+  for (const reply of [null, undefined, {}, { ok: false }, { ok: true },
+    { ok: true, providers: 'codex' }, { ok: true, providers: [{ id: 'codex', installed: 'unknown' }] },
+    { ok: true, providers: [{ installed: 'no' }] }]) {
+    const rows = tierChoicesFor(ALL_START, [], notInstalledProviderIds(reply))
+    assert.deepEqual(rows.filter(row => /not installed/.test(row.label)).map(row => row.label), [],
+      `an unusable presence reply claimed a program was missing: ${JSON.stringify(reply)}`)
+  }
+})
+
+test('no launcher still outranks a missing program', () => {
+  /* Installing Codex does not add a launcher to a build that carries none, so
+     that row keeps the sentence about the thing an install would not fix. */
+  const rows = tierChoicesFor(['luna'], [], ['codex'])
+  assert.match(rows.find(row => row.id === 'luna').label, /Codex is not installed on this computer/)
+  assert.match(rows.find(row => row.id === 'terra').label, /cannot start from a tree yet/)
+  assert.ok(!/not installed/.test(rows.find(row => row.id === 'terra').label))
 })
 
 test('the compose panel renders the engine rows it is handed, not a list of its own', () => {

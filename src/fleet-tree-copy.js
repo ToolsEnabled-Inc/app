@@ -328,6 +328,34 @@ const TIER_CANNOT_START_HERE = 'cannot start from a tree yet'
  * an "I could not tell" up to a warning would put a terminal command in front of
  * somebody who is already signed in. */
 const TIER_NOBODY_SIGNED_IN = provider => `nobody is signed in to ${provider} on this computer`
+/* AND THE MACHINE THAT NEVER HAD THE PROGRAM, which the sentence above sends to
+ * a dead end.
+ *
+ * `codex login` is a SUBCOMMAND OF THE PROGRAM ITSELF, so on a computer with no
+ * Codex the sign-in line asks a person to run something that answers "'codex' is
+ * not recognized" -- which is, verbatim, what this product's first external user
+ * hit on 1.0.20. The row was right that it could not start and wrong about what
+ * to do next, which costs more than silence: it spends the one instruction the
+ * person is going to try.
+ *
+ * BOTH FLAGS ARE TRUE ON THAT MACHINE, so the order is what does the work.
+ * shell/provider-cli-presence.cjs gives Codex `signInProves: 'absence'`, so a
+ * computer with no Codex reports installed:'no' AND signedIn:'no' -- the sign-in
+ * file cannot be there when the program never was. Measured against the rows as
+ * they stood: that machine drew "nobody is signed in to Codex on this computer"
+ * and said nothing about installing anything.
+ *
+ * THE ORDER IS ALREADY THIS CODEBASE'S RULE, and it is copied rather than
+ * invented. codexCommandIsMissing() in shell/agent-host.cjs checks the program
+ * BEFORE the sign-in and states why: "Reporting the CLI first yields the only
+ * sequence that terminates: install, then sign in, each step true when it is
+ * shown." A row and the refusal a press would give now name the same first step.
+ *
+ * 'unknown' IS STILL NEVER ROUNDED UP. presence() answers 'unknown' when it
+ * could not read PATH at all, which is not an empty PATH; turning that into
+ * "you have not installed it" would tell somebody to redo an install that
+ * worked, which is the mirror of the defect above. */
+const TIER_NOT_INSTALLED = provider => `${provider} is not installed on this computer`
 /**
  * Which tiers this copy can really start, out of what the shell answered.
  *
@@ -367,17 +395,35 @@ export function startableTierIds(reply) {
  *                       gets exactly the rows it got before this parameter
  *                       existed.
  *
- * NO LAUNCHER OUTRANKS NO SIGN-IN when a row somehow has both: a copy that
- * carries nothing to start cannot be fixed by signing in, so telling someone to
- * sign in would be sending them to do work that changes nothing.
+ * @param notInstalledOf  provider ids whose PROGRAM this computer provably does
+ *                       not have -- `presence()` answering installed:'no',
+ *                       never 'unknown'. Empty by default, for the same reason.
+ *
+ * ONE ROW SAYS ONE THING, AND THE ORDER IS THE WHOLE POINT, because a machine
+ * can hold more than one of these at once and only the first is worth acting on:
+ *
+ *   no launcher   >  no program  >  no sign-in
+ *
+ * NO LAUNCHER OUTRANKS BOTH: a copy that carries nothing to start cannot be
+ * fixed by installing or signing into anything, so naming either would be
+ * sending someone to do work that changes nothing.
+ *
+ * NO PROGRAM OUTRANKS NO SIGN-IN, and that pair is not hypothetical -- a
+ * computer with no Codex reports BOTH, because `codex login` is a subcommand of
+ * the missing program and its sign-in file cannot exist without it. Saying
+ * "sign in" there spends the person's one instruction on a command that answers
+ * "'codex' is not recognized". codexCommandIsMissing() in shell/agent-host.cjs
+ * orders its own refusals this way for exactly this reason.
  */
-export function tierChoicesFor(startable = TREE_DEFAULT_STARTABLE_TIERS, signedOutOf = []) {
+export function tierChoicesFor(startable = TREE_DEFAULT_STARTABLE_TIERS, signedOutOf = [], notInstalledOf = []) {
   const canStart = new Set(Array.isArray(startable) ? startable : TREE_DEFAULT_STARTABLE_TIERS)
   const signedOut = new Set(Array.isArray(signedOutOf) ? signedOutOf.filter(id => typeof id === 'string') : [])
+  const noProgram = new Set(Array.isArray(notInstalledOf) ? notInstalledOf.filter(id => typeof id === 'string') : [])
   return Object.freeze(LAUNCH_TIERS.map(tier => {
     const provider = TIER_PROVIDER_WORDS[tier.provider] || tier.provider
     let why = ''
     if (!canStart.has(tier.id)) why = TIER_CANNOT_START_HERE
+    else if (noProgram.has(tier.provider)) why = TIER_NOT_INSTALLED(provider)
     else if (signedOut.has(tier.provider)) why = TIER_NOBODY_SIGNED_IN(provider)
     return Object.freeze({
       id: tier.id,
@@ -400,6 +446,25 @@ export function signedOutProviderIds(reply) {
   if (!reply || typeof reply !== 'object' || reply.ok !== true || !Array.isArray(reply.providers)) return Object.freeze([])
   return Object.freeze(reply.providers
     .filter(row => row && typeof row.id === 'string' && row.signedIn === 'no')
+    .map(row => row.id))
+}
+
+/**
+ * Which providers this computer provably does not HAVE THE PROGRAM for, out of
+ * the same reply.
+ *
+ * Its own function beside the one above rather than a second field threaded out
+ * of one call, because they are two different proofs about two different things
+ * -- a missing program and a missing sign-in -- and only one of them is worth
+ * telling a person about at a time. `installed: 'no'` is the only answer that
+ * reaches here: 'unknown' means presence() could not read PATH at all, which is
+ * not the same as an empty one, and reporting it as absent would tell somebody
+ * to redo an install that worked.
+ */
+export function notInstalledProviderIds(reply) {
+  if (!reply || typeof reply !== 'object' || reply.ok !== true || !Array.isArray(reply.providers)) return Object.freeze([])
+  return Object.freeze(reply.providers
+    .filter(row => row && typeof row.id === 'string' && row.installed === 'no')
     .map(row => row.id))
 }
 

@@ -76,6 +76,7 @@ import {
   EFFORT_CHOICES,
   TIER_CHOICES,
   signedOutProviderIds,
+  notInstalledProviderIds,
   startableTierIds,
   tierChoicesFor,
   actionRowWords,
@@ -891,6 +892,11 @@ export function computersView({ initialComputer = null, navigate }) {
      zone waiting for the next person who moves a call. See readProviderSignIn().
      Empty means nothing was learned, which draws exactly today's rows. */
   let signedOutProviders = []
+  /* AND WHICH PROVIDERS THIS COMPUTER HAS NO PROGRAM FOR AT ALL. Kept apart
+     from the list above because a machine with no Codex reports BOTH, and only
+     the first of the two is worth acting on: `codex login` is a subcommand of
+     the program that is missing. Same empty-means-nothing-learned rule. */
+  let noProgramProviders = []
   /* ASK THE SHELL WHICH TIERS THIS COPY CAN REALLY START.
    *
    * THE DEFECT THIS CLOSES. This renderer used to decide startability from a
@@ -2887,11 +2893,29 @@ export function computersView({ initialComputer = null, navigate }) {
    * missing sign-in file as proof, "because this shell already refuses a start on
    * exactly that basis".
    *
-   * Read once per mount like its two neighbours: a person who signs in and comes
-   * back gets a fresh answer because the view is rebuilt, and presence caches
-   * nothing. `signedOutProviders` is declared with startableTierIdList, above. */
+   * READ AT MOUNT AND AGAIN ON EVERY PANEL OPEN, which is a correction to what
+   * stood here. This said "read once per mount ... a person who signs in and
+   * comes back gets a fresh answer because the view is rebuilt", and that is
+   * true only of a person who NAVIGATES AWAY and returns. The refusal this whole
+   * warning exists to pre-empt ends "then come back to this screen", and the
+   * literal reading of that -- stay on the board, run the command, press the
+   * node again -- rebuilds no view.
+   *
+   * MEASURED ON THE PACKAGED BUILD, one moment, both sides read together: with
+   * the sign-in restored while the board stayed open, presence answered codex
+   * signedIn:'yes' and the reopened menu still drew "nobody is signed in to
+   * Codex on this computer". A stale warning is a FALSE sentence, and it is the
+   * more expensive direction of the two: it tells someone who has just done the
+   * work that it did not take.
+   *
+   * IT IS CHEAP ENOUGH TO ASK AGAIN, which is why this is the fix rather than a
+   * cache invalidation. shell/provider-cli-presence.cjs spawns no child and
+   * reads no byte of any credential -- it is a handful of fs.statSync calls --
+   * and it deliberately caches nothing, "a person who signs in and comes back to
+   * this screen must see the new answer, and a cache is how they would not".
+   * `signedOutProviders` is declared with startableTierIdList, above. */
   function repaintTierRows() {
-    startableTierChoices = tierChoicesFor(startableTierIdList, signedOutProviders)
+    startableTierChoices = tierChoicesFor(startableTierIdList, signedOutProviders, noProgramProviders)
     /* A panel already on screen is re-opened over the same node so its menu
        carries the answer, rather than leaving the person reading rows that were
        drawn before the shell replied. */
@@ -2915,6 +2939,7 @@ export function computersView({ initialComputer = null, navigate }) {
     try { reply = await bridge.presence() } catch { reply = null }
     if (destroyed) return
     signedOutProviders = signedOutProviderIds(reply)
+    noProgramProviders = notInstalledProviderIds(reply)
     repaintTierRows()
   }
 
@@ -2952,6 +2977,11 @@ export function computersView({ initialComputer = null, navigate }) {
 
   function openComposeFor(detail) {
     if (destroyed || !computer) return
+    /* ASKED AGAIN HERE, because the sign-in is the one input that changes while
+       this view stays mounted -- see readProviderSignIn(). It settles after the
+       panel is built and repaints the menu over the same node, exactly as the
+       tier list and the confinement line already do. */
+    void readProviderSignIn()
     syncTreeStore()
     const parent = composeParentFor(detail)
     const unavailable = composeUnavailableReason()
