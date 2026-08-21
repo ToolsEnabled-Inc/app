@@ -35,7 +35,6 @@ import {
   validateGuidance,
 } from '../../src/permission-guidance.js'
 import { WRITE_ACTION_FLAGS } from '../../src/write-flags.js'
-import { LIVE_VIEW_FLAGS } from '../../src/live-flags.js'
 import { AUTONOMY_VALUES } from '../../src/setup-profile.js'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -47,11 +46,13 @@ const read = relative => fs.readFileSync(path.join(ROOT, relative), 'utf8')
  * tools/test/ledger-archive-ui read the same file the same way.
  *
  * The extractor tolerates the multi-line literals (uninstall_data is written
- * across six lines) and the two GENERATED families -- the live-view rows and
- * the write-action rows are spread from their own registers, which ARE
- * importable, so they are added from the real lists rather than parsed out of a
- * template string. Under-counting here would silently narrow the coverage test
- * below into one that proves nothing, which is why it asserts a floor. */
+ * across six lines) and the one GENERATED family left -- the write-action rows
+ * are spread from their own register, which IS importable, so they are added
+ * from the real list rather than parsed out of a template string. (The
+ * live-view family this used to add is gone: the seven per-view rows became
+ * the one literal `example_mode` row, which the regex walk sees directly.)
+ * Under-counting here would silently narrow the coverage test below into one
+ * that proves nothing, which is why it asserts a floor. */
 function settingsCatalogue() {
   const source = read('src/views/settings.js')
   const body = source.slice(source.indexOf('export const SETTINGS = ['), source.indexOf('\nconst byId = new Map('))
@@ -61,7 +62,6 @@ function settingsCatalogue() {
     const section = after.match(/section: '([^']+)'/)
     if (section) rows.push({ id: match[1], section: section[1] })
   }
-  for (const flag of LIVE_VIEW_FLAGS) rows.push({ id: `live_${flag.id}`, section: 'Data & Sim' })
   for (const flag of WRITE_ACTION_FLAGS) rows.push({ id: `write_${flag.id}`, section: 'Write' })
   return rows
 }
@@ -141,9 +141,12 @@ test('nothing in the guidance module can turn anything on', () => {
   /* The mechanism explains switches. If it could move one, an explanation
      surface would be a permission surface, and reading about a setting could
      change it. Asserted over the source because it is a statement about what
-     the file may CONTAIN, not about what one call returns. */
+     the file may CONTAIN, not about what one call returns. `setExampleMode`
+     took `setLiveView`'s place in this list when the one example toggle
+     replaced the seven per-view flags: the writer changed, the doctrine did
+     not. */
   const source = read('src/permission-guidance.js') + read('src/guided-step.js')
-  for (const writer of ['setWriteEnabled', 'setLiveView', 'localStorage', 'sessionStorage', 'writeStoredProfile']) {
+  for (const writer of ['setWriteEnabled', 'setExampleMode', 'localStorage', 'sessionStorage', 'writeStoredProfile']) {
     assert.doesNotMatch(source, new RegExp(`\\b${writer}\\b`), `the guidance modules reference ${writer}`)
   }
 })
@@ -184,14 +187,16 @@ test('every settings-page row states what it grants and what it risks', () => {
      from each setting of ours". Not the write flags. Each. */
   const catalogue = settingsCatalogue()
   assert.deepEqual(unexplainedSettingIds(catalogue), [])
-  /* THE FLOOR WAS 90 UNTIL 2026-08-20 AND IS NOW 22, WHICH IS THE WHOLE
-     CATALOGUE, NOT A LOWERED BAR. It exists to catch the extraction silently
-     returning nothing, so it has to track the real count; 74 rows that wrote a
-     key nothing read were removed, leaving 8 declared rows plus 7 live-view and
-     7 write-action flags. Pinning it AT the total rather than below it means
-     this fails on the next removal too, which is correct -- a floor that drifts
-     under the truth is how "the extraction broke" stops being detectable. */
-  assert.equal(catalogue.length, 22, `${catalogue.length} rows were walked, not the 22 this page declares; either the extraction broke or the catalogue changed and this number must be re-derived, not nudged`)
+  /* THE FLOOR WAS 22 UNTIL THE ONE-TOGGLE CHANGE AND IS NOW 15, WHICH IS THE
+     WHOLE CATALOGUE, NOT A LOWERED BAR. It exists to catch the extraction
+     silently returning nothing, so it has to track the real count: the seven
+     live-view rows collapsed into the one `example_mode` row and the
+     demonstration-speed slider died with the simulation engine, leaving 8
+     declared rows plus 7 write-action flags. Pinning it AT the total rather
+     than below it means this fails on the next removal too, which is correct
+     -- a floor that drifts under the truth is how "the extraction broke"
+     stops being detectable. */
+  assert.equal(catalogue.length, 15, `${catalogue.length} rows were walked, not the 15 this page declares; either the extraction broke or the catalogue changed and this number must be re-derived, not nudged`)
 
   let checked = 0
   for (const setting of catalogue) {
@@ -204,16 +209,20 @@ test('every settings-page row states what it grants and what it risks', () => {
   assert.equal(checked, catalogue.length)
 })
 
-test('every write flag and every live flag has its own statement', () => {
+test('every write flag and the example toggle have their own statement', () => {
   for (const flag of WRITE_ACTION_FLAGS) {
     const guidance = describeSubject(`write_${flag.id}`)
     assert.equal(guidance.declared, true, `write flag ${flag.id} has no statement`)
     assert.ok(guidance.turnOnAt.includes('Settings'), `write flag ${flag.id} does not say where its switch is`)
     assert.ok(guidance.capabilities.length > 0 && guidance.risks.length > 0, flag.id)
   }
-  for (const flag of LIVE_VIEW_FLAGS) {
-    assert.equal(describeSubject(`live_${flag.id}`).declared, true, `live flag ${flag.id} has no statement`)
-  }
+  /* The one row that decides what every screen shows. It replaced the seven
+     shared live_<view> declarations, so it must carry its OWN statement --
+     there is no family left for it to fall through to. */
+  const example = describeSubject('example_mode')
+  assert.equal(example.declared, true, 'the example toggle has no statement')
+  assert.ok(example.turnOnAt.includes('Settings'), 'the example toggle does not say where its switch is')
+  assert.ok(example.capabilities.length > 0 && example.risks.length > 0, 'example_mode')
   for (const value of AUTONOMY_VALUES) {
     const guidance = describeSubject(value)
     assert.equal(guidance.declared, true, `setup answer ${value} has no statement`)
@@ -315,16 +324,14 @@ const PINNED_ABSOLUTE_CLAIMS = Object.freeze([
      them. The wording is kept in docs/design/UNBUILT-SETTINGS-ROWS-2026-08-20.md.
      A profile restored with a built feature brings its pin back. */
   {
-    /* The comma splice became three sentences -- "The example is invented data.
-       Every screen that shows it says so. None of it is ever sent anywhere..."
-       -- so the pattern is written against the claim rather than against the
-       punctuation that carried it. The promise being pinned is identical. */
-    match: /^None\. The example is invented data\./,
-    pinnedBy: 'the demonstration rows drive src/sim.js, whose data is generated in this window and never sent; every screen showing it renders its own sample banner, which the setup lane pins with "None of it is your data and each screen says so"',
-  },
-  {
-    match: /^None to your computer\. The only cost is confusion, and the product spends it for you/,
-    pinnedBy: 'the live-view flags choose which of two already-present data sources a screen reads, and a screen reading the sample renders its own labelled banner; asserted by the setup lane’s "the other answer reaches every screen"',
+    /* TWO PINS BECAME THIS ONE when the seven per-view rows and the
+       demonstration profile collapsed into the single example toggle. The old
+       reasons said the demonstration rows drove src/sim.js -- a second render
+       with its own generated data. That mechanism is gone: the truth now is
+       that the example is data fed through the same screens as the person's
+       own records, with the source decided in one place. */
+    match: /^None to your computer\. The example is invented data/,
+    pinnedBy: 'the example toggle selects the mock source in src/data-source.js, and the example is sample data fed through the SAME screens that draw a person’s own records -- there is no second render to leak through; sourceIsBadged() marks the mock source on every surface, and the setup lane pins the companion sentence "None of it is your data and each screen says so"',
   },
   {
     match: /Nothing on this computer will be able to start an assistant while this is the answer/,
@@ -472,9 +479,16 @@ test('the setup review explains every switch it left off, and does not switch an
 
 test('the drawer disclosure is a sibling of its row, never inside the label', () => {
   /* A <details> nested in a <label> toggles the label's own control when the
-     summary is clicked, so reading about the live-data switch would flip it. */
+     summary is clicked, so reading about the example switch would flip it --
+     and flipping THIS one silently swaps every screen between a person's own
+     records and the example. The row moved from pageRows to appRows when the
+     per-view flags became the one toggle; the rule moved with it. */
   const drawer = read('src/quick-settings.js')
-  const liveRow = drawer.slice(drawer.indexOf('function pageRows'), drawer.indexOf('function appRows'))
-  assert.ok(liveRow.indexOf('</label>') < liveRow.indexOf('guidanceMarkup'),
+  const appRows = drawer.slice(drawer.indexOf('function appRows'), drawer.indexOf('async function fillBuildRow'))
+  const label = appRows.indexOf('</label>')
+  const disclosure = appRows.indexOf("guidanceMarkup('example_mode'")
+  assert.ok(label !== -1 && disclosure !== -1,
+    'the example row or its disclosure is gone from the drawer’s app rows')
+  assert.ok(label < disclosure,
     'the drawer disclosure sits inside the label, so reading it would change the setting')
 })

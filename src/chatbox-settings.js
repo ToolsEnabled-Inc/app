@@ -30,7 +30,7 @@
  */
 
 import { fetchAgents, fetchCoordinator } from './live-status.js'
-import { isLiveView } from './live-flags.js'
+import { resolveDataSource } from './data-source.js'
 import { FLEET } from './fleet-profile.js'
 import {
   AGENT_MODES,
@@ -157,17 +157,27 @@ export function createChatboxSettings() {
   async function loadAgents() {
     if (loadStarted) return
     loadStarted = true
-    const [register, coordinator] = await Promise.all([
+    /* This load path is already async, so it resolves the source in the same
+       breath the views do rather than trusting currentDataSource()'s cache --
+       which is null before anything has resolved, and null must never be
+       rounded to a verdict. resolveDataSource() answers from the example
+       toggle and the host synchronously enough here, and the worst case is
+       one extra ask, not a wrong list. */
+    const [register, coordinator, source] = await Promise.all([
       fetchAgents().catch(() => null),
       fetchCoordinator().catch(() => null),
+      resolveDataSource().catch(() => null),
     ])
     const turns = coordinator?.ok && Array.isArray(coordinator.data?.data?.thread?.value)
       ? coordinator.data.data.thread.value
       : []
-    /* The demonstration's cast counts as agents while the demonstration is what
-       the box is showing: they are the agents of the fleet on screen, and a
-       filter that could not name them would be a filter over an empty list. */
-    const speakers = isLiveView('home') ? null : (FLEET.speakers || null)
+    /* The example's cast counts as agents while the example is what the box is
+       showing: they are the agents of the fleet on screen, and a filter that
+       could not name them would be a filter over an empty list. Only a KNOWN
+       mock source adds them -- an unresolved source (null) adds nothing,
+       because inventing example agents beside somebody's real records is
+       worse than a list that fills in a moment later. */
+    const speakers = source === 'mock' ? (FLEET.speakers || null) : null
     discovered = discoverAgents({
       register: register?.ok ? register.data?.data : null,
       turns,

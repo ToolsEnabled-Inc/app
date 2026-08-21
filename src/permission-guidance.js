@@ -323,11 +323,17 @@ export const RISK_PROFILES = Object.freeze({
     capabilities: Object.freeze(['Changes how much this app animates, which some people find calmer and which uses a little less battery.']),
     risks: Object.freeze(['None worth the word. Turning animation down hides no information; every number it moves is still shown.']),
   }),
-  demonstration: Object.freeze({
-    capabilities: Object.freeze(['Changes the built-in example fleet: how fast it moves and how varied it looks. It is there so you can see what each screen does before you have activity of your own.']),
-    risks: Object.freeze(['None. The example is invented data. Every screen that shows it says so. None of it is ever sent anywhere, or mistaken for your own records.']),
-  }),
 })
+
+/* THE `demonstration` PROFILE WAS REMOVED WITH THE ROWS THAT NAMED IT. It
+ * described the Data & Sim section as a family -- the seven per-view live-data
+ * switches and the demonstration-speed slider that drove the retired
+ * simulation engine. That section now holds ONE row, the example toggle, and
+ * a row that decides what every screen shows is not cosmetic: it carries its
+ * own declaration in SUBJECTS below (`example_mode`) rather than a family
+ * statement. A section whose every row declares itself needs no profile, and
+ * leaving one would assert a shared claim nothing consults -- the same reason
+ * `Ledger` has no mapping below. */
 
 /* THREE PROFILES WERE REMOVED ON 2026-08-20 -- `layout`, `performance` and
  * `developer` -- because every section that named them is gone.
@@ -354,7 +360,10 @@ export const SECTION_RISK_PROFILE = Object.freeze({
   Appearance: 'appearance',
   'Text & Reading': 'reading',
   'Motion & Effects': 'motion',
-  'Data & Sim': 'demonstration',
+  /* `Data & Sim` is deliberately absent rather than mapped, as of the one-
+     toggle change: its one row, `example_mode`, decides what every screen in
+     the product shows, and carries its own declaration in SUBJECTS below.
+     A family statement over a one-row section would never be consulted. */
   /* `Ledger` is deliberately absent rather than mapped. Its one surviving row,
      `ledger_archive`, carries its own declaration in SUBJECTS below -- which is
      the honest one, because archiving records is not "rearranging what a screen
@@ -457,15 +466,20 @@ export const SUBJECTS = Object.freeze({
     externalCapability: 'codex-cloud-account',
   }),
 
-  /* --- the rows that decide what a screen is showing you --- */
-  'live_view': Object.freeze({
-    whatItDoes: 'Decides whether this screen shows your computer’s own records or the built-in example.',
+  /* --- the row that decides what every screen is showing you --- */
+  /* This replaced `live_view`, the one declaration the seven per-view rows
+     shared. The example is not a second render any more: it is data fed
+     through the same screens as your own records, so what the switch decides
+     is only WHOSE data those screens draw -- and every screen drawing the
+     example labels it, because the badge follows the source. */
+  'example_mode': Object.freeze({
+    whatItDoes: 'Decides whether every screen shows your own activity or the product’s built-in example.',
     capabilities: Object.freeze([
-      'On, the screen shows what has actually happened on this computer.',
-      'Off, it shows the labelled example instead, which is useful on a new install where your own records are still empty.',
+      'On, every screen shows the labelled example — the same worked fleet a signed-out visitor to the website sees. Useful on a new install where your own records are still empty.',
+      'Off, the screens show what has actually happened on your own computer.',
     ]),
     risks: Object.freeze([
-      'None to your computer. The only cost is confusion, and the product spends it for you: a screen showing the example says so on the screen.',
+      'None to your computer. The example is invented data fed through the same screens as your own, and every screen showing it says so.',
     ]),
     turnOnAt: 'Settings → Data & Sim',
   }),
@@ -577,7 +591,7 @@ function frozenGuidance(source) {
 /**
  * What does this subject grant, and what does it risk?
  *
- * @param id  a settings row id (`theme`, `write_dispatch`, `live_home`), or an
+ * @param id  a settings row id (`theme`, `write_dispatch`, `example_mode`), or an
  *            answer value from the walkthrough (`observe`).
  * @param options.section  the settings section the row is in, used to fall back
  *            to that family's shared statement. Omitted or unknown falls
@@ -587,9 +601,6 @@ export function describeSubject(id, { section = null } = {}) {
   if (typeof id !== 'string' || id.trim() === '') return ABSENT
   const direct = SUBJECTS[id] || ANSWER_SUBJECTS[id]
   if (direct) return frozenGuidance(direct)
-  /* Every per-view live-data row is one control with one meaning, so they share
-     one declaration rather than six copies of it that could drift apart. */
-  if (id.startsWith('live_')) return frozenGuidance(SUBJECTS.live_view)
   /* A write flag with no declaration is the case that must NOT fall through to
      a family statement: these are the rows that decide what this program may
      do, and an unexplained one has to be visible as unexplained. */
