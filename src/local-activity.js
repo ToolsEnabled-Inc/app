@@ -60,6 +60,7 @@ import { launchTier } from './orchestration-controls.js'
    is exactly how this screen would come to report a good Claude turn as a
    failure. */
 import { sessionTurnSucceeded } from './agent-session-events.js'
+import { sampleSessionsRaw } from './sample-activity.js'
 
 /* EVERY REMAINING SENTENCE THE SCREEN CAN PRINT.
  *
@@ -693,7 +694,7 @@ export function describeHome(input) {
     fleetConfigured = false,
     fleetHealth = null,
     peer = null,
-    sessions = readLocalSessions(null),
+    sessions: sessionsInput = readLocalSessions(null),
     engine = readAgentEngine(null),
     /* NULL MEANS THIS CALLER HAS NOT ASKED, and that must render exactly what it
        rendered before this input existed. A default that assumed either answer
@@ -703,6 +704,14 @@ export function describeHome(input) {
     chatbox = null,
     nowMs = Date.now(),
   } = input || {}
+
+  /* THE DEMONSTRATION READS ITS OWN RECORD, NEVER THIS COMPUTER'S.
+     Substitution rather than suppression -- the reasoning is in
+     src/sample-activity.js. This is deliberately the ONLY place the swap can
+     happen: it sits above everything that reads `sessions`, so there is exactly
+     one line where a real record could ever reach an example-badged screen, and
+     it is this one. */
+  const sessions = sample ? readLocalSessions(sampleSessionsRaw(nowMs)) : sessionsInput
 
   const mode = pickMode({ sample, fleetConfigured, fleetHealth, sessions })
   const newestRun = sessions.runs.length ? Math.max(...sessions.runs.map(run => run.atMs)) : null
@@ -724,8 +733,18 @@ export function describeHome(input) {
     caption = 'Last agent run'
     headline = `${countOf(sessions.total, 'agent run', 'agent runs')} on this computer`
   } else if (mode === HOME_MODES.SAMPLE) {
-    caption = 'Example fleet'
-    headline = 'Everything on this screen is an example, not your data'
+    /* The product's own shape, FILLED from the example's record rather than
+       emptied of everything. This branch used to set no clock and a headline
+       that only announced itself as an example, which left the demonstration
+       looking like the live screen with its contents deleted -- worse than the
+       thing it exists to show.
+
+       The word "example" stays in the HEADLINE and not only in the badge.
+       tools/test/home-screen.test.mjs asserts the hero says so itself, and it
+       is right to: a person reads the big sentence, not the small label. */
+    clock = newestRun
+    caption = 'Last agent run'
+    headline = `${countOf(sessions.total, 'agent run', 'agent runs')} in this example fleet`
   } else if (mode === HOME_MODES.NO_HOST) {
     caption = 'ToolsEnabled'
     headline = 'Open ToolsEnabled on your computer to see what has run there'
@@ -934,14 +953,22 @@ function fleetHeadline(health) {
  *
  * WHAT THE MACHINE STILL DECIDES, and what it no longer decides. The machine
  * decides what is AVAILABLE: only the demonstration and a reachable coordinator
- * have a conversation to show, and only a computer has a record of runs (the
- * demonstration is a labelled example, and mixing this computer's real run
- * record into a box badged as an example would make half of it true). The
+ * have a conversation to show. Runs are available in every mode -- a computer
+ * shows its own record, and the demonstration shows the example fleet's. Mixing
+ * this computer's real run record into a box badged as an example would still
+ * make half of it true, which is why the demonstration is given a record of its
+ * own in describeHome rather than being shown this machine's or being emptied. The
  * settings decide, out of what is available, what a person actually sees.
  */
 function describePanel(mode, sessions, engine, chatbox) {
   const contextAvailable = mode === HOME_MODES.SAMPLE || mode === HOME_MODES.FLEET
-  const runsAvailable = mode !== HOME_MODES.SAMPLE
+  /* Every mode now has runs to show, including the demonstration -- ITS OWN,
+     never this computer's; see the substitution in describeHome. This read
+     `mode !== SAMPLE`, which was the honesty rule ("mixing this computer's real
+     run record into a box badged as an example would make half of it true")
+     implemented as showing nothing at all. The rule is intact; what changed is
+     that the example now has a record of its own to be honest about. */
+  const runsAvailable = true
   const plan = planChatbox({
     contextAvailable,
     runsAvailable,
