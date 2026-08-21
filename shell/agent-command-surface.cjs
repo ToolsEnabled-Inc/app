@@ -20,7 +20,8 @@
  * relay caller has no WebContents, so the question is now asked of a
  * principal:
  *
- *   { kind: 'window' | 'relay',   // only 'window' is constructed today
+ *   { kind: 'window' | 'relay',   // the window's wrappers build 'window';
+ *                                 // the agent facade builds 'relay'
  *     owner: <opaque identity>,   // the window passes event.sender, unchanged
  *     mayWrite: boolean,          // false refuses every state-changing command
  *     label: string }             // for refusal sentences
@@ -167,6 +168,14 @@ function assertDeps(deps) {
   if (!Array.isArray(deps.AGENT_EFFORT_VALUES)) {
     throw new Error('createAgentCommandSurface: AGENT_EFFORT_VALUES must be an array')
   }
+  /* OPTIONAL, but never the wrong kind: absence has a defined meaning
+     (relay-owned sessions' events are dropped, counted, and logged), a
+     wrong-kind value is a wiring mistake and refuses construction. */
+  for (const name of ['emitRelayEvent', 'log']) {
+    if (deps[name] !== undefined && typeof deps[name] !== 'function') {
+      throw new Error('createAgentCommandSurface: ' + name + ' must be a function when provided')
+    }
+  }
 }
 
 function validPrincipal(principal) {
@@ -213,6 +222,8 @@ function createAgentCommandSurface(deps) {
     MAX_SESSION_ID_LENGTH,
     AGENT_EFFORT_VALUES,
     WORKSPACE_ROOT,
+    emitRelayEvent,
+    log,
   } = deps
 
   /* A session belongs to the principal that started it, and to nobody else.
@@ -334,10 +345,20 @@ function createAgentCommandSurface(deps) {
       /* `turnsCompleted` starts at ZERO, not undefined, because zero is the
          true count for a session that is stopped before it ever answered. The
          owner is the principal's identity -- for the window, event.sender,
-         exactly as before. */
-      const session = { owner: principal.owner, state: 'starting', turnsCompleted: 0, lastTurnStatus: null, ended: false }
+         exactly as before. `ownerKind` remembers WHAT KIND of principal that
+         identity is, because the event fan-out must route by it: a window
+         owner is a WebContents that can be sent to and destroyed, a relay
+         owner is a stable token that is neither. */
+      const session = { owner: principal.owner, ownerKind: principal.kind, state: 'starting', turnsCompleted: 0, lastTurnStatus: null, ended: false }
       agentSessions.set(request.sessionId, session)
-      bindAgentOwner(principal.owner)
+      /* The destroyed hook is a fact about a WINDOW's owner: when its
+         WebContents dies the app is on its way out and the sessions end with
+         it. A relay principal's owner has no 'destroyed' event, and the
+         design (§5.1) requires the opposite lifetime -- a dropped tab or a
+         lease expiry must NOT kill remote sessions -- so for a relay
+         principal the bind is deliberately a no-op and the session simply
+         stays owned by the relay principal's stable owner token. */
+      if (principal.kind !== 'relay') bindAgentOwner(principal.owner)
       try {
         const result = await getAgentHost().startSession(request)
         session.state = 'ready'
@@ -676,11 +697,49 @@ function createAgentCommandSurface(deps) {
     return handlers[command](payload, principal)
   }
 
+  /* ---------- the event fan-out seam ----------
+     The fan-out itself stays in main.cjs (host.onEvent is wired where the
+     host is built), but the ROUTING DECISION lives here, where the principal
+     kinds are defined. A relay-owned session's packet goes to the injected
+     emitRelayEvent -- the facade's ring buffer -- because its owner is a
+     token, not a WebContents; with no sink wired the packet is dropped,
+     counted and logged, NEVER thrown, because an event fan-out that can
+     take down the host loop is worse than a lost packet. Returns true when
+     the packet belonged to a relay-owned session (handled or dropped here),
+     false when it is the caller's to forward to the window exactly as it
+     always has. */
+  let relayEventsDropped = 0
+  function forwardSessionEvent(packet) {
+    const session = agentSessions.get(packet && packet.sessionId)
+    if (!session || session.ownerKind !== 'relay') return false
+    if (typeof emitRelayEvent !== 'function') {
+      relayEventsDropped += 1
+      if (log && (relayEventsDropped === 1 || relayEventsDropped % 500 === 0)) {
+        try { log('events for relay-owned sessions have no sink (emitRelayEvent is not wired); dropped so far: ' + relayEventsDropped) } catch { /* the log must never break the fan-out */ }
+      }
+      return true
+    }
+    try {
+      emitRelayEvent(packet)
+    } catch {
+      relayEventsDropped += 1
+      if (log) {
+        try { log('the relay event sink threw and the packet was dropped (' + relayEventsDropped + ' dropped so far)') } catch { /* see above */ }
+      }
+    }
+    return true
+  }
+
   return Object.freeze({
     run,
     commands: Object.freeze(Object.keys(COMMANDS)),
     isWrite: (command) => Boolean(COMMANDS[command] && COMMANDS[command].write),
     needsDialog: (command) => Boolean(COMMANDS[command] && COMMANDS[command].dialog),
+    forwardSessionEvent,
+    /* How full this machine is, for the facade's remote-status: the count a
+       browser may honestly be shown ("N of 8 sessions") without a start. */
+    sessionLoad: () => ({ open: agentSessions.size, max: MAX_AGENT_SESSIONS }),
+    relayEventDropCount: () => relayEventsDropped,
   })
 }
 

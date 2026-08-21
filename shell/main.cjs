@@ -85,6 +85,10 @@ const { readStandingRequests } = require('./standing-requests-read.cjs')
    so the IPC handlers below and the relay facade the design names can never
    drift apart; see the header of that file and getAgentCommandSurface(). */
 const { createAgentCommandSurface } = require('./agent-command-surface.cjs')
+/* The loopback door the relay child will forward a signed-in browser's
+   commands through (docs/relay-agent-facade-DESIGN.md §2). Built beside the
+   command surface below; nothing about it is exposed to the renderer. */
+const { createAgentFacade } = require('./agent-facade.cjs')
 const { resolveEnvBridgeProof, recordEnvProofRefusal } = require('./bridge-env-path.cjs')
 const {
   guiEnvironment,
@@ -93,6 +97,13 @@ const {
   startCapabilityLayer,
   stopCapabilityLayer,
 } = require('./capability-layer.cjs')
+/* The machine's relay leg: the supervised payload child that keeps this
+   computer answerable to its owner's signed-in browser. It sits beside the
+   capability layer because it is the same shape of thing and because it is
+   only useful once that layer is up -- the tunnelled requests it carries land
+   on the mission bridge this shell already supervises. See
+   shell/relay-supervisor.cjs and docs/relay-agent-facade-DESIGN.md §7. */
+const { createRelaySupervisor, webDriveMayWrite } = require('./relay-supervisor.cjs')
 /* Passed back INTO startCapabilityLayer through its own `spawn` seam, so this
    shell can hold the layer's child from the moment it exists rather than only
    from the moment it speaks. See capabilityLayerChild. */
@@ -1376,11 +1387,19 @@ function getAgentHost() {
   removeAgentEventListener = host.onEvent((packet) => {
     const session = agentSessions.get(packet.sessionId)
     if (!session) return
-    if (!session.owner.isDestroyed()) {
-      try {
-        session.owner.send(AGENT_EVENT_CHANNEL, packet)
-      } catch {
-        // Destruction can race this check; the owner cleanup closes the session.
+    /* WHO GETS TOLD depends on who owns the session. The surface makes that
+       call (it defines the principal kinds): a relay-owned session's packet
+       is routed to the facade's ring buffer and answered true; false means
+       the session is window-owned and this block forwards it to the
+       WebContents exactly as it always has. isDestroyed()/send() are facts
+       about a WINDOW owner and are never asked of a relay owner's token. */
+    if (!getAgentCommandSurface().forwardSessionEvent(packet)) {
+      if (!session.owner.isDestroyed()) {
+        try {
+          session.owner.send(AGENT_EVENT_CHANNEL, packet)
+        } catch {
+          // Destruction can race this check; the owner cleanup closes the session.
+        }
       }
     }
     /* AFTER the forward, and outside the owner check. After, because a screen
@@ -1435,6 +1454,16 @@ function getAgentHost() {
  * first command keeps every dependency a real value rather than a temporal-
  * dead-zone throw at require time. */
 let agentCommandSurface = null
+/* THE AGENT FACADE -- the loopback HTTP door for the relay child (design §2)
+   -- is built in the same breath as the surface it fronts, because the two
+   reference each other: the facade dispatches every request through
+   surface.run(), and the surface routes relay-owned sessions' events into
+   the facade's ring buffer through emitRelayEvent below. It is NOT listening
+   yet: listen() mints the origin and bearer, and the relay supervisor
+   (design §7, a later step) is what calls it at spawn time and hands the
+   pair to the one legitimate caller. No relay child is spawned tonight, and
+   nothing about the facade is exposed to the renderer. */
+let agentFacade = null
 function getAgentCommandSurface() {
   if (agentCommandSurface) return agentCommandSurface
   agentCommandSurface = createAgentCommandSurface({
@@ -1479,16 +1508,64 @@ function getAgentCommandSurface() {
     MAX_SESSION_ID_LENGTH,
     AGENT_EFFORT_VALUES,
     WORKSPACE_ROOT,
+    /* Where a relay-owned session's event packets go: the facade's ring
+       buffer, read over GET /v1/agent/events. A closure because the facade
+       is constructed two statements down; events cannot flow before a
+       command has run, and no command runs before this function returns. */
+    emitRelayEvent: (packet) => { if (agentFacade) agentFacade.emit(packet) },
+    log: (line) => console.error('[agent-surface]', line),
+  })
+  agentFacade = createAgentFacade({
+    surface: agentCommandSurface,
+    principalForRelay: relayPrincipal,
+    /* The one place an unbounded error is allowed to land in full: this
+       process's own stderr. The wire only ever carries the code. */
+    log: (entry) => console.error('[agent-facade]', entry),
   })
   return agentCommandSurface
 }
+
+/* WHO IS ASKING, when it is the relay. The owner is a stable opaque token
+   minted once per shell boot -- NOT per relay connection -- so the sessions
+   it starts survive a dropped tab, a lease expiry and a relay-child respawn
+   (design §5.1); they end when the app quits or a close command ends them.
+   mayWrite is read PER CALL because it belongs to the owner's "this computer
+   may be driven from the web" switch, whose ruled default is OFF; until that
+   switch is wired HERE (one deliberate line, with its own review), the relay
+   may read everything and change nothing -- every write is refused
+   MC_AGENT_PRINCIPAL_READ_ONLY, which is correct, expected, and what the web
+   surface renders honestly. The label is
+   a FIXED STRING: it reaches refusal sentences and logs, so it must never
+   carry a machine name, a pair id, or anything else identifying. */
+const RELAY_OWNER = Object.freeze({ principal: 'relay' })
+function relayPrincipal() {
+  return Object.freeze({
+    kind: 'relay',
+    owner: RELAY_OWNER,
+    /* THE OWNER'S SWITCH, READ HERE AND NOWHERE ELSE. Its ruled default is
+       OFF and its store is this shell's own settings file
+       (shell/relay-supervisor.cjs, key `mc.relay.web-drive`); an unset,
+       malformed, damaged or unreadable record all answer false, so there is
+       no path by which a settings fault becomes write access. Read per call
+       rather than captured, so turning it off takes effect on the next
+       command instead of on the next launch. */
+    mayWrite: webDriveMayWrite(rendererPrefs),
+    label: 'web (relay)',
+  })
+}
+
+app.on('will-quit', () => {
+  /* The facade holds a server only after listen(); close() is safe either
+     way, answers any pending event long-polls, and drops the bearer. */
+  if (agentFacade) void agentFacade.close()
+})
 
 /* WHO IS ASKING, when it is the window. The owner IS event.sender -- the
    WebContents that sessions were always owned by -- so ownership, the
    destroyed hook in bindAgentOwner() and every refusal behave exactly as they
    did before the surface existed. mayWrite is true: the window at the keyboard
    may do everything it always could. The only other kind the surface knows,
-   'relay', is not constructed anywhere in this file. */
+   'relay', is built by relayPrincipal() above, for the facade alone. */
 function windowPrincipal(event) {
   return Object.freeze({
     kind: 'window',
@@ -3730,6 +3807,67 @@ function currentWorkAreas() {
   }
 }
 
+/* WHETHER THIS MACHINE HAS A RELAY PAIR, AND WHY THE ANSWER IS A FLAT NO.
+ *
+ * Enrolment -- "this computer is one half of a pair on the owner's account" --
+ * is a device credential in the ENGINE's vault
+ * (online-fra-device-claim.js, DEVICE_CREDENTIAL_VAULT_KEY; the relay shell
+ * itself reads it through connectionState(vault)). Nothing in this shell knows
+ * it. It is not in renderer-prefs, not in the setup record, not in
+ * session-profiles, and not in the machine record; the shell's only route to
+ * the vault at all is shell/vault-presence.cjs, which spawns the payload's
+ * PowerShell for one presence question and deliberately answers `null` rather
+ * than `false` when it cannot check.
+ *
+ * So this predicate is NOT a guess dressed as a fact, and it does not invent a
+ * persistence format to hold one. It answers false, which leaves the
+ * supervisor built, correct and dormant.
+ *
+ * TODO -- the enrolment surface. docs/relay-agent-facade-DESIGN.md §0.8 and
+ * §11.5 name the missing work: there is no in-app "connect this computer"
+ * flow, device claim exists only in the engine and is driven by hand-run
+ * tools, and until that flow lands there is no honest way for this shell to
+ * say a pair exists. When it lands, this function reads the state it writes,
+ * and the one line below starts answering yes. */
+function relayMachineIsEnrolled() {
+  return false
+}
+
+/* THE RELAY LEG'S SUPERVISOR. Built here, beside the capability layer's start,
+   and started only for a machine that is actually enrolled -- see start() in
+   shell/relay-supervisor.cjs, which asks the same question again rather than
+   trusting this call site to have remembered.
+
+   `facade: null` is the honest state of this build, and it is a NAMED GAP
+   rather than an omission. shell/agent-facade.cjs exists and mints its origin
+   and bearer inside `await listen()` -- one pair per call, deliberately, so a
+   respawned child gets fresh credentials -- while this seam takes the pair
+   itself. Joining them is one line at the start path below: await the
+   facade's listen(), then start the supervisor with a resolver that answers
+   the pair it returned. That line is not written yet because nothing can
+   exercise it: the leg does not start on a machine with no relay pair, and
+   this build has no way to know that a pair exists (see above). Until then
+   the child would be spawned without facade credentials, the composite bridge
+   answers AGENT_FACADE_ABSENT -- a refusal a person can read -- and the relay
+   child's mission-bridge routes work exactly as they do today. What is NOT
+   acceptable and is not done here: handing the child a blank or invented
+   bearer, or writing the real one to a file for it to find.
+
+   NOTHING ABOUT THIS REACHES THE RENDERER. There is no IPC channel for its
+   status, no preload surface, and the facade credentials it would carry are
+   never in this process's reply to any window. */
+const relaySupervisor = createRelaySupervisor({
+  spawn: spawnChildProcess,
+  resolvePayloadRoot: resolveCapabilityRoot,
+  facade: null,
+  isEnrolled: relayMachineIsEnrolled,
+  /* Stated, not inherited -- the same reason the capability layer's own
+     stateRoot is stated below: a relocated profile is exactly the case where
+     deriving it twice produces two half-populated state roots. */
+  stateRoot: CAPABILITY_STATE_ROOT,
+  log: (line) => console.error(`[relay-leg] ${line}`),
+})
+
 /* Start the capability layer, and DO NOT make it fatal.
  *
  * A viewer that opens and honestly reports that its capability layer is down
@@ -3834,6 +3972,14 @@ function startSupervisedCapabilityLayer() {
       capabilityLayer = null
       capabilityLayerStatus = { ok: false, code: 'CAPABILITY_EXITED', reason: `The capability layer exited with code ${code}.` }
     })
+
+    /* AFTER THE LAYER IT SERVES, AND ONLY FOR A MACHINE THAT IS ENROLLED. The
+       relay leg's tunnelled requests are answered by the mission bridge that
+       has just come up, so starting it earlier would only buy a first session
+       that refuses. On a machine with no pair recorded -- every machine today,
+       see relayMachineIsEnrolled() above -- this starts nothing at all. */
+    if (relayMachineIsEnrolled()) relaySupervisor.start()
+
     return capabilityLayerStatus
   })()
   return capabilityLayerStarting
@@ -4108,5 +4254,12 @@ app.on('will-quit', () => {
      but the signal itself is delivered before we can be interrupted. */
   try { child?.kill() } catch { /* the awaited path below escalates */ }
   void stopCapabilityLayer(child)
+  /* THE SECOND CHILD THIS SHELL OWNS. An orphaned relay leg is worse than an
+     orphaned bridge: it holds a sealed session open to the account's relay
+     edge, so a browser would go on reaching a machine whose application has
+     quit. stop() delivers the signal synchronously before it awaits anything,
+     the same discipline as the kill above, and it refuses every restart from
+     the moment it is called. */
+  void relaySupervisor.stop()
 })
 app.on('window-all-closed', () => app.quit())
