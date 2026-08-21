@@ -1,0 +1,531 @@
+<!doctype html>
+<!--
+  THE PAGE FOR SOMEBODY WHO HAS NEVER SEEN THIS PRODUCT.
+
+  WHO IT IS FOR, AND WHO IT IS NOT FOR. Everything else written down about
+  ToolsEnabled is written for the person who built it or for an agent working on
+  it: charters, standing orders, lane reports, handoff documents. A stranger who
+  is handed the installer has none of that context and cannot be given it. This
+  page assumes only that the reader has a Windows computer and was given a file.
+
+  WHY IT IS ONE SELF-CONTAINED FILE. It ships inside the application archive and
+  is served by the application's own local web server (serveDist() in
+  shell/main.cjs, which maps .html to text/html), so it is readable with no
+  internet connection, no account, and no second program. That rules out a web
+  font, a stylesheet, an analytics tag and an image host: one external request
+  would make the page fail exactly when a person is most stuck, which is on a
+  machine that is not working yet. There is no <script> either, so nothing here
+  can behave differently from what it says.
+
+  WHAT IT MAY NOT DO. It may not promise a remedy that does not exist. The same
+  rule src/first-run-needs.js is built around applies with more force here,
+  because a person reading this has usually already failed at something. Where
+  there is no answer today -- no public download, no support address, no way to
+  fill the fleet screens -- this page says so in those words rather than
+  implying a step the reader will go looking for and not find.
+
+  EVERY INSTRUCTION ON THIS PAGE WAS FOLLOWED BEFORE IT WAS WRITTEN DOWN.
+  tools/onboarding-doc-qa.mjs re-follows the ones that live in the application:
+  it launches the packaged build on a sterile profile, walks the click path in
+  the order this page gives it, and fails if a control this page names is not
+  on the glass. A doc nobody re-runs is a doc that is true on the day it is
+  written and quietly false a month later.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ToolsEnabled — Getting started</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --ink: #14171a;
+    --ink-soft: #4a5560;
+    --ink-faint: #6b7680;
+    --page: #f6f4f0;
+    --card: #fffefb;
+    --rule: #ddd8cf;
+    --edge: #c9c2b6;
+    --accent: #1f5f4f;
+    --warn-bg: #fdf6e3;
+    --warn-edge: #d8c99a;
+    --code-bg: #eeeae2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e8e6e1;
+      --ink-soft: #b3b0a8;
+      --ink-faint: #8d8a83;
+      --page: #17181a;
+      --card: #1f2124;
+      --rule: #33363a;
+      --edge: #44484d;
+      --accent: #7fc9b2;
+      --warn-bg: #2a2519;
+      --warn-edge: #5c5030;
+      --code-bg: #26292d;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink);
+    font: 16px/1.62 -apple-system, "Segoe UI", system-ui, Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 46rem; margin: 0 auto; padding: 2.5rem 1.25rem 5rem; }
+  header.mast { border-bottom: 1px solid var(--rule); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+  .eyebrow {
+    text-transform: uppercase; letter-spacing: .12em; font-size: .7rem;
+    color: var(--ink-faint); margin: 0 0 .5rem;
+  }
+  h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .6rem; font-weight: 620; }
+  .lede { margin: 0; color: var(--ink-soft); font-size: 1.04rem; }
+  h2 {
+    font-size: 1.22rem; margin: 2.6rem 0 .3rem; font-weight: 620;
+    padding-top: 1.4rem; border-top: 1px solid var(--rule);
+  }
+  h2:first-of-type { border-top: 0; padding-top: 0; }
+  h3 { font-size: 1rem; margin: 1.6rem 0 .3rem; font-weight: 620; }
+  p, li { margin: .55rem 0; }
+  ol, ul { padding-left: 1.3rem; }
+  ol.steps > li { margin: .9rem 0; }
+  code, kbd {
+    font-family: ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
+    font-size: .88em; background: var(--code-bg); border-radius: 3px;
+    padding: .1em .35em; word-break: break-word;
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--rule); border-radius: 6px;
+    padding: .7rem .85rem; overflow-x: auto; margin: .6rem 0;
+  }
+  pre code { background: none; padding: 0; font-size: .86rem; }
+  .note, .warn {
+    border: 1px solid var(--rule); border-left: 3px solid var(--edge);
+    background: var(--card); border-radius: 4px;
+    padding: .8rem 1rem; margin: 1rem 0;
+  }
+  .warn { background: var(--warn-bg); border-color: var(--warn-edge); border-left-color: var(--warn-edge); }
+  .note > :first-child, .warn > :first-child { margin-top: 0; }
+  .note > :last-child, .warn > :last-child { margin-bottom: 0; }
+  .label { font-weight: 620; }
+  .quote {
+    font-style: italic; color: var(--ink-soft);
+    border-left: 2px solid var(--edge); padding-left: .75rem; margin: .6rem 0;
+  }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .93rem; }
+  .scroll { overflow-x: auto; }
+  th, td { text-align: left; vertical-align: top; padding: .55rem .6rem; border-bottom: 1px solid var(--rule); }
+  th { font-weight: 620; color: var(--ink-soft); font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; }
+  .tier { border: 1px solid var(--rule); background: var(--card); border-radius: 6px; padding: .9rem 1.1rem; margin: .9rem 0; }
+  .tier h3 { margin-top: 0; }
+  .tier .sets { color: var(--ink-soft); font-size: .93rem; }
+  footer.foot { margin-top: 3.5rem; padding-top: 1.2rem; border-top: 1px solid var(--rule); color: var(--ink-faint); font-size: .87rem; }
+  a { color: var(--accent); }
+  @media print {
+    body { background: #fff; color: #000; }
+    .wrap { max-width: none; padding: 0; }
+    .note, .warn, .tier { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="mast">
+  <p class="eyebrow">ToolsEnabled</p>
+  <h1>Getting started</h1>
+  <p class="lede">You were handed an installer for a program that runs an AI assistant on your own
+  computer, under limits you choose, and writes down everything it does. This page takes you from
+  that file to an assistant that answers you. It also tells you, honestly, the three places where
+  it will not work yet and why.</p>
+</header>
+
+<h2>What you need first</h2>
+
+<ul>
+  <li><span class="label">Windows 10 or 11, 64-bit.</span> There is no macOS or Linux build. The
+  installer is a Windows <code>.exe</code> and will not run anywhere else.</li>
+  <li><span class="label">About 500&nbsp;MB of free disk space.</span> The installer file is about
+  97&nbsp;MB and the installed program is about 355&nbsp;MB; both exist at once while it is
+  installing.</li>
+  <li><span class="label">A second, separate program called Codex,</span> and an OpenAI account to
+  sign it in with. ToolsEnabled does not contain the thing that actually runs an assistant — Codex
+  does. Installing it is <a href="#codex">step 4</a>, and it is free to install; whether running an
+  assistant costs you anything is between you and OpenAI, not us.</li>
+</ul>
+
+<p>You do <em>not</em> need an account with us, an internet connection to use what is already
+installed, an administrator password, or a licence key. There is no trial and nothing is
+time-limited.</p>
+
+<h2>1. Getting the installer</h2>
+
+<p class="label">There is no download page yet.</p>
+
+<p>ToolsEnabled has not been published for public download. If you have the installer, somebody
+handed it to you directly — a file transfer, a USB stick, or a link on a local network. That is
+currently the only way to get it, and anywhere else claiming to distribute it is not us.</p>
+
+<p>The file is named <code>ToolsEnabled Setup <em>&lt;version&gt;</em>.exe</code> and is about
+100&nbsp;MB. A file that is much smaller than that did not finish transferring.</p>
+
+<h3>Check you got the file they sent</h3>
+
+<p>Whoever gave you the installer should also have given you its exact size in bytes and its
+SHA-256 checksum. Check both before running it. Open <span class="label">Windows Terminal</span> or
+<span class="label">PowerShell</span> — press the Start button, type <code>terminal</code>, press
+Enter — and run these two lines against your copy:</p>
+
+<pre><code>Get-Item "$HOME\Downloads\ToolsEnabled Setup 1.0.6.exe" | Select-Object Length
+Get-FileHash "$HOME\Downloads\ToolsEnabled Setup 1.0.6.exe" -Algorithm SHA256</code></pre>
+
+<p>Change the path if you saved it somewhere other than Downloads, and the version if you were sent
+a different one. The number under <code>Length</code> must equal the byte count you were given, and
+the long string under <code>Hash</code> must equal the checksum, ignoring upper and lower case. If
+either differs, <span class="label">stop</span> — you do not have the file they sent, and no amount
+of retrying the installer will change that. Ask for it again.</p>
+
+<div class="note">
+<p>Why this matters more here than for most programs: this installer is not code-signed (see the
+next step), so Windows cannot tell you who produced it. The checksum is the only evidence you have
+that the file is the one that was built for you, and checking it takes ten seconds.</p>
+</div>
+
+<h2>2. Installing it</h2>
+
+<ol class="steps">
+  <li>Double-click <code>ToolsEnabled Setup <em>&lt;version&gt;</em>.exe</code>.</li>
+  <li><span class="label">Expect Windows to try to stop you.</span> A blue box saying
+  <span class="quote">Windows protected your PC</span> — Microsoft Defender SmartScreen. It is not a
+  virus warning. It appears because this installer carries no code-signing certificate, so Windows
+  has no publisher name to show you and nothing to check it against. To continue, click
+  <span class="label">More info</span>, then <span class="label">Run anyway</span>.
+  <br>Whether it appears at all depends on how the file reached you: Windows shows it for files it
+  has marked as coming from somewhere else, which a download does and a copy from a USB stick
+  sometimes does not. Its absence is not a sign that this build is signed — it is not. If you are
+  not willing to run an unsigned installer, that is a reasonable position; stop here and ask
+  whoever sent it for a signed build.</li>
+  <li>There are no further questions. No licence screen, no folder chooser, no
+  <span class="label">Next</span> buttons. A progress bar runs for a few seconds and the application
+  opens by itself.</li>
+</ol>
+
+<p>You will not be asked for an administrator password. The installation is for your Windows user
+account only and touches nothing outside it.</p>
+
+<h3>Where it goes</h3>
+
+<div class="scroll">
+<table>
+  <tr><th>Thing</th><th>Where</th></tr>
+  <tr><td>The program</td><td><code>%LOCALAPPDATA%\Programs\toolsenabled</code></td></tr>
+  <tr><td>Shortcut</td><td>Start menu, under <span class="label">ToolsEnabled</span></td></tr>
+  <tr><td>Your settings and the record of what ran</td><td><code>%APPDATA%\ToolsEnabled</code></td></tr>
+  <tr><td>What this computer is allowed to do</td><td><code>%LOCALAPPDATA%\ToolsEnabled</code></td></tr>
+</table>
+</div>
+
+<p>Paste either of those <code>%…%</code> paths into the File Explorer address bar to open it.
+Nothing is written to <code>C:\Program Files</code>, nothing is written for any other user of the
+computer, and the only things written outside those four places are two keys under your own user's
+registry: one recording where it was installed and what its shortcut is called, and the one that
+puts ToolsEnabled in the Windows uninstall list.</p>
+
+<h3>To open it again later</h3>
+
+<p>Press the Start button and type <code>ToolsEnabled</code>. Only one copy runs at a time: starting
+it a second time brings the window you already have to the front instead of opening another.</p>
+
+<h2>3. The first launch</h2>
+
+<p>The first time it opens you are asked four things, and then shown what your answers add up to
+before anything is written. You can press <span class="label">Back</span> at any point, and nothing
+is saved until the last screen — except your permission level, which is recorded as soon as you pass
+question 1 so that closing the window does not send you back to the start.</p>
+
+<ol class="steps">
+  <li><span class="label">“How much should the assistant be allowed to do?”</span>
+  This is the important one, and it is the only screen of the five with no way past it except
+  answering — there is no Skip here and it is not numbered, because everything after it depends on
+  the answer. The three answers are explained in the next section. One is already selected, so if
+  you do not want to decide yet, press <span class="label">Continue</span> and you get the most
+  cautious of the three.</li>
+
+  <li><span class="label">Question 2 of 3 — “Which folder should your assistant work in?”</span>
+  A folder is already filled in for you: <code>Documents\AI Workspace</code>, which is created when
+  you finish and is given a history, so that undoing what an assistant did is a real thing this
+  program can do. Press <span class="label">Continue</span> to accept it, or
+  <span class="label">Choose a different folder…</span> to point it at a project of your own.</li>
+
+  <li><span class="label">Signing in.</span> An optional step that asks who is using this copy, so
+  that the record of what your assistant does says who asked for it. You can press
+  <span class="label">Not now</span>; nothing later in this page depends on it. If you do make one,
+  note what the screen itself tells you: it is an account <em>on this computer</em>, not a sign-in
+  to anyone's service. No ChatGPT, Google or Claude password is asked for anywhere in this setup —
+  the one sign-in this product genuinely needs is <a href="#codex">Codex's</a>, and that happens in
+  a terminal, not here.</li>
+
+  <li><span class="label">Question 3 of 3 — “How much should it do without asking you?”</span> Three
+  answers again:
+    <ul>
+      <li><span class="label">Nothing yet — let me look around first.</span> Every screen still
+      reads and reports, and nothing that <em>acts</em> is switched on. Read the sentence under this
+      option: while it is your answer, <span class="label">there is no control anywhere that starts
+      an assistant</span>. That is a legitimate choice, and it is also the single most common reason
+      a new install looks broken. You can change it later.</li>
+      <li><span class="label">Act when I start it.</span> Marked <span class="label">Recommended</span>,
+      and it is what the rest of this page assumes. The assistant does nothing until you press start,
+      and stops to ask you whenever it needs permission.</li>
+      <li><span class="label">Act on its own and tell me after.</span> Everything your permission
+      level allows is switched on, and it uses its own judgement instead of waiting for you.</li>
+    </ul>
+    <p>The button forward from this screen is not called Continue — it says
+    <span class="label">See what that sets</span>, because that is what it does.</p>
+  </li>
+
+  <li><span class="label">“Here is what those answers set.”</span> Every setting your three answers
+  produced, each one changeable here, and nothing has been written yet. It lists what was switched
+  on, what was left off, and which of those are off because your permission level does not include
+  them. It also checks whether Codex is installed and signed in, and if it is not, gives you the
+  command to fix it before you finish. Press <span class="label">Finish setup</span>.</li>
+</ol>
+
+<p>Accepting every pre-selected answer takes five clicks from the first question to a working
+first page: <span class="label">Continue</span>, <span class="label">Continue</span>,
+<span class="label">Not now</span>, <span class="label">See what that sets</span>,
+<span class="label">Finish setup</span>.</p>
+
+<div class="note">
+<p><span class="label">From question 2 onward there is a “Skip the rest for now”, and it is not the
+same as clicking through.</span> Skipping applies the settings a computer that never ran setup
+already has — including “nothing that acts is switched on”. Clicking through applies the
+recommended answers, which leave you able to start an assistant. If you skip and then wonder where
+the start button is, that is why.</p>
+</div>
+
+<h2>4. What the permission levels actually mean</h2>
+
+<p>This is the one decision the product asks you to make, so here is what each answer really does
+rather than how it is worded on the screen. You can change it afterwards in
+<span class="label">Settings</span>.</p>
+
+<div class="tier">
+  <h3>“I’m new to this” — the cautious level</h3>
+  <p>The assistant works inside the one folder you picked at question 2 and cannot reach anything
+  else on this computer.</p>
+  <p class="sets">Concretely: it is given a set of tools with no writing tools in it at all — it
+  cannot read files elsewhere on your machine, cannot reach the network through a tool, and cannot
+  run programs. It <em>can</em> write inside the folder you gave it, which is the point of giving it
+  one. This is the level you get by pressing Continue without choosing.</p>
+</div>
+
+<div class="tier">
+  <h3>“I’ve used AI coding tools before” — the working level</h3>
+  <p>The assistant works inside the projects you add and cannot reach the rest of the computer.</p>
+  <p class="sets">Concretely: the same wall around your folders, but with the working tools switched
+  on inside it. This is the ordinary level for getting something done.</p>
+</div>
+
+<div class="tier">
+  <h3>“I run agents with permissions bypassed” — no limits</h3>
+  <p>The assistant can read, change and delete any file on this computer and run any program,
+  without asking.</p>
+  <p class="sets">Concretely: there is no wall. Choose this only if you already work this way and
+  understand what you are agreeing to. It is not the fast version of the other two; it is the one
+  with the safety mechanism turned off.</p>
+</div>
+
+<div class="warn">
+<p><span class="label">Where the limit stops, stated plainly.</span> These levels bind what
+ToolsEnabled itself runs, because it owns the program it starts and the environment it starts it in.
+If you take over an assistant that is already running somewhere else, your level applies to
+everything it does from that point on — but not to what it already did before you took it over. And
+if you merely <em>watch</em> a session that keeps running in another program, that other program is
+still deciding what it may do, and the level you chose here does not reach it. The product says the
+same thing on the screen where you choose; it is repeated here so you read it once outside the
+moment of clicking.</p>
+</div>
+
+<h2 id="codex">5. Installing Codex, and signing in</h2>
+
+<p>Until this step is done, ToolsEnabled will tell you it cannot start an assistant. It is right,
+and this is the fix. Both commands go in <span class="label">Windows Terminal</span> — Start button,
+type <code>terminal</code>, Enter.</p>
+
+<ol class="steps">
+  <li>Install the program that runs an assistant:
+    <pre><code>winget install OpenAI.Codex</code></pre>
+    <code>winget</code> comes with Windows and needs nothing else installed first. If you already
+    have Node.js and would rather use it, <code>npm install -g @openai/codex</code> does the same
+    job. You should see it resolve to <span class="quote">Codex CLI</span> published by
+    <span class="quote">OpenAI, Inc.</span> — if it does not, you have typed a different package
+    name.</li>
+
+  <li><span class="label">Close Windows Terminal and open it again.</span> A newly installed program
+  is not on the list of commands a window that was already open knows about. Skipping this is the
+  usual reason the next line reports that <code>codex</code> is not recognised.</li>
+
+  <li>Sign in:
+    <pre><code>codex login</code></pre>
+    Follow what it prints. It signs this computer in to your OpenAI account, normally by opening
+    your web browser; come back to the terminal when the browser says it is done.</li>
+
+  <li>Check that both worked:
+    <pre><code>codex --version
+codex login status</code></pre>
+    The first prints a version number. The second says who you are signed in as. If either one
+    errors, ToolsEnabled will not be able to start an assistant either, and the problem is with
+    Codex rather than with us — see <a href="#help">Getting help</a>.</li>
+
+  <li>Go back to ToolsEnabled and <span class="label">close and reopen the window</span>. It checks
+  for Codex when it opens.</li>
+</ol>
+
+<h2>6. Getting an assistant to answer you</h2>
+
+<p>Once Codex is installed and signed in, and your answer to question 3 was
+<span class="label">Act when I start it</span> or <span class="label">Act on its own</span>:</p>
+
+<ol class="steps">
+  <li>On the first page, press the <span class="label">&gt;</span> arrow at the top right. This is
+  the forward arrow; the pages are a loop and it walks you round them.</li>
+  <li>You land on the computers page, which draws your setup as a graph. Click an agent in the
+  graph, then press <span class="label">Open agent detail</span>.</li>
+  <li>That page has a panel headed <span class="label">Start an agent</span>. Type what you want
+  done into the box labelled <span class="label">Prompt</span>, and press
+  <span class="label">Start</span>.</li>
+  <li>The <span class="label">&lt;</span> arrow at the top left takes you back out.</li>
+</ol>
+
+<p>Every run started this way is written down on this computer, signed, and listed on the first
+page — including the ones that fail. A run that refused is shown as one that did not start, not as
+one that worked.</p>
+
+<div class="note">
+<p><span class="label">If there is no Start control at all,</span> your answer to question 3 was
+“Nothing yet — let me look around first”. The agent page says so and offers to switch it on; the
+same switch is in <span class="label">Settings</span>, under <span class="label">Write</span>, named
+<span class="quote">Run an agent session</span>.</p>
+</div>
+
+<h2>7. When the product says something is missing</h2>
+
+<p>ToolsEnabled refuses in sentences rather than error codes, and every refusal below is one that
+tells you what to do. These are the ones a new installation actually hits.</p>
+
+<div class="scroll">
+<table>
+  <tr><th>What it says</th><th>What it means</th><th>What to do</th></tr>
+  <tr>
+    <td>Codex is not installed on this computer</td>
+    <td>Correct — it is a separate program and we do not bundle it.</td>
+    <td><a href="#codex">Step 5</a>, both commands.</td>
+  </tr>
+  <tr>
+    <td>Codex is installed but nobody is signed in to it</td>
+    <td>The install worked; the sign-in has not happened or has expired.</td>
+    <td><code>codex login</code>, then reopen ToolsEnabled.</td>
+  </tr>
+  <tr>
+    <td>Codex … did not answer when asked its version</td>
+    <td>Something named <code>codex</code> is on your machine but does not run. A half-finished
+    install, or a leftover shortcut pointing at a Node.js that was removed.</td>
+    <td>Run <code>codex --version</code> yourself to see what it says, then reinstall it with the
+    command in step 5.</td>
+  </tr>
+  <tr>
+    <td>this computer has not been set up yet</td>
+    <td>The permission level was never recorded, so a session would have run at the most restrictive
+    level.</td>
+    <td>Open <span class="label">Settings</span> and choose a permission level.</td>
+  </tr>
+  <tr>
+    <td>this copy shipped without … reinstall ToolsEnabled from a complete build</td>
+    <td>A piece of the application is genuinely missing from the copy you were given. Nothing you
+    can change will fix it.</td>
+    <td>Ask whoever sent you the installer for a complete one. This is our fault, not yours.</td>
+  </tr>
+</table>
+</div>
+
+<h2>8. Screens that are empty and will stay empty</h2>
+
+<p>The fleet graph, the comms board, the metrics and the ledger draw a report written by an
+<em>agent host</em> — a program that watches agents across a group of computers. This copy of
+ToolsEnabled does not include one. There is no setting that connects one and no command that
+installs one, so nothing you do will fill those screens today. They say so rather than showing
+numbers that are not yours.</p>
+
+<p>That is the honest state of the product and not a fault on your computer. If you want to see what
+those screens look like with data in them, open <span class="label">Settings</span>, find
+<span class="label">Data and Sim</span>, and turn a screen's live source off — each one then shows a
+worked example, labelled as an example. The product also explains this in its own words: press
+<span class="label">What this copy needs</span> on any of the empty screens.</p>
+
+<h2>9. Starting over, and removing it</h2>
+
+<h3>Start the questions again</h3>
+<p>Everything the walkthrough set is in <span class="label">Settings</span>, individually, including
+the permission level. Change it there rather than reinstalling — a reinstall does not clear your
+answers, so it will not do what you want.</p>
+
+<h3>Uninstall</h3>
+<p>Windows Settings → <span class="label">Apps</span> → <span class="label">Installed apps</span> →
+<span class="label">ToolsEnabled</span> → <span class="label">Uninstall</span>. No administrator
+password is needed.</p>
+
+<div class="note">
+<p><span class="label">Uninstalling does not delete your data.</span> The record of what ran, your
+settings and your permission level stay in <code>%APPDATA%\ToolsEnabled</code> and
+<code>%LOCALAPPDATA%\ToolsEnabled</code>, so reinstalling picks up where you left off. If you want
+them gone, delete those two folders by hand after uninstalling. That erases the signed record of
+everything that has run, which cannot be recovered.</p>
+</div>
+
+<h2 id="help">10. Getting help</h2>
+
+<p class="label">There is no support address, no help desk and no community forum. Not “we will get
+back to you slowly” — they do not exist yet.</p>
+
+<p>ToolsEnabled has not been publicly released, so the honest answer to “who do I contact” is:
+<span class="label">the person who gave you the installer.</span> They are the only support channel
+that exists. When you go to them, the two things that make a problem fixable rather than a mystery
+are:</p>
+
+<ul>
+  <li><span class="label">The exact sentence on the screen</span>, copied or photographed. This
+  product's refusals are written to name a cause; the sentence is worth far more than “it did not
+  work”.</li>
+  <li><span class="label">Which of the steps on this page you had completed</span> when it stopped.</li>
+</ul>
+
+<p>Two things are genuinely somebody else's to fix, and going to them directly will be faster:</p>
+
+<ul>
+  <li><span class="label">Codex itself</span> — if <code>codex --version</code> or
+  <code>codex login</code> fails in your terminal, before ToolsEnabled is involved at all, that is
+  OpenAI's program. Its issue tracker is at
+  <code>github.com/openai/codex/issues</code>.</li>
+  <li><span class="label">The SmartScreen warning</span> — that is Windows, doing what it is supposed
+  to do about a program with no code signature. Nothing we can change from your end; the fix is a
+  signed build, which has to come from us.</li>
+</ul>
+
+<p>If you go looking: there is a <span class="label">ToolsEnabled</span> organization on GitHub, and
+as of this writing it holds only the organization's profile page — no product repository, no
+releases, and no issue tracker. Filing an issue there is not currently possible, and anything that
+looks like an official download on that account today is not one.</p>
+
+<footer class="foot">
+<p>ToolsEnabled is free software, licensed under the MIT license. It was founded and created by
+Joshua Pinckard. Nothing on this page requires a paid plan, and no part of the product described
+here is disabled unless you switched it off.</p>
+<p>This page ships inside the application and is served from your own computer. It works with no
+internet connection and reports nothing to anyone.</p>
+</footer>
+
+</div>
+</body>
+</html>

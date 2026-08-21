@@ -1,0 +1,3294 @@
+/* ============================================================
+   TOOLSENABLED — clinical white · liquid glass · neon
+   ============================================================
+
+   TYPE FLOOR (lane C4 — "font big enough for people with vision issues").
+   Three tiers, and no fourth:
+
+     11px    uppercase, letterspaced micro-labels ONLY (section heads,
+             caps captions, table column heads, the caps line inside a
+             bubble). Every 11px rule in this file carries
+             text-transform:uppercase + letter-spacing.
+     12.5px  standard interface text — chrome, controls, values, hints.
+     13px    reading content — feed lines, chat messages, chip text,
+             table cells, task chips.
+
+   Nothing in this sheet is below 11px, including the two sizes derived
+   from a bubble's --d (see .node .rt / .node .rl, which take a max()).
+   The bumps are paid for by tightening tracking and, where a row got
+   tight, by widening the container — each such case is commented at the
+   rule. When adding a rule, pick a tier; do not invent 10px.
+
+   NEON BUDGET. Glow is seasoning on a white/black page, not the subject.
+   Every decorative glow radius and alpha in this sheet was taken down
+   ~22% from the v2 values (aurora 0.55 → 0.42, node bloom 26/60px →
+   20/46px, tabs 22px → 17px, and so on) with the hues untouched. The one
+   deliberate exception is the :focus-visible ring, whose solid part is an
+   accessibility affordance and was strengthened, not dimmed.
+
+   TOKEN SCALES. The type doctrine above was the only scale this sheet
+   actually had. Everything else was per-rule invention: 18 font weights,
+   16 letter-spacings inside the single 11px caps role, 14 gap values, 35
+   transition durations written in two spellings (.25s and 0.25s), and ~28
+   elevation shadows that are all the same recipe with hand-tuned numbers.
+   Nobody can see the difference between 610 and 620, or between 0.22s and
+   0.25s — but every new rule has to guess which one to copy, so the sheet
+   drifts further apart with each addition. The scales now live in :root
+   (see --dur-*, --s1..--s5, --track-caps, --elev-*) and the rules below
+   spend them. Values that were genuinely load-bearing — a measured label
+   stack, a width graph.js also knows, a choreographed entrance — were left
+   literal and are commented where they sit. When adding a rule, spend a
+   step; do not invent 0.19s.
+   ============================================================ */
+
+:root {
+  /* Light is the base scheme; the black theme flips it (see its own block).
+     Declared so native popups follow the theme -- without this the UA guesses,
+     and on the black theme it guessed light, painting the role dropdown's
+     options unreadable. */
+  color-scheme: light;
+  /* surfaces */
+  --bg: #f4f7fa;
+  --bg-2: #eef2f7;
+  --surface: #f4f7fa;
+
+  /* ink — accessible grey ramp (C4). Ratios are on white / on --bg
+     (#f4f7fa, the page surface under the glass); glass cards composite
+     white over --bg, so every carded surface sits between the two.
+
+       --ink    #0e1726  17.96 / 16.70  primary
+       --ink-2  #4f5f70   6.56 /  6.10  secondary body · emphasis
+       --ink-25 #5a6876   5.71 /  5.31  small informational text (≤12.5px
+                                        and caps micro-labels — small type
+                                        gets the extra headroom), and any
+                                        informational text that sits on the
+                                        bare aurora rather than in a card
+       --ink-3  #64727f   4.94 /  4.59  context · reading grey, AA floor
+       --ink-4  #808d9b   3.39 /  3.15  DECORATION ONLY — separators, the
+                                        clock colon, off-state marks. Never
+                                        carries a fact on its own; only two
+                                        rules in this sheet still use it.
+
+     --ink-3 was #93a1af (2.64:1) and --ink-4 was #b9c4cf (1.77:1) — both
+     failed as text, and both are consumed by the other lanes' sheets, so
+     the fix lives in the token rather than in per-rule overrides. */
+  --ink: #0e1726;
+  --ink-2: #4f5f70;
+  --ink-25: #5a6876;         /* informational small text */
+  --ink-3: #64727f;          /* greyed context text — still AA */
+  --ink-4: #808d9b;          /* decorative grey only */
+  --line: rgba(14, 23, 38, 0.07);
+  --line-2: rgba(14, 23, 38, 0.12);
+
+  /* ROLE PALETTE — the identity system. Solved, not picked.
+     Owner verdict on the previous set, at bubble scale: "mostly the colour
+     is meh." It was: every hue sat at oklch L 0.69–0.75, i.e. the light end
+     of the sRGB gamut, where a hue has already spent all the chroma it can
+     hold. Against the white page that measured 2.14–2.64:1 and against tan
+     2.0–2.2:1 — pale marks, and pale by construction rather than by choice.
+     Colour cannot be added at that lightness; it can only be added by going
+     DOWN, which is why the fix is a step, not a saturation tweak.
+
+     THE ROW. Carbon's steps are luminance-rows (every hue in its 60 row
+     lands at Y=0.160, every hue in its 50 row at Y=0.264 — see
+     tools/hue-lab.mjs `dump`), and each row entry is the maximum in-gamut
+     chroma at that lightness for its hue. This palette is built the same
+     way, on the site's OWN hue angles, at oklch L 0.595. That step is
+     solved, not chosen: contrast against white (#f7f8fa) and against black
+     (#0d0f12) pull in opposite directions, tan (#f2e5bc) is the tightest of
+     the three for a warm hue, and 0.595 is the LIGHTEST row at which every
+     hue clears 3:1 on all three page surfaces at once — the non-text floor,
+     which is what a role dot, a rim and a link are. Measured, per hue,
+     white / black / tan:
+
+       --c-coordinator  #008dab   3.66 / 4.93 / 3.10   was 2.58 / 7.01 / 2.18
+       --c-helper       #c85900   4.05 / 4.46 / 3.42   was 2.56 / 7.05 / 2.17
+       --c-shadow       #00956c   3.58 / 5.04 / 3.03   was 2.29 / 7.90 / 1.93
+       --c-manager      #3e63f0   4.65 / 3.88 / 3.93   unchanged
+       --c-default      #9d7900   3.82 / 4.72 / 3.23   was 2.12 / 8.52 / 1.79
+       --c-spawned      #697077   4.72 / 3.82 / 3.99   was 12.40 / 1.46 / 10.49
+
+     The old set cleared 3:1 on exactly one surface (black) and failed the
+     other two everywhere except the manager — which is the measurement
+     behind "mostly the colour is meh."
+
+     Each lands on or between named Carbon steps (dE2000 to the nearest):
+       coordinator  between cyan 50 #1192e8 (14.6) and teal 50 #009d9a (13.7)
+       helper       between orange 60 #ba4e00 (4.6) and orange 50 #eb6200 (7.5)
+       shadow       between green 50 #24a148 (10.7) and teal 50 #009d9a
+       manager      Carbon blue 60 #0f62fe (2.3 — inside a JND, see below)
+       default      Carbon yellow 50 #b28600 (5.7)
+       spawned      Carbon coolGray 60 #697077, exactly
+
+     MANAGER IS UNCHANGED ON PURPOSE. #3e63f0 already sat at L 0.559 with
+     its family's chroma cap; re-deriving it onto the row moved it by
+     dE 1.3, under the just-noticeable difference. A palette pass that
+     repaints a hue nobody can see change is churn, so it was left.
+
+     SPAWNED was #26313f — near-black graphite, which measured 1.34:1 on the
+     black page: an invisible mark, not a quiet one. Carbon coolGray 60 is
+     the same neutral intent at a lightness that survives all three grounds.
+
+     HUE ANGLES are the site's existing identities, nudged only where two
+     roles had to be told apart at 6px:
+       coordinator  226.6 -> 220.0   (equidistant from shadow and manager)
+       helper        53.1 ->  48.0   (away from default's gold)
+       default       84.3 ->  88.0   (away from helper's orange)
+       shadow       165.3            manager 267.5   unchanged
+     Resulting dE2000, solid at dot scale: coordinator/manager 23.3 (the
+     hard pair — roughly ten JNDs, and they part in lightness as well as in
+     hue, which is what carries at 6px), coordinator/shadow 26.8,
+     helper/default 21.5, minimum over all fifteen pairs 18.5
+     (manager/spawned, a saturated blue against a neutral grey). Re-measured
+     at the two scales the pair is actually DRAWN at, not just as swatches:
+     composited node rim 21.8 white / 20.9 black / 24.1 tan, and the 1.6px
+     link at 0.52 alpha under the canvas's saturate(0.72) 18.6 / 17.9 / 21.9.
+     `node .mc-role-hue.mjs` re-runs all of it against the live pages.
+
+     WHY NOT PER-THEME STEPS, as the metrics provider palette does. --prov-*
+     can re-step per theme because every consumer re-reads it through the
+     ECharts theme snapshot on a theme flip. These hues cannot: half the
+     consumers (the graph's link strokes, the computers legend, the comms
+     name rail, the metrics agent table) take ROLES[].hex from src/vocab.js
+     and write it into an inline style when the VIEW is built, and only the
+     metrics view re-renders on a theme change. A per-theme hue would leave
+     a stale legend beside a fresh graph. One hex per role, on every theme,
+     is also the stronger reading of the rule the whole system is built on:
+     a role hue is the same colour everywhere, ever. Themes adapt through
+     the RECIPES instead (see --rim-role on .node-glass), which are CSS and
+     re-resolve instantly.
+
+     KEEP IN SYNC: ROLES[].hex in src/vocab.js, the ROLES table in
+     tools/gen-glow.mjs (regenerate src/glow.css after editing), and the
+     favicon in index.html. tools/hue-lab.mjs re-derives and re-checks. */
+  --c-coordinator: #008dab;
+  --c-helper:      #c85900;
+  --c-shadow:      #00956c;
+  --c-manager:     #3e63f0;
+  --c-default:     #9d7900;
+  --c-spawned:     #697077;
+
+  /* Neon glow tints (lighter siblings used only for glow, never text).
+     Deliberately NOT re-derived with the bases above: they are the light
+     end of each identity, they never carry a fact, and their hues already
+     sit within a few degrees of the new angles. A deeper body under the
+     same highlight is exactly what the uptime ring's glow->hex gradient
+     wants; repainting them would have churned glow.css and every legend
+     chip for no measurable gain. */
+  --g-coordinator: #45d6ff;
+  --g-helper:      #ffab4d;
+  --g-shadow:      #35eab7;
+  --g-manager:     #7d9bff;
+  --g-default:     #ffd84d;
+
+  /* THE INTERACTIVE ACCENT is the coordinator's cyan, not a fourth one.
+     Seven controls (selection, the send button and its lift, the chat
+     input's focus, the press ring, the slider fill and its press ring, the
+     reduce-motion toggle) carried #21b7e4 or rgba(0,169,216,·) as literals
+     — an accent hue that existed nowhere in the token layer and that a
+     palette pass could not reach. They now all read --c-coordinator, which
+     is what the site already meant: cyan is the system's own voice, and the
+     coordinator is the agent that speaks it (.ctl-btn.armed, .cmsg-pin and
+     the ledger's in-progress glyph were already mixing --c-coordinator
+     directly). --accent-2 is the send button's gradient floor, one step
+     below the accent at the same hue; white on the gradient's light end
+     measures 3.61:1 and on its dark end 5.12:1, so the icon clears the 3:1
+     non-text floor across the whole sweep (it was 2.5:1 flat). */
+  --accent-2: #007892;
+
+  /* SEVERITY TEXT — the same Carbon families as the metrics alert marks,
+     stepped for readable characters. On the white page (#f7f8fa), the
+     resolved green60 / yellow60 / red60 trio at 4.72 / 4.69 / 4.71:1.
+     Metrics keeps its separate --sev-* mark palette; sitewide marks that
+     reuse these darker text steps still clear the non-text floor. Tan needs
+     its own text re-step below, while the dark mark hues already clear AA. */
+  --s-good: #198038;
+  --s-warn: #8e6a00;
+  --s-serious: #da1e28;
+  --s-critical: #b3123e;
+
+  --glow: 1;                  /* glow multiplier (settings) */
+  --pace: 1;
+
+  --r-lg: 3px;
+  --r-md: 3px;
+  --r-sm: 2px;
+
+  /* PAGE COLUMN — the one content measure. Every route's outermost container
+     and the topbar share this column (home's 1360 box − 2×60 padding lands on
+     the same 1240), so the content edge never moves on navigation. */
+  --page-max: 1240px;
+  --page-gutter: 16px;
+  /* The TOPBAR's own column, split from --page-max on purpose: a route may
+     widen its page (computers takes 1680 for the canvas), but the two
+     chevrons are CROSS-PAGE chrome -- the owner's rule is that clicking
+     through every page never moves the mouse, and a bar that follows the
+     page's width moved the forward chevron 64px between computers and
+     everywhere else (measured on the installed build). Same value as the
+     base --page-max; only the base, never a route override. */
+  --topbar-max: 1240px;
+
+  /* THE INTERFACE FONT IS A USER SETTING (owner, R1523: "the default font is
+     not my most favorite"). This declaration is only the DEFAULT — IBM Plex
+     Sans, the typeface of the same Carbon system the severity palette above
+     already borrows from. The live value is the inline --font-ui property the
+     chooser sets on <html> (src/font-choice.js, the single register of the
+     choices); index.html re-applies the stored choice before first paint.
+     Keep this stack byte-identical to the `plex` entry in font-choice.js —
+     currentFontChoice() relies on stack equality to read the applied state.
+     --font-mono is NOT a choice: data accents keep their mono voice under
+     every interface font. */
+  --font-ui: "IBM Plex Sans Variable", "IBM Plex Sans", "Segoe UI Variable", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+
+  --ease: cubic-bezier(0.22, 0.9, 0.26, 1);
+  --ease-spring: cubic-bezier(0.34, 1.3, 0.4, 1);
+
+  /* MOTION SCALE — three steps, and no fourth. The two easing curves above
+     are unchanged; only the durations are normalised.
+       --dur-1  micro       press/scale feedback, tooltip appear
+       --dur-2  standard    hover tints, colour and background swaps
+       --dur-3  structural  surfaces moving, resizing, entering
+     Assignment is by role, not by arithmetic, so the two genuinely
+     ambiguous old values (.18s, .2s) land where they belong rather than
+     where rounding puts them: a transform response is micro, a colour
+     response is standard.
+
+     NOT on this scale, on purpose, each commented at its rule: the
+     choreographed one-shot entrances (nodeIn / frostIn at .7s and the .7s
+     specular sweep — showpiece timing, not UI response), the data tweens
+     (1.1s / 1.2s bar and meter fills, which read as a value travelling),
+     and the ambient loops (2s–2.6s). The reduced-motion clamps at the foot
+     of the sheet stay literal too — they are a ceiling, not a step. */
+  --dur-1: 120ms;
+  --dur-2: 240ms;
+  --dur-3: 420ms;
+
+  /* SPACE SCALE. Rule used when converting: nearest step, and only where
+     the old value was within 2px of one; on an exact tie (6, 10, 14) round
+     DOWN, because a box that loses 2px of gap can never overflow its
+     container while one that gains 2px can. 20px and 40px are 4px from
+     every step, so they stay literal — as do sub-step hairlines (2px, 3px
+     optical nudges) and every positional offset (top/left/inset), which
+     are not spacing. */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+
+  /* CAPS TRACKING — one value for the whole 11px uppercase micro-label
+     role, which carried sixteen different letter-spacings between 0.06em
+     and 0.2em with no rule behind any of them. 0.12em sits mid-range, so
+     the widest labels tighten and the tightest widen by 1–3px; every
+     affected label is ellipsised, nowrap inside an auto-width box, or
+     measured at runtime by the graph's label-avoidance pass, so none of
+     them can overflow. Tracking that is NOT this role keeps its own value:
+     .uring-caption's 0.3em is a 12.5px display treatment where the spacing
+     IS the design, and the 0.01–0.04em optical nudges on lowercase text
+     are not micro-labels at all. */
+  --track-caps: 0.12em;
+
+  /* ELEVATION. Every shadow in the sheet was hardcoded rgba(14,23,38,·) —
+     light-theme navy — which on the black theme is invisible ink drawn over
+     a #0d0f12 page. Colour now comes from a per-theme base and every alpha
+     is scaled by --shadow-k, the same trick --wa plays on the glass, so a
+     theme re-tunes all depth from two numbers.
+
+     The three steps are lifted verbatim from the recipes the sheet already
+     used most, so adopting them is a visual no-op where they apply:
+       --elev-1  controls        (from .icon-btn:hover / .ctl-btn)
+       --elev-2  bubbles, tiles  (from .node-glass, exact)
+       --elev-3  large cards     (from .glass, exact)
+     They share one contact layer, which is what makes them a ladder rather
+     than three unrelated shadows. Shadows that are genuinely bespoke — an
+     overlay (drawer, popover chat), a perf-reduced drag state, the
+     deliberately deepened node hover — stay written out, but on the themed
+     base. Note the alphas do not climb monotonically: this sheet scales a
+     shadow to the size of the surface casting it, so a big card gets a
+     wider, softer, *lighter* pool than a small bubble. */
+  --shadow-rgb: 14, 23, 38;
+  --shadow-k: 1;
+  --elev-1:
+    0 1px 2px rgba(var(--shadow-rgb), calc(0.05 * var(--shadow-k))),
+    0 4px 12px -6px rgba(var(--shadow-rgb), calc(0.18 * var(--shadow-k)));
+  --elev-2:
+    0 1px 2px rgba(var(--shadow-rgb), calc(0.05 * var(--shadow-k))),
+    0 9px 20px -13px rgba(var(--shadow-rgb), calc(0.22 * var(--shadow-k)));
+  --elev-3:
+    0 1px 2px rgba(var(--shadow-rgb), calc(0.05 * var(--shadow-k))),
+    0 18px 44px -18px rgba(var(--shadow-rgb), calc(0.16 * var(--shadow-k)));
+
+  /* --wa scales every white-glass alpha in the whole sheet set, so a theme
+     re-tunes all frosted surfaces from one number instead of hundreds of
+     hand-edited rgba()s. --sheet is the one opaque surface.
+     Six top-sheen hairlines (.glass:hover, .icon-btn:hover, .tab.active,
+     .ctl-btn and its hover, .drawer) were still written `inset 0 1px 0 #fff`
+     — the last literals escaping this knob, and on the black theme a hard
+     white 1px line is precisely the "lit edge" the dark build exists to
+     avoid. They now read rgba(255,255,255,var(--wa)): byte-identical on
+     white, where --wa is 1. */
+  --wa: 1;
+
+  /* --sheen scales the card's top-to-bottom WASH — the extra white the
+     .glass gradient puts at the top of a card plus the ::before specular —
+     without touching how light the card is overall (its bottom stop, the
+     one that sets the surface level, is outside this knob on purpose).
+     --wa alone could not fix this: it scales BOTH stops, so dialling it
+     down flattens the wash by dissolving the card into the page.
+
+     Why a second knob exists at all: the same fixed white ramp lands on
+     three very different grounds. On white the ground is already near-white
+     and on black the alphas are tiny, so both stay flat — but tan's
+     mid-luminance bg0_s takes the full ramp and resolves into a visible
+     cream-to-tan diagonal, so tan was the only theme with washed cards
+     (measured maxChannelSpan across a chart card: white 15, black 15,
+     tan 31). 1 is a byte-for-byte no-op (0.3 + 0.24 == the old 0.54). */
+  --sheen: 1;
+  --sheet: #fff;
+  /* Solved, not picked: the bracket is decoration, so it has no WCAG floor of
+     its own -- but it has to weigh the SAME on all three themes, and equal
+     alpha does not give equal weight over three different backgrounds. Each
+     value below is the alpha that puts this theme's composited bracket at a
+     2.10 contrast ratio against its own page colour, so the drawing reads as
+     one light-grey hairline everywhere instead of near-invisible on tan and
+     heavy on black (measured: 1.74 / 1.76 / 2.65 at flat alpha). */
+  --brace: rgba(14, 23, 38, 0.33);
+  --node-a: 1;
+  --ring-track: rgba(14, 23, 38, 0.09);
+
+  /* FOCUS RING — one token for every :focus-visible recipe in the set
+     (metrics.css and home.css already read it and fall back to a literal).
+     The old literal rgba(0,169,216,.72) composited to 2.01:1 on the white
+     page and 1.82 on tan — under the 3:1 WCAG 1.4.11 floor for the ONE
+     indicator keyboard focus has (black passed at 4.11). The token is the
+     accent hue darkened until it clears 3:1 SOLID against all three page
+     surfaces, so a single value serves every theme and no per-theme
+     override is needed. Re-solved with the palette above onto its cyan
+     angle (220°, was 234.5°) at oklch L 0.545: the sentence "the same hue
+     darkened" has to stay TRUE, or the one indicator keyboard focus has
+     drifts off the system it belongs to. Measured 4.50 white / 4.01 black /
+     3.81 tan (was 4.60 / 3.93 / 3.89 — same quality, now the same hue). */
+  --focus-ring: #007d98;
+
+  /* SEGMENTED CONTROL — one height and one trough for the five call sites
+     (metrics range/machine, computers Tree/Physics, comms S/M/L and
+     Watch/Channels) that used to carry three hand-built copies at 37/32/29px.
+     --seg-h matches --gc-h in board.css (32px) so the graph's seg stays
+     bottom-aligned with its Edit button. --seg-bg is theme-correct by
+     construction: --ink and --wa both flip per theme, so the trough is an
+     ink-tinted glass on every ground without per-theme overrides. */
+  --seg-h: 32px;
+  --seg-bg: color-mix(in oklab, var(--ink) 6%, rgba(255,255,255,calc(0.45 * var(--wa))));
+  --seg-border: rgba(255,255,255,calc(0.7 * var(--wa)));
+
+  /* The reduce-motion toggle's OFF track and the scrollbar thumb were both
+     hardcoded light-theme navy, i.e. invisible ink on the black theme
+     (1.01:1 measured on both). Each value below is SOLVED, not picked: the
+     lowest alpha of this theme's ink base that clears the floor against the
+     real sampled pixel the mark sits on — the drawer's composited glass
+     rgb(252,252,254) for the track (3.2:1, headroom over the 3:1 non-text
+     floor), the page for the thumb (2.2:1 base / 3:1 hover — an affordance,
+     so the 2:1 floor applies, and hover still steps visibly up). */
+  --toggle-track: rgba(14, 23, 38, 0.479);
+  --scrollbar-thumb: rgba(14, 23, 38, 0.348);
+  --scrollbar-thumb-hover: rgba(14, 23, 38, 0.46);
+
+  /* the graph bubble's rim dose — see .node-glass for the derivation. Two
+     rungs, so a hovered bubble intensifies its identity rather than washing
+     it: the old hover mixed 55% role into literal WHITE, which on a 70%
+     resting rim would have made hover the PALER state. */
+  --rim-role: 70%;
+  --rim-hover: 88%;
+
+  /* the OWN-message chat bubble: the one surface in the set that is dark on
+     every theme, so it carries its own pair rather than riding the sheet
+     ramp. It has to be themed for the same reason the shadow ink is — a
+     fixed navy reads cold against tan's warm bg0_s. */
+  --bub-me-1: #1e2c3d;
+  --bub-me-2: #0e1726;
+}
+
+/* Phase 5 audited write surfaces. They are inserted only when their
+   mc.write.* flag is enabled, so the shipped flag-off DOM remains unchanged. */
+.write-surface {
+  position: relative;
+  flex: none;
+  margin-block: var(--s2);
+  padding: var(--s3) clamp(18px, 2.4vw, 30px);
+  border-block: 1px solid var(--line-2);
+  color: var(--ink-2);
+}
+/* THE BRACES ARE GONE, AND THE HOUSE BRACE IS WHY.
+ *
+ * These were two typed glyphs — `{` and `}` at a fixed 30px, absolutely
+ * positioned at the panel's left and right edges and centred on its height.
+ * MEASURED on the agent page at 1440x900: a 420px panel with a 30px `{`
+ * floating at x=108 and a 30px `}` at x=1320, each touching nothing, aligned
+ * with nothing, roughly two hundred pixels from the top and bottom of the thing
+ * they were supposed to be bracketing. Three write surfaces stack on that page,
+ * so six of them. The owner read the result as rendering garbage, and that is a
+ * fair reading of a bracket that does not bracket anything.
+ *
+ * This product HAS braces and they are part of its identity — but the real ones
+ * (BRACE_SVG in views/home.js) are drawn as three SVG pieces joined by arms
+ * with `preserveAspectRatio: none`, precisely so they STRETCH to the height of
+ * the block they enclose. home.css records the same finding in its own words:
+ * a glyph "can never do this job", because it paints a fixed shape at whatever
+ * size the font gives it while the content beside it is any height at all.
+ *
+ * So the ornament is dropped rather than reproduced badly. The panel is already
+ * framed, by the `border-block` rules above — the same hairline every other
+ * bounded region in this app is framed with. */
+
+.write-surface > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin-bottom: var(--s3);
+}
+.write-surface > header strong,
+.write-form-title {
+  font-size: 12.5px;
+  font-weight: 650;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.write-surface > header span,
+.session-write-state,
+.write-form output,
+.write-restated {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--ink-3);
+}
+/* A SWITCHED-OFF SURFACE IS ONE COLUMN OF PROSE, NOT A FORM (owner, 2026-08-18,
+   on the agent detail page: "open agent detail is a mess").
+ *
+ * WHAT THE MESS ACTUALLY WAS, and all three parts are this one grid. Both
+ * `.write-surface-grid` and `.write-form` are two-column grids, which is right
+ * for a form with fields in it and wrong for a panel whose entire content is a
+ * heading, a sentence and a button. Measured on the staged build at 1512x945:
+ * the whole explanation sat in the left half of the outer grid with the right
+ * half empty, and the "what turning it on would let you do" block -- a grid
+ * child with no field beside it -- was thrown into the second inner column,
+ * where it rendered as a bordered box floating in the middle of the page with a
+ * column of whitespace to its left. It reads as debris. It is a two-column
+ * layout with one column of content.
+ *
+ * Both off-surfaces in this product carry their own marker already, so this
+ * names them rather than guessing at a `:has()` rule about which forms have
+ * fields. One column, and everything lands under the thing it belongs to. */
+.write-surface[data-session-off] > .write-surface-grid,
+.write-surface[data-cloud-off] > .write-surface-grid,
+.write-surface[data-session-off] .write-form,
+.write-surface[data-cloud-off] .write-form {
+  grid-template-columns: minmax(0, 1fr);
+}
+/* And its sentences read in the UI face. The mono above is right for a short
+   state token in the header; a paragraph explaining a switch is prose, and this
+   page had it in code type from top to bottom. */
+.write-surface[data-session-off] .write-form output,
+.write-surface[data-cloud-off] .write-form output {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  max-width: 68ch;
+}
+/* ONE SHOUT PER SECTION. `.write-surface > header strong` and
+   `.write-form-title` share a rule, so an off surface opened with two tracked
+   all-caps lines stacked on top of each other -- "CODEX CLOUD" and then
+   "LAUNCHING CLOUD TASKS IS SWITCHED OFF" -- naming the same thing twice at the
+   same rank, with the state word to the right of the first making three labels
+   for one fact. The surface's NAME keeps the small-caps label, because that is
+   the page's section vocabulary; the sentence under it becomes a heading that
+   reads like a sentence, which is what it is. */
+.write-surface[data-session-off] .write-form-title,
+.write-surface[data-cloud-off] .write-form-title {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  text-transform: none;
+  color: var(--ink);
+}
+/* The answer to a write this form already sent, carried over from a moment when
+   this panel did not exist to show it. Its own line rather than the <output>,
+   because the output is written by the bridge handshake and the queue snapshot a
+   fraction of a second after mount and would have erased it. */
+.write-restated {
+  margin: 0;
+  padding-left: var(--s2);
+  border-left: 2px solid currentColor;
+}
+.write-surface [data-state="confirmed"],
+.session-write-state[data-state="confirmed"] { color: var(--s-good); }
+.write-surface [data-state="refused"],
+.write-surface [data-state="unavailable"],
+.session-write-state[data-state="refused"],
+.session-write-state[data-state="unavailable"] { color: var(--s-serious); }
+.write-surface-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(18px, 3vw, 36px);
+}
+.write-form {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: var(--s2) var(--s3);
+}
+.write-form-title,
+.write-form .write-wide,
+.write-form output,
+.write-form .write-restated,
+.write-form .write-report { grid-column: 1 / -1; }
+.write-form label {
+  min-width: 0;
+  display: grid;
+  gap: var(--s1);
+  font-size: 12.5px;
+  color: var(--ink-25);
+}
+.write-form input,
+.write-form select,
+.write-form textarea {
+  min-width: 0;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink);
+  font: 13px/1.35 var(--font-mono);
+}
+.write-form textarea { resize: vertical; }
+.write-form button {
+  justify-self: start;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink-2);
+  font: 620 12.5px/1 var(--font-ui);
+  cursor: pointer;
+}
+.write-form button:hover { border-color: var(--ink-4); color: var(--ink); }
+.write-form button:disabled,
+.write-form input:disabled,
+.write-form select:disabled,
+.write-form textarea:disabled { cursor: not-allowed; opacity: .55; }
+.write-form :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.write-choice { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.write-report {
+  max-height: 240px;
+  overflow: auto;
+  margin: var(--s1) 0 0;
+  padding: var(--s3) 0;
+  border-block: 1px solid var(--line);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink-25);
+  font: 13px/1.55 var(--font-mono);
+}
+.agent-write-surface { width: 100%; }
+.ledger-write-surface { margin-bottom: var(--s3); }
+.session-write-state {
+  margin: 5px 0 0;
+  text-align: right;
+}
+
+@media (max-width: 900px) {
+  .write-surface-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 560px) {
+  .write-surface > header { align-items: flex-start; flex-direction: column; }
+  .write-form { grid-template-columns: 1fr; }
+  .write-form > * { grid-column: 1 !important; }
+}
+
+/* Phase 2 read-source register. One quiet line names whether a surface is
+   reading its projection or the preserved simulation; unavailable readings
+   stay bare on the page instead of becoming another card. */
+.projection-mode {
+  margin-left: auto;
+  color: var(--ink-4);
+  /* --font-mono: the --mono shorthand never existed (same silent-invalid
+     defect the iteration-6 Details redo found on .projection-unavailable). */
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .12em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.home .session-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.projection-state {
+  min-height: 96px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 7px;
+  padding: 20px 24px;
+  color: var(--ink-3);
+  text-align: center;
+}
+
+.projection-state strong {
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 620;
+}
+
+.projection-state span,
+.projection-state small {
+  max-width: 64ch;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.projection-state small { color: var(--ink-4); }
+.projection-state.is-loading span { color: var(--ink-4); }
+
+/* The way out of a resolved-but-empty projection. Without it these states are
+   terminal: the two topbar chevrons are the app's only other navigation and
+   neither names where this page goes back to. */
+.projection-state-out {
+  margin-top: 12px;
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 13px;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  color: var(--ink-2);
+  font: 640 12.5px/1 var(--font-ui);
+  text-decoration: none;
+  transition: color 160ms var(--ease), background 160ms var(--ease);
+}
+.projection-state-out:hover {
+  color: var(--ink);
+  background: color-mix(in oklab, var(--ink) 5%, var(--sheet));
+}
+
+.projection-unavailable {
+  color: var(--ink-3);
+  /* --font-mono, not --mono: the shorthand token never existed, so this
+     declaration was invalid-at-computed-value time and the font silently
+     inherited — found during the iteration-6 Details redo. */
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+/* Dimmed lines must actually dim. Standalone .projection-unavailable ties
+   .rail-sub on specificity and LOSES on order, so "unavailable" prose
+   rendered identically to body prose — no hierarchy at all. The compound
+   selector wins the tie and reads visibly quieter. */
+.rail-sub.projection-unavailable,
+.rail-prose.is-dim {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+/* THE RAIL'S PROSE VOICE (iteration 6: Details was "completely unreadable" —
+   a wall of one style, 13px mono, one colour). Sentences read in the UI
+   face at a real line-height; mono stays for values, ids and paths, which
+   is what mono is for. Long tokens wrap instead of clipping against the
+   rail's overflow-x fence. */
+.rail-prose {
+  /* `display: block` because several of these are <output>, which is inline
+     by default — the margin below was being discarded on exactly the status
+     lines that most needed separating from what follows. */
+  display: block;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+  margin-bottom: var(--s4);
+}
+.rail-prose:last-child { margin-bottom: 0; }
+.rail-prose:empty { display: none; }
+/* The block above beats the UA's `[hidden] { display: none }` (author origin
+   wins), so the rail's conditional prose lines — status notes, activity,
+   usage — painted as empty blocks while marked hidden. Same convention as
+   .ctl-btn[hidden] below; gate: tools/test/hidden-display-honesty.test.mjs. */
+.rail-prose[hidden] { display: none; }
+
+.comms .projection-unavailable {
+  color: var(--ink-2);
+}
+
+.comms .wb-box .chip-preview:has(.projection-unavailable):not(:has(.cl)) {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+.home .session-log > .projection-state,
+.data-live-mode > .projection-state {
+  min-height: 100%;
+}
+
+.stats-page > .projection-unavailable,
+.metrics [id$="-chart"].projection-unavailable,
+.metrics #pools.projection-unavailable,
+.metrics #agent-table.projection-unavailable {
+  min-height: 96px;
+  display: grid;
+  place-items: center;
+  padding: 20px 24px;
+  text-align: center;
+}
+
+/* ============================================================
+   THEMES — clinically flat, one colour per surface. Chosen in
+   Settings, sticky across sessions. Role hues and status colours are
+   shared by all three so data never changes meaning with the shell.
+   ============================================================ */
+
+/* WHITE — the clinical default */
+:root[data-theme="white"] {
+  --bg: #f7f8fa;  --bg-2: #eef1f5;  --surface: #f7f8fa;
+  --sheet: #ffffff;  --wa: 1;
+  /* Solved, not picked: the bracket is decoration, so it has no WCAG floor of
+     its own -- but it has to weigh the SAME on all three themes, and equal
+     alpha does not give equal weight over three different backgrounds. Each
+     value below is the alpha that puts this theme's composited bracket at a
+     2.10 contrast ratio against its own page colour, so the drawing reads as
+     one light-grey hairline everywhere instead of near-invisible on tan and
+     heavy on black (measured: 1.74 / 1.76 / 2.65 at flat alpha). */
+  --brace: rgba(14, 23, 38, 0.33);
+  --node-a: 1;
+  --ring-track: rgba(14, 23, 38, 0.09);
+  /* solved against this theme's sampled drawer glass rgb(252,252,254) and
+     page — see the :root block for the method */
+  --toggle-track: rgba(14, 23, 38, 0.479);
+  --scrollbar-thumb: rgba(14, 23, 38, 0.348);
+  --scrollbar-thumb-hover: rgba(14, 23, 38, 0.46);
+}
+
+/* TAN — Gruvbox Light SOFT, the owner's Zed terminal theme (the third
+   variant in the family; its bg0_s is the properly tan one rather than
+   the paler hard/medium backgrounds). Published values, not guesses:
+     bg0_s #f2e5bc   bg1 #ebdbb2   bg0 #fbf1c7
+     fg0 #282828  fg1 #3c3836  fg2 #504945  fg3 #665c54  fg4 #7c6f64 */
+:root[data-theme="tan"] {
+  --bg: #f2e5bc;  --bg-2: #ebdbb2;  --surface: #f2e5bc;
+  --sheet: #fbf1c7;  --wa: 0.62;
+  /* the only theme whose ground is far enough from white for the card ramp
+     to show as a wash — 0.4 brings a chart card's corner-to-corner span from
+     31 down to ~15, the band white (14) and black (15) already sit in */
+  --sheen: 0.4;
+  --brace: rgba(60, 48, 32, 0.39);
+  --node-a: 0.72;
+  --ring-track: rgba(40, 40, 40, 0.12);
+  --ink:    #282828;
+  --ink-2:  #3c3836;
+  --ink-25: #504945;
+  --ink-3:  #665c54;
+  --ink-4:  #7c6f64;
+  /* severity text — Carbon green70 / yellow70 / red70; composited on the
+     tan page #f2e5bc they measure 6.14 / 6.24 / 6.20:1 */
+  --s-good: #0e6027;
+  --s-warn: #684e00;
+  --s-serious: #a2191f;
+  --line:   rgba(40, 40, 40, 0.10);
+  --line-2: rgba(40, 40, 40, 0.17);
+  /* same neutral the hairlines already use — navy shadows read cold
+     against a warm bg0_s */
+  --shadow-rgb: 40, 40, 40;
+  --shadow-k: 1;
+  /* and the own-message bubble for exactly the same reason: the shared navy
+     was the single cold slab on an otherwise entirely warm page. Gruvbox
+     fg2/fg0, the same published ramp --ink already draws from. */
+  --bub-me-1: #504945;
+  --bub-me-2: #282828;
+  /* same warm neutral the hairlines/shadows use; alphas solved against the
+     sampled tan drawer glass rgb(252,239,196) and page — navy read cold AND
+     under-weighted here (track 1.28:1 before) */
+  --toggle-track: rgba(40, 40, 40, 0.531);
+  --scrollbar-thumb: rgba(40, 40, 40, 0.39);
+  --scrollbar-thumb-hover: rgba(40, 40, 40, 0.517);
+}
+
+/* BLACK — clinical dark. The ink ramp inverts; --wa drops so the same
+   glass rules render as faint films of light instead of white slabs. */
+:root[data-theme="black"] {
+  /* The UA must know this theme is dark, or every NATIVE popup it paints --
+     the <select> dropdown above all -- renders light-scheme with our #eef2f6
+     ink inherited onto it: unreadable, measured on the packaged build (owner
+     walkthrough, the role menu). The pair below mirrors
+     public/preview/preview.css:79-80, which is the already-tested shape. */
+  color-scheme: dark;
+  --bg: #0d0f12;  --bg-2: #131519;  --surface: #0d0f12;
+  --sheet: #14171b;  --wa: 0.075;
+  --brace: rgba(255, 255, 255, 0.238);
+  --node-a: 0.2;
+  --ring-track: rgba(255, 255, 255, 0.13);
+  /* --line-2 is WHITE ink on this theme, so the rim mix lightens instead of
+     darkening; the dose steps up so the ring keeps the hue's own colour
+     rather than drifting toward a lit white edge. See .node-glass. */
+  --rim-role: 84%;
+  --rim-hover: 95%;
+  /* the shared pair's bottom stop (#0e1726) is DARKER than this theme's
+     sheet (#14171b), so an own-message bubble sank into the log across its
+     lower half instead of sitting on it. Same hue, lifted so both stops
+     clear the sheet. */
+  --bub-me-1: #24354a;
+  --bub-me-2: #172333;
+  --ink:    #eef2f6;
+  --ink-2:  #b7c0ca;
+  --ink-25: #a3adb8;
+  --ink-3:  #8f99a5;
+  --ink-4:  #6b7480;
+  --line:   rgba(255, 255, 255, 0.08);
+  --line-2: rgba(255, 255, 255, 0.14);
+  /* #0e1726 shadow on a #0d0f12 page is the same lightness as the page —
+     literally invisible ink, so every card on this theme was flat. Pure
+     black still has somewhere to go, and the alphas need the headroom to
+     read at all against a near-black surface. */
+  --shadow-rgb: 0, 0, 0;
+  --shadow-k: 1.7;
+  /* severity text — the Carbon dark mark steps (green40 / yellow30 / red50)
+     are already text-safe on #0d0f12 at 8.03 / 11.40 / 5.72:1 */
+  --s-good: #42be65;
+  --s-warn: #f1c21b;
+  --s-serious: #fa4d56;
+  /* the ink ramp inverts, so these must too: the navy literals they replace
+     were 1.01:1 here — invisible. White-ink alphas solved against the
+     sampled black drawer glass rgb(23,26,31) and the #0d0f12 page. The
+     scrollbar pair is then re-solved against HEADED pixel measurements: the
+     gutter's real backdrop on this theme runs darker than the page
+     (rgb(12,13,16) sampled on #/metrics) and the paint lands ~11% dimmer
+     than flat math predicts, so the page-solved 0.251 measured only 1.96:1
+     on screen — these two alphas are what actually measure 2.2:1 / ~3:1. */
+  --toggle-track: rgba(255, 255, 255, 0.348);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.29);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.38);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  font-family: var(--font-ui);
+  /* inherited floor: anything that never declares its own size still lands
+     above the 13px reading minimum instead of on the 16px browser default
+     (which was never the intent) or on some ad-hoc inline value */
+  font-size: 13.5px;
+  color: var(--ink);
+  background: var(--bg);          /* clinically flat: one colour, no wash */
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* the accent at the same 0.18 it always was, but as a token mix — the
+   literal was the pre-palette coordinator hex and could not follow it */
+::selection { background: color-mix(in oklab, var(--c-coordinator) 18%, transparent); }
+
+/* The aurora — six drifting neon fields behind the glass — is gone.
+   The owner asked for a clinically clean, single-colour background;
+   every surface now composites against a flat --bg instead. */
+
+/* ---------- liquid glass primitives ---------- */
+.glass {
+  position: relative;
+  /* the bottom stop is the surface level and is NOT scaled by --sheen; only
+     the extra 0.24 the top stop adds over it is, so a theme can flatten the
+     wash without dissolving the card. 0.3 + 0.24 * 1 == the old 0.54. */
+  background: linear-gradient(180deg,
+    rgba(255,255,255,calc((0.3 + 0.24 * var(--sheen)) * var(--wa))),
+    rgba(255,255,255,calc(0.3 * var(--wa))));
+  /* 18px kernel (was 26px): with the aurora animating behind, every
+     backdrop-filter pass re-runs each frame — the three large surfaces
+     (cards, topbar, graph card) carry the widest kernels, so they are
+     trimmed for the criterion-3 60fps budget; visually identical frost. */
+  backdrop-filter: blur(18px) saturate(1.8);
+  -webkit-backdrop-filter: blur(18px) saturate(1.8);
+  border: 1px solid rgba(255,255,255,calc(0.75 * var(--wa)));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,calc(0.95 * var(--wa))),
+    inset 0 0 0 1px rgba(255,255,255,calc(0.35 * var(--wa))),
+    inset 0 -14px 26px -18px rgba(var(--shadow-rgb), calc(0.16 * var(--shadow-k))),
+    var(--elev-3);           /* this rule is where --elev-3 came from */
+  border-radius: var(--r-lg);
+  transition: box-shadow var(--dur-3) var(--ease), border-color var(--dur-3) var(--ease);
+}
+.glass::before {              /* specular top sheen */
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(165deg, rgba(255,255,255,calc(0.55 * var(--wa) * var(--sheen))) 0%, rgba(255,255,255,calc(0 * var(--wa))) 38%);
+  pointer-events: none;
+}
+.glass::after {               /* hover specular sweep */
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(115deg,
+    transparent 32%,
+    rgba(255,255,255,calc(0.45 * var(--wa))) 44%,
+    rgba(255,255,255,calc(0.85 * var(--wa))) 50%,
+    rgba(255,255,255,calc(0.18 * var(--wa))) 55%,
+    transparent 66%);
+  background-size: 300% 100%;
+  background-repeat: no-repeat;
+  background-position: 115% 0;
+  opacity: 0;
+  /* the delay must equal the fade so the sweep resets off-screen after it
+     finishes, never during — same token on both keeps that true */
+  transition: opacity var(--dur-2) var(--ease), background-position 0s var(--dur-2);
+}
+.glass:hover::after {
+  opacity: 0.75;
+  background-position: -15% 0;
+  /* .7s stays literal: this is the specular travel, a showpiece gesture
+     whose slowness is the point. Its fade-in is ordinary micro response. */
+  transition: background-position .7s var(--ease), opacity var(--dur-1) var(--ease);
+}
+.glass:hover {                /* crisp rim light + lifted depth */
+  border-color: rgba(255,255,255,calc(0.95 * var(--wa)));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,var(--wa)),
+    inset 0 0 0 1px rgba(255,255,255,calc(0.55 * var(--wa))),
+    inset 0 -14px 26px -18px rgba(var(--shadow-rgb), calc(0.18 * var(--shadow-k))),
+    /* bespoke: a wider, deeper pool than --elev-3 — this is the lift, and
+       the whole point of the hover is that it is not the resting step */
+    0 1px 2px rgba(var(--shadow-rgb), calc(0.05 * var(--shadow-k))),
+    0 24px 54px -20px rgba(var(--shadow-rgb), calc(0.2 * var(--shadow-k))),
+    0 0 calc(20px * var(--glow)) rgba(69,214,255, calc(0.11 * var(--glow)));
+}
+
+/* ---------- top bar ---------- */
+/* The sketch's top strip is not a banner — it is a back arrow on the left
+   and, on the right, the word "settings" beside a gear and a forward arrow,
+   sitting straight on the page. No container, no fill, no border, no
+   shadow: the controls simply float. */
+.topbar {
+  position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+  /* same box as before, now stated in the shared page-column tokens.
+     100% AND NOT 100vw, and this is a real defect rather than a preference:
+     the Text size setting is `zoom` on <body> (see src/main.js), and `vw`
+     units are NOT scaled by an ancestor zoom while the painted box IS. At
+     Large (zoom 1.12) the bar was therefore laid out at the full window width
+     and then painted 12% wider than the window, and `left:50%` spilled the
+     surplus equally off BOTH edges -- taking the two chevrons with it.
+     Measured at Large on this build before the change: 980px window -> back
+     chevron at -39..2 and forward at 979..1019; 1280px window -> back
+     -52..-12, forward 1292..1332 AND the gear off-screen as well, i.e. no
+     reachable navigation at all. Broken from 980 through 1366, which covers
+     the app's own minimum window and the commonest laptop screen. A fixed
+     element resolves a percentage against the viewport too, but in the zoomed
+     coordinate space, so the painted bar lands exactly inside the window at
+     every zoom. Same expression, same reason, on .settings-recovery below. */
+  /* --topbar-max, not --page-max: the chevrons hold ONE position across every
+     route, including the ones that widen their page. See the token's comment. */
+  width: min(var(--topbar-max), calc(100% - 2 * var(--page-gutter)));
+  height: 44px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 2px;
+  z-index: 60;
+  background: none; border: none; box-shadow: none; backdrop-filter: none;
+  pointer-events: none;              /* only the controls take the pointer */
+}
+.topbar > *, .topbar button, .topbar a { pointer-events: auto; }
+/* One of the three pieces the owner kept in the strip, so it is content, not
+   chrome: it reads at full strength for everyone. It used to sit at
+   opacity .7 over --ink-3 (2.69:1 on the white page) and the only lift was a
+   :hover on the right-hand side, which a keyboard or touch user never
+   reaches. --ink-25 is this sheet's token for informational text at 12.5px
+   and measures 5.31:1 on the white page. */
+.tb-settings-label {
+  font-size: 12.5px; color: var(--ink-25); letter-spacing: 0.02em;
+  margin-right: -2px;
+}
+.tb-side { display: flex; align-items: center; gap: var(--s2); min-width: 200px; }
+.tb-right { justify-content: flex-end; }
+.crumb { font-size: 12.5px; color: var(--ink-25); letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 340px; }
+.crumb b { color: var(--ink-2); font-weight: 640; }
+
+.tb-nav { display: flex; gap: var(--s1); }
+.tb-nav a {
+  font-size: 13.5px; font-weight: 550; text-decoration: none;
+  color: var(--ink-25);
+  padding: var(--s2) var(--s3); border-radius: 3px;
+  transition: color var(--dur-2) var(--ease), background var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease);
+}
+.tb-nav a:hover { color: var(--ink-2); }
+/* current page reads as ink weight + a hairline, not a filled pill —
+   the banner has no box for a pill to sit in any more */
+.tb-nav a.active {
+  color: var(--ink);
+  font-weight: 640;
+  box-shadow: inset 0 -1px 0 0 var(--ink-4);
+}
+
+.icon-btn {
+  width: 36px; height: 36px; border-radius: 3px;
+  display: grid; place-items: center;
+  border: 1px solid transparent; background: transparent;
+  color: var(--ink-2); cursor: pointer;
+  transition: background var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease), color var(--dur-2), transform var(--dur-1) var(--ease);
+}
+.icon-btn svg { width: 20px; height: 20px; }
+.icon-btn:hover { background: rgba(255,255,255,calc(0.8 * var(--wa))); color: var(--ink); box-shadow: inset 0 1px 0 rgba(255,255,255,var(--wa)), var(--elev-1); }
+.icon-btn:active { transform: scale(0.93); }
+.icon-btn[disabled] { opacity: 0.42; pointer-events: none; }
+
+/* ---------- stage & view transitions ---------- */
+/* 82px is not spacing — it is the topbar's height plus its offset, and .view
+   below repeats it as an inset. The two must agree, so both stay literal. */
+#stage { position: relative; z-index: 1; height: 100vh; padding-top: 82px; }
+/* A PAGE THAT CANNOT DRAW MUST NOT START MOTION. src/main.js stamps
+   body.frameless while document.visibilityState is hidden (a covered,
+   minimised, or hidden-spawned window — Chromium gives such a page no
+   rendering frames). A CSS transition created in that state can never run,
+   finish, or be cancelled — even Animation.cancel() needs a frame to leave
+   the DocumentTimeline — so each one pins its target element, and through it
+   the target's whole detached tree, in memory until the window is next
+   uncovered. Measured on the packaged build via heap-snapshot retainer
+   paths: one entire retired view per navigation (+15,607 DOM nodes per lap
+   of the ring), held first by the router's own exit transition and, once
+   that was gated, by a settings indicator's width/transform transition.
+   Suppressing CREATION at the root is the only variant that survived
+   measurement. Nothing is lost: nothing is painted while hidden, and every
+   change AFTER the window returns animates exactly as declared. */
+body.frameless *, body.frameless *::before, body.frameless *::after {
+  transition-property: none !important;
+  /* KEYFRAME ANIMATIONS ARE THE SAME BUG WITH A DIFFERENT OBJECT, and the
+     snapshots named one after the transitions were dealt with: a CSSAnimation
+     on a retired comms pane, holding the pane and the whole sheet under it.
+     An animation on a frameless page never advances, so a one-shot never
+     finishes and an infinite one (cueSlide, chatDotPulse, liveBreathe) never
+     could -- either way it stays registered on the DocumentTimeline.
+     COLLAPSING THE DURATION TO 0s WAS TRIED FIRST AND MEASURED: it does not
+     help. The object is created and registered either way, and taking it off
+     the timeline is itself frame work -- lap 1 read 4 retained trees / 340
+     nodes with and without it. So creation has to be prevented, exactly as it
+     is for transitions above.
+     THAT IS SAFE FOR THESE ANIMATIONS SPECIFICALLY, and the check is worth
+     writing down rather than assuming: every entrance animation in this sheet
+     is a `from`-only or 0%->100% shape whose FINAL keyframe is the element's
+     ordinary resting style (chipIn, msgIn, frostIn, nodeTextIn, nodeIn all end
+     at opacity 1 / no transform, which is what the base rule already says), so
+     an element that never animates lands exactly where the finished animation
+     would have left it. The rest (chatDotPulse, cueSlide, liveBreathe) are
+     infinite and have no final state to lose. If a future animation ENDS
+     somewhere its base rule does not, it must not rely on this guard. */
+  animation-name: none !important;
+}
+
+.view {
+  position: absolute; inset: 82px 0 0 0;
+  overflow: hidden;
+  opacity: 1; transform: none;
+  transition: opacity var(--dur-3) var(--ease), transform var(--dur-3) var(--ease);
+}
+.view.enter { opacity: 0; transform: translateY(14px) scale(0.992); }
+.view.exit  { opacity: 0; transform: translateY(-10px) scale(0.995); pointer-events: none; }
+/* 40px bottom gutter is 4px off every step in both directions, so it stays
+   literal rather than being forced to 24px or 48px */
+/* side padding = the page gutter, not a wider clamp: below ~1336px the old
+   48px inset left the content 32px shy of the topbar's edge */
+.view-pad { height: 100%; overflow-y: auto; padding: var(--s2) var(--page-gutter) 40px; }
+
+/* ============================================================
+   HOME
+   ============================================================ */
+.home {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 1fr minmax(380px, 500px);
+  align-items: center;
+  gap: 2.5vw;
+  padding: 0 clamp(20px, 4vw, 60px);
+}
+@media (max-width: 900px) { .home { grid-template-columns: 1fr; } .home-feed-wrap { display: none; } }
+
+.home-ring-wrap { display: grid; place-items: center; }
+
+/* uptime ring */
+.uring { position: relative; }
+.uring svg { display: block; overflow: visible; }
+/* professional-pass parity (shared by Home's hero ring and the Agent
+   Controls runtime dial): this used to be a permanent blurred halo painted
+   under the arc — the loudest light on either surface. Mirrors the
+   .link-under precedent: an unblurred depth stroke, not radiated light.
+   Track opacity lifted slightly so the unlit ring still reads at full size. */
+.uring .track { stroke: var(--ring-track); }
+.uring .arc-glow { filter: none; opacity: calc(0.1 * var(--glow)); }
+.uring-center {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+}
+.uring-inner { text-align: center; }
+.uring-digits {
+  display: flex; align-items: baseline; justify-content: center;
+  font-weight: 640;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;      /* optical, on numerals — not the caps role */
+}
+.uring-digits .seg { display: flex; flex-direction: column; align-items: center; }
+.uring-digits .n { font-size: clamp(34px, 4.6vw, 58px); color: var(--ink); line-height: 1.05; }
+.uring-digits .colon { font-size: clamp(26px, 3.6vw, 44px); color: var(--ink-4); padding: 0 clamp(4px, 0.7vw, 10px); transform: translateY(-4px); animation: colonPulse 2s ease-in-out infinite; }
+@keyframes colonPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+.uring-digits .u {
+  margin-top: var(--s2);
+  font-size: 11px; font-weight: 550; letter-spacing: var(--track-caps); text-transform: uppercase;
+  color: var(--ink-25);
+}
+.uring-caption {
+  margin-top: var(--s4);
+  /* 0.3em is deliberate display tracking on a 12.5px line, not the 11px
+     micro-label role — the spacing IS the treatment here, so it keeps its
+     own value rather than collapsing to --track-caps */
+  font-size: 12.5px; letter-spacing: 0.3em; text-transform: uppercase;
+  color: var(--ink-25); font-weight: 550;
+  text-align: center;
+}
+/* compact rings live at 180–190px: 11px is the floor for a caps micro-label,
+   and dropping to the house caps tracking keeps "RUNTIME" (~57px at
+   --track-caps) well inside the ~144px chord available at that height, so
+   nothing escapes the disc */
+.uring.compact .uring-caption { margin-top: var(--s2); font-size: 11px; letter-spacing: var(--track-caps); }
+.uring.compact .uring-digits .u { display: none; }
+/* compact rings live inside ~370px rails — digits must scale to the ring,
+   not the viewport, or they escape the panel */
+.uring.compact .uring-digits .n { font-size: 27px; }
+.uring.compact .uring-digits .colon { font-size: 19px; padding: 0 3px; transform: translateY(-2px); }
+.uring-sub { margin-top: var(--s2); font-size: 12.5px; color: var(--ink-25); text-align: center; font-family: var(--font-mono); }
+
+/* greyed context feed, flanked by giant quiet braces */
+.home-feed-wrap {
+  position: relative;
+  /* stretch, not center: it is what makes `align-self: stretch` on the braces
+     resolve to the feed's own height. The 420px min-height that used to sit
+     here fought exactly that -- it held the row open to 420 around a 323px
+     feed, so a stretched brace overhung the text it bracketed by ~97px. The
+     row's height is set by the 520px ring opposite anyway, so nothing below
+     moves; the feed keeps its own max-height for the chat morph. */
+  display: flex; align-items: stretch; gap: var(--s1);
+}
+/* A drawn bracket, not a typeface glyph. The brace has exactly one job --
+   span the block beside it -- and a glyph cannot: its height is welded to
+   font-size, which also sets its width.
+   It is five pieces, not one stretched path, and that is the whole trick. A
+   single path scaled with preserveAspectRatio="none" stretches its CURLS too:
+   at 323px tall a 13-unit hook becomes ~21px vertically while staying ~5px
+   across, so the hooks smear into long soft bends and the bracket stops
+   looking drawn. Here the three curl pieces are fixed-size SVG at 1:1 px and
+   only the two arms between them flex, so every brace from 190px to 460px is
+   the same crisp drawing with a longer or shorter reach. The arms are a
+   border, which lands on the pixel grid better than a stroked line does. */
+.brace {
+  display: flex; flex-direction: column; align-items: stretch;
+  width: 22px; flex: none; align-self: stretch;
+  /* themed: the fixed dark ink was invisible on the black theme, where the
+     braces have to be drawn in LIGHT to read against #0d0f12 at all */
+  color: var(--brace);
+  user-select: none;
+  /* the mirror for '}' rides in a custom property so the arrival pulse and
+     the chat-open collapse can multiply through it instead of clobbering it */
+  --bx: 1;
+  transform: scaleX(var(--bx));
+  transition: opacity var(--dur-3) var(--ease), transform var(--dur-3) var(--ease);
+}
+.brace.is-right { --bx: -1; }
+/* the three curl pieces hold their drawn size; only the arms flex.
+   Both selectors are written at the same specificity on purpose -- as
+   `.brace > svg` vs `.brace-arm` the first won, the arms sat at their 10px
+   intrinsic viewBox height, and the whole bracket drew 114px tall inside a
+   323px box. */
+.brace > svg { display: block; flex: none; overflow: visible; }
+.brace > svg.brace-arm { flex: 1 1 0; }
+/* The arm is a stroked line, not a border, and that is deliberate: a border
+   is rounded to whole device pixels, so a 1.5px one painted at 1px next to
+   the caps' 1.5px stroke made the bracket visibly thin out between its
+   curls. vector-effect="non-scaling-stroke" holds the line at exactly the
+   caps' weight however far the viewBox stretches, and x=8 in a 22-wide box
+   is where every cap path parks its own stroke -- the join has to land
+   exactly or the bracket shows a step at each of its four seams. */
+.brace-arm { min-height: 0; width: 22px; }
+/* Every piece overlaps its neighbour by 1px. The four seams are joins between
+   separately-rasterised boxes, so a fractional layout position can leave a
+   sub-pixel light row across the bracket; 1px of overlap in solid currentColor
+   is invisible and makes the gap impossible. The arms flex, so the 4px this
+   takes off the total comes back out of them and the bracket still spans the
+   feed exactly. */
+.brace > svg + svg,
+.brace > svg + .brace-arm,
+.brace > .brace-arm + svg { margin-top: -1px; }
+/* The base surface for the thread between the braces. Everything that made
+   this a CLICKABLE MORPH — cursor, hover tint, the height-tweened as-chat
+   card, the .feed-* line/ticker family — is retired with the ticker itself:
+   the thread is the resting state now (home.css owns its geometry), so a
+   pointer cursor here would promise an interaction that no longer exists. */
+.home-feed {
+  flex: 1;
+  padding: var(--s5);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  position: relative;
+}
+
+/* ============================================================
+   generic chat UI (used by feed morph + node chips + agent page)
+   ============================================================ */
+.chat { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.chat-head {
+  display: flex; align-items: center; gap: var(--s2);
+  padding-bottom: var(--s3); margin-bottom: var(--s2);
+  border-bottom: 1px solid var(--line);
+}
+.chat-head .role-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.chat-head .t { font-size: 13.5px; font-weight: 640; color: var(--ink); }
+.chat-head .s { font-size: 12.5px; color: var(--ink-25); font-family: var(--font-mono); }
+.chat-head .spacer { flex: 1; }
+.chat-close {
+  width: 26px; height: 26px; border-radius: 3px; border: none; cursor: pointer;
+  display: grid; place-items: center; color: var(--ink-25); background: transparent;
+  transition: background var(--dur-2), color var(--dur-2);
+}
+.chat-close:hover { background: rgba(14,23,38,0.06); color: var(--ink); }
+.chat-close svg { width: 14px; height: 14px; }
+/* the 2px left padding is a hairline nudge that keeps content off the edge;
+   the RIGHT side clears the scrollbar. 2px on both sides was written for an
+   overlay scrollbar this window does not use: measured on the packaged build,
+   the thumb rides over the right edge of every own-message bubble, which is
+   exactly the touch the padding claimed to prevent. */
+.chat-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--s2); padding: var(--s1) var(--s2) var(--s1) 2px; }
+.chat-time-divider {
+  align-self: center;
+  padding: 2px 0;
+  color: var(--ink-4);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 620;
+  line-height: 1;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+.chat-typing {
+  align-self: flex-start;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-height: 22px;
+  padding: 2px var(--s1);
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.chat-typing-name {
+  max-width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-typing-sep { opacity: 0.58; }
+.chat-typing-dots { display: inline-flex; gap: 2px; min-width: 20px; }
+.chat-typing-dots i {
+  font-style: normal;
+  opacity: 0.24;
+  animation: chatDotPulse 1.12s ease-in-out infinite;
+}
+.chat-typing-dots i:nth-child(2) { animation-delay: 0.16s; }
+.chat-typing-dots i:nth-child(3) { animation-delay: 0.32s; }
+@keyframes chatDotPulse {
+  0%, 68%, 100% { opacity: 0.24; }
+  30% { opacity: 0.78; }
+}
+body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.5; }
+@media (prefers-reduced-motion: reduce) {
+  .chat-typing-dots i { animation: none !important; opacity: 0.5; }
+}
+.msg {
+  max-width: 88%;
+  padding: var(--s2) var(--s3);
+  border-radius: 3px;
+  font-size: 13px; line-height: 1.45;
+  animation: msgIn var(--dur-3) var(--ease-spring);
+}
+@keyframes msgIn { from { opacity: 0; transform: translateY(8px) scale(0.96); } }
+.msg.them {
+  align-self: flex-start;
+  background: rgba(255,255,255,calc(0.72 * var(--wa)));
+  border: 1px solid rgba(255,255,255,calc(0.9 * var(--wa)));
+  /* bespoke and deliberately below --elev-1: a chat bubble sits ON the log,
+     it does not float above it */
+  box-shadow: 0 2px 8px -4px rgba(var(--shadow-rgb), calc(0.12 * var(--shadow-k)));
+  color: var(--ink-2);
+}
+.msg.me {
+  align-self: flex-end;
+  color: #fff;
+  background: linear-gradient(160deg, var(--bub-me-1), var(--bub-me-2));
+  box-shadow: 0 6px 18px -8px rgba(var(--shadow-rgb), calc(0.5 * var(--shadow-k)));
+}
+.msg.note {
+  /* THE PRODUCT'S OWN VOICE, and it needed a rule of its own before it could
+     have a class of its own. Refusals, queue notices and "nothing was stopped"
+     used to be appended with the ROLE KEY as their class -- `msg helper`, for
+     which nothing anywhere had a rule -- so they painted as bare text across
+     the whole width of the log, beside real bubbles. They are not the agent
+     speaking and must not be dressed as it, so they read as an aside: centred,
+     quieter, no tail, no name. */
+  align-self: center;
+  max-width: 94%;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-25);
+  background: rgba(255,255,255,calc(0.34 * var(--wa)));
+  border: 1px dashed rgba(255,255,255,calc(0.7 * var(--wa)));
+  box-shadow: none;
+}
+.msg.context {
+  /* WORDS THE PRODUCT SENT FROM YOUR SIDE, dressed as neither of you. The
+     tree's address block rides with a start as its own transcript entry
+     (src/views/computers.js), and it painted as a second dark YOU bubble —
+     three hundred pixels of plumbing wearing the person's own colour, the
+     loudest thing in the whole conversation. Measured on a staged packaged
+     build, 2026-08-20. It stays on the sent side and stays whole — nothing a
+     session was given is hidden — but in the aside family's quiet dress, so
+     the person's actual words are the only dark bubbles on their side. */
+  align-self: flex-end;
+  max-width: 88%;
+  font-size: 12px;
+  color: var(--ink-25);
+  background: rgba(255,255,255,calc(0.34 * var(--wa)));
+  border: 1px dashed rgba(255,255,255,calc(0.7 * var(--wa)));
+  box-shadow: none;
+}
+.msg.context .who { color: var(--ink-25); }
+/* FOLDED SHUT, NOT SHORTENED. Quiet was only half the fix: this block still
+   drew 298px in a 371px log, so a first-timer's first screen of their first
+   conversation was internal plumbing. It is now a disclosure -- the same
+   gesture the action rows use two inches down the same panel -- and the entry
+   inside it is untouched and whole. See addContext in src/components.js. */
+.chat-context { padding: 0; overflow: hidden; }
+.chat-context-head {
+  display: flex; align-items: baseline; gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  cursor: pointer;
+  list-style: none;
+  min-width: 0;
+}
+.chat-context-head::-webkit-details-marker { display: none; }
+/* The closed line names WHO on its own row and says WHAT and HOW MUCH beneath,
+   because at this column width the two together do not fit on one and the size
+   is the half that earns the press. */
+.chat-context-line { min-width: 0; }
+.chat-context-say { display: block; color: var(--ink-25); }
+.chat-context-body {
+  padding: 0 var(--s3) var(--s2);
+  /* A tall block inside a scrolling log is fine -- it is the person's own
+     choice to open it -- but it must not push the log sideways. */
+  overflow-wrap: anywhere;
+}
+/* ---- WHAT THE AGENT DID, IN THE SAME LOG AS WHAT IT SAID ----
+   One collapsed line per action, opened by a press. It is deliberately NOT a
+   bubble: a bubble means somebody spoke, and nobody spoke here. It reads as a
+   quiet rail down the log between the things that were said, which is the
+   shape an editor uses for the same information. */
+.chat-action {
+  align-self: stretch;
+  max-width: 100%;
+  /* flex: none IS THE ROW'S EXISTENCE, not tidiness. The log is a column flex
+     container, and `overflow: hidden` below turns this item's automatic
+     minimum size to zero — so the moment a conversation is tall enough to
+     scroll (every real one), the negative free space is taken out of these
+     rows and they paint at ONE PIXEL. Measured on a staged packaged build,
+     2026-08-20: a four-turn session held three action rows and every one drew
+     h=1 — the agent's work invisible, and pressing the sliver opened nothing
+     a person could see. The .msg rows never shrank only because their
+     overflow is visible, which is why nobody saw this in a short demo. */
+  flex: none;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,calc(0.7 * var(--wa)));
+  border-left: 2px solid var(--ink-25);
+  background: rgba(255,255,255,calc(0.4 * var(--wa)));
+  font-size: 12px;
+  overflow: hidden;
+}
+/* A RUN OF STEPS READS AS ONE PIECE OF WORK. Consecutive action rows close up
+   (8px log gap minus 4) so five commands look like one block of doing, the way
+   an editor draws them, while a row that follows words keeps the full gap. */
+.chat-action + .chat-action { margin-top: calc(-1 * var(--s1)); }
+/* A NEW ASK IS A NEW PARAGRAPH. Everything in the log sat at the same 8px
+   apart, so a person could not see where one exchange ended and the next
+   began. Your next message stands off from the reply or the work above it;
+   inside a turn nothing moves. */
+.msg.them + .msg.me, .chat-action + .msg.me { margin-top: var(--s2); }
+.chat-action-head {
+  display: flex; align-items: baseline; gap: var(--s2);
+  padding: 5px var(--s2);
+  cursor: pointer;
+  list-style: none;
+  /* min-width:0 on the flex parent as well, or the detail cannot shrink below
+     its longest word and the state word is pushed out of the row. */
+  min-width: 0;
+}
+.chat-action-head::-webkit-details-marker { display: none; }
+.chat-action.is-bare .chat-action-head { cursor: default; }
+/* The disclosure mark: drawn when the row has something to open, blank when
+   it does not (visibility, not display, so the columns stay aligned). It is
+   the one visual difference between a row that is a control and a row that is
+   a label — see makeAction in src/components.js. */
+/* align-self: center, because the head aligns its children on the text
+   baseline and a lone SVG has none — left to baseline the mark rides low. */
+.chat-action-mark { flex: none; width: 9px; color: var(--ink-4); display: inline-flex; align-items: center; align-self: center; }
+.chat-action-mark svg { width: 8px; height: 8px; transition: transform var(--dur-2) var(--ease); }
+.chat-action[open] .chat-action-mark svg { transform: rotate(90deg); }
+.chat-action.is-bare .chat-action-mark { visibility: hidden; }
+.chat-action-tool {
+  flex: none;
+  font-size: 10.5px; letter-spacing: var(--track-caps); text-transform: uppercase;
+  font-weight: 640; color: var(--ink-25);
+}
+.chat-action-detail {
+  /* The command or the path, on ONE line: a build script can be thousands of
+     characters and this row is a summary, not the output. The whole of it is
+     one press away, in the body below. */
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* --font-mono, not --mono: the shorthand token never existed (the same
+     silent-invalid defect documented twice above on the projection rules).
+     Here the var() FALLBACK caught it, so the command rendered in
+     ui-monospace — a different mono face from every other mono surface in
+     the app — instead of inheriting. Measured live 2026-08-20. */
+  font-family: var(--font-mono);
+  color: var(--ink-2);
+}
+.chat-action-state { flex: none; font-size: 11px; color: var(--ink-25); }
+.chat-action[data-action-state="undone"] { border-left-color: var(--bad, #d2544b); }
+/* A REFUSAL SHARES THE PERMISSION COLOUR, NOT THE FAILURE ONE. The command was
+   declined before it ran, so nothing broke and red would send a person hunting
+   a fault that does not exist; what it needs is the same attention "waiting for
+   you" needs, because both are about what this computer will allow. See
+   ACTION_STATE_WORDS in src/fleet-tree-copy.js. */
+.chat-action[data-action-state="refused"] { border-left-color: var(--warn, #d69a2c); }
+/* And an outcome nobody measured keeps the neutral edge: green would claim it
+   went well, red would claim it broke, and neither was observed. */
+.chat-action[data-action-state="unknown"] { border-left-color: var(--ink-25); }
+.chat-action[data-action-state="waiting"] { border-left-color: var(--warn, #d69a2c); }
+.chat-action[data-action-state="working"] { border-left-color: var(--ok, #35eab7); }
+.chat-action-body {
+  margin: 0;
+  padding: 0 var(--s2) var(--s2);
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap; word-break: break-word;
+  /* --font-mono, not --mono: see .chat-action-detail directly above. */
+  font-family: var(--font-mono);
+  font-size: 11.5px; line-height: 1.4;
+  color: var(--ink-25);
+}
+.chat-action.is-bare .chat-action-body { display: none; }
+.msg .who { display: block; font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase; font-weight: 640; color: var(--ink-25); margin-bottom: var(--s1); }
+/* NOT scaled by --wa. --wa is the multiplier for white glass laid over the
+   page sheet; this label sits on the own-message bubble, which is dark on
+   every theme. Riding --wa resolved it to 5% white on black (~1.1:1 against
+   its own bubble — the sender name was simply absent) and 41% on tan. */
+.msg.me .who { color: rgba(255,255,255,0.66); }
+.chat-input {
+  margin-top: var(--s2);
+  display: flex; gap: var(--s2); align-items: center; flex: none;
+}
+.chat-input input {
+  /* min-width:0 IS THE WHOLE FIX, AND IT IS NOT DECORATION.
+     A flex item's default `min-width: auto` is its MIN-CONTENT width, so this
+     field refuses to shrink below the widest word of its placeholder
+     ("Message <a long agent name>...") no matter what `flex: 1` says. In the
+     compact card -- the chat this product draws inside a tree node, which is
+     narrower than the page composer this rule was written for -- the row then
+     overflows and the Send button is pushed past the card's clipped edge:
+     present in the DOM, measured at zero reachable area, unpressable. Measured
+     on a staged packaged build: 0/45 hit points on .chat-send landed on the
+     button before this line, 45/45 after. */
+  flex: 1; min-width: 0; height: 38px;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,calc(0.9 * var(--wa)));
+  background: rgba(255,255,255,calc(0.75 * var(--wa)));
+  box-shadow: inset 0 1px 3px rgba(var(--shadow-rgb), calc(0.05 * var(--shadow-k)));
+  padding: 0 var(--s3);
+  font-family: var(--font-ui); font-size: 13.5px; color: var(--ink);
+  outline: none;
+  transition: box-shadow var(--dur-2) var(--ease);
+}
+.chat-input input:focus { box-shadow: inset 0 1px 3px rgba(var(--shadow-rgb), calc(0.05 * var(--shadow-k))), 0 0 0 3px color-mix(in oklab, var(--c-coordinator) 20%, transparent); }
+.chat-input input::placeholder { color: var(--ink-3); }
+.chat-send {
+  height: 38px; width: 38px; flex: none;
+  border-radius: 3px; border: none; cursor: pointer;
+  display: grid; place-items: center;
+  color: #fff;
+  background: linear-gradient(160deg, var(--c-coordinator), var(--accent-2));
+  /* neutral lift, no aura (professional-pass — this button lives inside
+     every context-box chat on the graph) */
+  /* accent-tinted on purpose (it is the one send affordance), so it is not
+     an --elev-* step even though it shares their geometry */
+  box-shadow: 0 6px 16px -6px color-mix(in oklab, var(--c-coordinator) 50%, transparent);
+  transition: transform var(--dur-1) var(--ease), box-shadow var(--dur-2);
+}
+.chat-send:hover { transform: translateY(-1px); }
+.chat-send:active { transform: scale(0.92); }
+.chat-send svg { width: 17px; height: 17px; }
+
+/* The picker buttons beside the composer: quiet hairline squares, the send
+   arrow keeps the accent. */
+.chat-tool {
+  height: 38px; width: 38px; flex: none;
+  border-radius: 3px;
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--ink-3);
+  display: grid; place-items: center;
+  cursor: pointer;
+  transition: color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
+}
+.chat-tool:hover { color: var(--ink); border-color: var(--ink-3); }
+.chat-tool svg { width: 17px; height: 17px; }
+.chat-attach-strip {
+  flex: none;
+  margin-top: var(--s2);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+/* A CHAT THAT CANNOT BE SPOKEN TO, AND SAYS SO WHERE THE WORDS WOULD GO.
+
+   The composer is not removed, because the actions button lives in it and the
+   things a person can still do to an agent that never started -- add one under
+   it, move it, copy its brief -- are all in there. The message box and the
+   send button are disabled instead, and the reason sits directly above them.
+
+   The `.board-page` copy of `.chat-nosend` in src/board.css belongs to the
+   fleet rail's read-only chat, which has no composer at all; this one is the
+   general rule and applies wherever a chat is mounted, including the compact
+   card floating over the canvas. */
+.chat-nosend {
+  flex: none;
+  margin-top: var(--s2);
+  padding-top: var(--s2);
+  border-top: 1px solid var(--line);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.chat-cannot-send .chat-input input {
+  cursor: default;
+  color: var(--ink-3);
+  background: color-mix(in oklab, var(--line) 24%, transparent);
+}
+
+/* THE STOP FACE OF THE SEND BUTTON. One physical button, two honest faces:
+   the arrow sends; while the agent is replying and the input is empty, the
+   square stops. The moment the person types, the arrow is back — their
+   words outrank the interrupt. */
+.chat-send .chat-send-halt { display: none; }
+.chat-send.is-stop .chat-send-go { display: none; }
+.chat-send.is-stop .chat-send-halt { display: block; }
+.chat-send.is-stop {
+  background: linear-gradient(160deg, color-mix(in oklab, var(--c-failed, #c24b4b) 82%, var(--ink)), color-mix(in oklab, var(--c-failed, #c24b4b) 55%, var(--ink)));
+  box-shadow: 0 6px 16px -6px color-mix(in oklab, var(--c-failed, #c24b4b) 50%, transparent);
+}
+.chat-send[disabled] { opacity: 0.55; cursor: default; transform: none; }
+
+/* THE WAITING WORDS, PREVIEWED. A message typed while the agent is replying
+   queues; each row shows the words (the person's own — textContent only)
+   with the way out beside them. */
+.chat-queue-strip {
+  flex: none;
+  margin-top: var(--s2);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* `[hidden] { display: none }` IS THE USER AGENT'S RULE, AND THE ONE ABOVE
+   BEATS IT. buildChat hides this strip with `queueStrip.hidden = ...` whenever
+   nothing is queued, and an author `display` on the same element outranks the
+   user agent, so the element stayed in the layout and in the tab order while
+   the code believed it was gone -- carrying its own top margin under every
+   composer that has a queue. Named rather than a sheet-wide
+   `[hidden]{display:none !important}`, which is the convention src/subscribe.css
+   already set here and its note explains: a blanket !important is a rule the
+   next author cannot opt out of. */
+.chat-queue-strip[hidden] { display: none; }
+.chat-queue-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px dashed var(--line-2);
+  border-radius: 3px;
+}
+.chat-queue-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.chat-queue-row::before {
+  content: 'waiting';
+  flex: none;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.chat-queue-cancel {
+  flex: none;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink-3);
+  font: 600 11.5px/1 var(--font-ui);
+  cursor: pointer;
+}
+.chat-queue-cancel:hover { color: var(--ink); border-color: var(--ink-3); }
+
+/* THE ACTIONS POPUP: a quick-pick anchored over the composer, VS Code's
+   shape — filter on top, rows below, one status line at the bottom. The
+   .chat is its positioning context; it never leaves the chat's box. */
+.chat { position: relative; }
+.chat-actions-pop {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 54px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(340px, 70%);
+  padding: 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  background: var(--sheet);
+  box-shadow: var(--elev-3, 0 18px 40px -18px rgba(0, 0, 0, 0.55));
+}
+.chat-actions-title {
+  font: 640 11.5px/1.2 var(--font-ui);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  padding: 2px 3px 0;
+}
+.chat-actions-filter {
+  flex: none;
+  height: 30px;
+  border-radius: 3px;
+  border: 1px solid var(--line-2);
+  background: transparent;
+  padding: 0 9px;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  color: var(--ink);
+  outline: none;
+}
+.chat-actions-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.chat-actions-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink);
+  font: 600 12.5px/1.3 var(--font-ui);
+  cursor: pointer;
+}
+.chat-actions-row:hover:not([disabled]) { background: color-mix(in oklab, var(--ink) 6%, transparent); }
+.chat-actions-row[disabled] { color: var(--ink-3); cursor: default; }
+.chat-actions-row.is-current { border-color: color-mix(in oklab, var(--c-coordinator) 42%, var(--line-2)); }
+.chat-actions-row.chat-actions-back { color: var(--ink-2); font-weight: 640; }
+/* THE CURSOR. The row the keyboard is on, whether or not the mouse is over
+   it: the filter keeps focus and this is the only mark of where Enter would
+   land, so it has to read even on a disabled row, which is why it is a
+   background and a border rather than a colour on the text. */
+.chat-actions-row.is-active {
+  background: color-mix(in oklab, var(--c-coordinator, var(--ink)) 12%, transparent);
+  border-color: color-mix(in oklab, var(--c-coordinator, var(--ink)) 40%, var(--line-2));
+}
+.chat-actions-row[disabled].is-active { background: color-mix(in oklab, var(--ink) 6%, transparent); }
+/* A heading between groups of rows. Not a row: no border, no hover, not
+   focusable, and the arrow keys walk past it. The one before the group that
+   ends or forgets something sits under a rule so the eye lands on the
+   boundary before the hand does. */
+.chat-actions-group {
+  padding: 8px 9px 2px;
+  font: 640 10.5px/1.2 var(--font-ui);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.chat-actions-group + .chat-actions-row { margin-top: 0; }
+.chat-actions-group:not(:first-child) { border-top: 1px solid var(--line); margin-top: 4px; }
+.chat-actions-hint {
+  font: 400 11.5px/1.35 var(--font-ui);
+  color: var(--ink-3);
+}
+/* The reason a row cannot be pressed, in place of its hint. Italic so it reads
+   as a state and not as a description of what the row would do. */
+.chat-actions-why { font-style: italic; }
+.chat-actions-out {
+  flex: none;
+  min-height: 0;
+  font: 400 12px/1.4 var(--font-ui);
+  color: var(--ink-2);
+}
+.chat-actions-out:empty { display: none; }
+
+/* ============================================================
+   COMPUTERS
+   ============================================================ */
+/* adopt the shared page column: gutters live OUTSIDE the box (width + auto
+   margins), never as inner padding, so box edge == content edge == topbar */
+.computers { height: 100%; display: flex; flex-direction: column; padding: 0 0 20px; width: min(var(--page-max), calc(100% - 2 * var(--page-gutter))); margin-inline: auto; gap: var(--s3); }
+
+/* THE TREE IS THE ONE PAGE WHERE WIDTH IS INFORMATION.
+   1240px is the right measure for every other surface here, because every
+   other surface is prose or cards and prose stops being readable past about
+   that. Page 2 is a canvas: width is how many siblings fit in a rank before
+   the layout has to cull them, how much label each one gets, and whether the
+   placer can seat a monitoring block beside its own node instead of
+   withholding it.
+   Measured on this build before the change: the canvas was 827px wide at 1280
+   and STILL 827px wide at 1920 — the same tree, with 342px of bare sheet down
+   each side and 4 of the 9 monitors withheld for want of room. So page 2, and
+   page 2 only, takes a wider column. The token is redefined on the route
+   rather than on :root, so the topbar's arrows travel with the page edge and
+   nothing on any other route moves.
+   The RAIL is deliberately left at its 400px cap: it holds counts and
+   sentences, which do not get better past a measure. Every pixel the wider
+   window buys goes to the canvas, which is the half that was starved. */
+body[data-route="computers"] { --page-max: 1680px; }
+
+.tabs { display: flex; gap: var(--s2); align-items: center; flex: none; padding: 2px; }
+.tab {
+  position: relative;
+  padding: var(--s2) var(--s4);
+  border-radius: 3px;
+  font-size: 13.5px; font-weight: 550; color: var(--ink-25);
+  background: rgba(255,255,255,calc(0.42 * var(--wa)));
+  border: 1px solid rgba(255,255,255,calc(0.7 * var(--wa)));
+  cursor: pointer;
+  transition: all var(--dur-2) var(--ease);
+  display: flex; align-items: center; gap: var(--s2);
+  backdrop-filter: blur(12px) saturate(1.6);
+  -webkit-backdrop-filter: blur(12px) saturate(1.6);
+}
+.tab:hover { color: var(--ink-2); background: rgba(255,255,255,calc(0.62 * var(--wa))); }
+.tab.active {
+  color: var(--ink);
+  background: rgba(255,255,255,calc(0.8 * var(--wa)));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,var(--wa)), var(--elev-2);
+}
+.tab .ip { font-size: 12.5px; color: var(--ink-3); font-family: var(--font-mono); font-weight: 400; }
+.tab.add { padding: var(--s2) var(--s3); font-size: 16px; color: var(--ink-25); }
+
+/* THE PANEL GROWS WITH THE WINDOW, BECAUSE THE WORDS ARE WHY IT WAS WIDENED.
+ *
+ * `1fr minmax(320px, 400px)` gave every pixel past 1024 to the canvas and none
+ * to the transcript, so the chat measured the SAME on a 1920 screen as on a
+ * 1024 one -- driven and measured 2026-08-20: log clientWidth 343px at all
+ * three widths. A person who drags the window wider in order to read gets more
+ * empty canvas and the same cramped column, and a command still ellipsises with
+ * 900px of screen going spare. That is the product declining to use the space
+ * it was given.
+ *
+ * WHERE 600 COMES FROM, and it is a reading rather than a preference. The
+ * bubbles are 13px at 88% of the log, and the same driven run measured what
+ * that yields: a 706-character context aside wrapped to 15 lines in a 343px
+ * log -- about 43 characters a line, BELOW the 45-75 band that typography has
+ * agreed on for a century, which is why it reads as cramped rather than merely
+ * narrow. Scaling that measurement, a 543px log lands at ~68 characters, the
+ * middle of the band. The rail carries ~57px of its own padding around the log,
+ * so the rail wants ~600px.
+ *
+ * AND IT IS A CEILING, NOT A FRACTION. An unbounded fraction would put a
+ * 1200px column on a 2560px screen, which reads WORSE: past ~75 characters the
+ * eye loses the start of the next line. The floor is untouched at 400px, so
+ * nothing about 1024 changes -- clamp's lower bound wins there (34vw is 348 at
+ * 1024) and the canvas keeps every pixel it has today. */
+.comp-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr minmax(320px, clamp(400px, 34vw, 600px)); gap: var(--s3); }
+
+/* A WINDOW CAN BE DRAGGED SHORTER THAN THE TREE NEEDS AT ANY WIDTH, not only
+   at the stacked breakpoint below. Measured on one window driven through a
+   resize ladder: at 1102x381 the canvas came to 659x227, and three tiers
+   cannot clear each other in 227px even with every circle shrunk to its 34px
+   floor — six overlapping pairs, which is the exact defect the vertical
+   fitter exists to prevent, one drag of the window edge below where shrinking
+   can still win. Below the floor the only honest answer is more height.
+   So the page asks for the height it needs and scrolls for the rest, which is
+   the cure this file already chose for the stacked rows. `auto` is inert
+   whenever the page fits, which is every ordinary window: at 900px tall the
+   body is 745px against a 520px ask, and no scrollbar appears. */
+.comp-body { min-height: 520px; }
+.computers { overflow-y: auto; }
+
+/* THE STACK STARTS BELOW 1024, NOT AT 1080, because 1024 is the owner's
+   stated floor for this page and the stack at 1024x800 put the ENTIRE rail
+   below the fold — proven on the packaged build (tools/tree-panel-audit-drive
+   .mjs shot 10-details-1024, 2026-08-20): a person at the minimum width saw
+   only the canvas, with no cue that the whole right panel existed one scroll
+   away. The rail already has a narrow dress (board.css caps it at 320px and
+   tightens box padding under 1180px), so side-by-side holds the full 1024-1920
+   range: at 1024 the canvas keeps ~650px beside a 320px rail, and the tree's
+   vertical fitter (src/tree-layout.js) and zoom own making the tree fit it.
+   Below 1024 the window is narrower than the page's own floor, and there the
+   stack-and-scroll cure this block has always applied is still the honest
+   answer. */
+@media (max-width: 1023px) {
+  /* 340px was not a minimum, it was the height at which this page breaks.
+     Stacked, the canvas measured 339px at 1024x768 and the tree drew its
+     three tiers 85px apart while carrying 114px of circle: six overlapping
+     pairs, three names painted underneath a neighbouring bubble. The layout
+     now shrinks circles to fit a short canvas rather than overlapping them
+     (src/tree-layout.js), but shrinking a three-tier tree to its 34px floor
+     to survive 339px is a worse answer than giving it the ~150px of pitch it
+     wants and letting the page scroll — which this breakpoint already
+     enables, and which the rail below has always relied on. */
+  .comp-body { grid-template-columns: 1fr; grid-template-rows: minmax(560px, 1fr) minmax(440px, auto); }
+  /* The stacked rows demand ≥780px while the viewports this breakpoint serves
+     can be 768px tall, and every ancestor clips — measured: 158px of rail
+     (half of TASKS, all of LEGEND) past the viewport with zero scrollable
+     elements anywhere on the page. Same cure as .agentv: turn the invisible
+     clip into a reachable scroll. Inert whenever the rows fit, and scoped to
+     this breakpoint so the side-by-side layout keeps its exact-fit column. */
+  .computers { overflow-y: auto; }
+  .rail { min-height: 440px; }
+}
+
+/* THE EMPTY STATE IS THE SHIPPING STATE, AND IT SHIPPED AS TWO VOIDS.
+   public/data/fleet.json ships ok:false, so this — not the tree — is what a
+   fresh install renders here. The words were already right (see
+   showProjectionUnavailable in src/views/computers.js); the SHAPE was not. The
+   two cards are sized to hold a tree and a live statistics rail, so at
+   1920x1080 a person with no fleet yet got an 860x980 card holding three
+   centred sentences and a 400x980 card holding two, and roughly 1500 square
+   centimetres of blank sheet between them. Emptiness drawn at that scale reads
+   as a page that failed to load rather than one that is honestly waiting.
+   The cards now take the height their content needs — enough for the
+   explanation and its one action, never the whole window — and the sheet below
+   them is plainly sheet. Nothing is hidden: the rail keeps its own sentence
+   about the projection and the organisation store, which is a separate fact
+   from the fleet's and is what tools/agent-route-reachability.mjs reads. */
+/* Height on the ROW, never `align-items: start` on the items. The explanation
+   is `position: absolute; inset: 0` inside the canvas slot — it has to be, it
+   occupies the slot the tree would — so a card asked to size to its content
+   measures zero and collapses to its own top border. Verified by eye at
+   1920x1080: the first attempt at this rule erased the whole empty state. */
+.computers[data-projection-state="unavailable"] .comp-body {
+  grid-template-rows: minmax(300px, min(52vh, 460px));
+  /* align-CONTENT centres the row track; align-items would have sized the
+     items instead, which is the collapse described above. Centred, the sheet
+     left over reads as margin around a statement rather than as the bottom
+     half of a page that failed to draw. */
+  align-content: center;
+}
+@media (max-width: 1023px) {
+  .computers[data-projection-state="unavailable"] .comp-body {
+    grid-template-rows: minmax(280px, auto) minmax(200px, auto);
+  }
+  .computers[data-projection-state="unavailable"] .rail { min-height: 200px; }
+}
+
+/* --- graph canvas --- */
+.graph-wrap { position: relative; min-height: 0; border-radius: var(--r-lg); overflow: hidden; }
+.graph-canvas { position: absolute; inset: 0; }
+.graph-canvas svg.links { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* professional-pass: the "under" stroke used to read as a colored halo
+   (wide + translucent = a glow, no filter needed to sell it); dropped to a
+   whisper so it now reads as depth, not neon. Top stroke toned down to match
+   a calm topology-diagram line rather than a bright candy curve. */
+.link-under { fill: none; stroke-linecap: round; opacity: calc(0.07 * var(--glow)); }
+.link-top { fill: none; stroke-linecap: round; opacity: 0.4; }
+
+/* Sits at the TOP, not the bottom. Node labels hang below their disc, and
+   the bottom clamp lets the lowest of them reach within ~7px of the canvas
+   floor — so a bottom-anchored toast lands squarely on label text (QA
+   measured 1198px² over one name at 1280x800). Above the topmost disc there
+   is structurally nothing to collide with: the highest a bubble can sit is
+   r + padTop, and its labels start below it. Clears the crumb (top-left)
+   and the Edit button (top-right) horizontally. */
+.graph-hint {
+  position: absolute; left: 50%; top: 14px; transform: translateX(-50%) translateY(-6px);
+  z-index: 4;
+  padding: var(--s2) var(--s4); border-radius: 3px;
+  font-size: 12.5px; color: var(--ink-2);
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--dur-3) var(--ease), transform var(--dur-3) var(--ease);
+  white-space: nowrap;
+  /* centered between the crumb (left) and the seg + Edit cluster (right):
+     the worse side is ~250px, so symmetric clearance costs 500 — the 220
+     allowance let live-mode hint copy run beneath the layout seg */
+  max-width: calc(100% - 500px);
+  overflow: hidden; text-overflow: ellipsis;
+}
+.graph-hint.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+.graph-crumb {
+  position: absolute; top: 14px; left: 16px;
+  display: flex; gap: var(--s1); align-items: center;
+  font-size: 12.5px; color: var(--ink-25);
+  z-index: 5;
+}
+.graph-crumb button {
+  border: none; background: none; cursor: pointer;
+  font-size: 12.5px; color: var(--ink-2); font-weight: 640;
+  padding: var(--s1) var(--s2); border-radius: 3px;
+  transition: background var(--dur-2);
+}
+.graph-crumb button:hover { background: rgba(255,255,255,calc(0.7 * var(--wa))); }
+.graph-crumb .sep { color: var(--ink-4); }
+
+/* --- agent node bubbles (HTML glass over SVG links) --- */
+.node {
+  position: absolute; top: 0; left: 0;
+  transform: translate(-50%, -50%);
+  will-change: transform;
+  z-index: 2;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.node.dragging { cursor: grabbing; z-index: 6; }
+/* while a drag is hot, the moving bubbles skip the backdrop pass — motion
+   hides the frost, and re-sampling 16 lenses per frame is the fps killer */
+.graph-canvas.interacting .node::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
+/* while the physics is hot every bubble is moving — drop the other expensive
+   per-node passes too (5-layer glow → 3, spectral ring, focus pulse). Motion
+   hides the difference; full fidelity returns the moment the graph settles. */
+.graph-canvas.interacting .node-glass {
+  /* deliberately NOT var(--elev-2): this is --elev-2 with its contact layer
+     stripped, because the whole rule exists to paint fewer shadow layers
+     per frame. Same numbers, one fewer pass. */
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,calc(0.95 * var(--wa))),
+    0 9px 20px -13px rgba(var(--shadow-rgb), calc(0.22 * var(--shadow-k)));
+}
+.graph-canvas.interacting .node.focusable .node-glass { animation: none; }
+.node::before {
+  /* Lens frost pass — deliberately NOT on .node-glass. The scale
+     transitions/animations (hover, drag, settle, reap, bloom) all ride
+     .node-glass, and the 60fps clause forbids an expensive filter on the
+     animating element itself. This pseudo carries no transition and no
+     animation: a static circle the glass paints over, keeping the backdrop
+     blur/saturation stronger than v1 (16px / 2.0 vs 14px / 1.6) while the
+     lens scales freely above it. Sized by inset:0 — .node shrink-wraps
+     .node-glass, so this is exactly the bubble's footprint. */
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  backdrop-filter: blur(16px) saturate(2);
+  -webkit-backdrop-filter: blur(16px) saturate(2);
+  pointer-events: none;
+}
+/* .7s is choreography, not UI response: it is pinned to nodeIn's staged
+   keyframes below, so it stays literal rather than moving to --dur-3 */
+.node.enter::before { animation: frostIn .7s var(--ease) both; }  /* track the nodeIn bloom so no full-size frost disc precedes the bubble */
+@keyframes frostIn { 0% { opacity: 0; } 55% { opacity: 0.35; } 100% { opacity: 1; } }
+/* professional-pass (owner: "childish… neon glow does not scream
+   professional"). The bubble used to carry a permanent ambient bloom (two
+   `0 0 Npx` glow layers at rest, on every node, all the time) plus a rainbow
+   conic-gradient edge ring — the two biggest contributors to a "candy /
+   game" read. Both are gone: identity now lives in a confident but muted
+   border tint and a small flat status dot (see .node-name i below); depth
+   comes from a neutral elevation shadow, the way a real card casts a
+   shadow, not a colored halo. The frosted-glass material itself (backdrop
+   blur on .node::before, the soft white specular layers here) stays — that
+   register (macOS/Arc-style glass) reads as premium software, not a toy,
+   as long as nothing under it is glowing. */
+.node-glass {
+  position: relative;
+  width: var(--d); height: var(--d);
+  border-radius: 50%;
+  display: grid; place-items: center;
+  background:
+    radial-gradient(42% 34% at 31% 22%, rgba(255,255,255,calc(0.92 * var(--node-a, 1))), rgba(255,255,255,calc(0 * var(--wa))) 72%),
+    radial-gradient(26% 20% at 69% 80%, rgba(255,255,255,calc(0.42 * var(--node-a, 1))), rgba(255,255,255,calc(0 * var(--wa))) 78%),
+    radial-gradient(120% 120% at 30% 22%, rgba(255,255,255,calc(0.74 * var(--node-a, 1))), rgba(255,255,255,calc(0.32 * var(--node-a, 1))) 55%, rgba(255,255,255,calc(0.19 * var(--node-a, 1))));
+  /* no filter / backdrop-filter here — frost lives on the static .node::before;
+     glow is box-shadow layers only (60fps clause) */
+  /* IDENTITY ON THE RIM. Folding the role colour into the themed hairline
+     rather than into white is right and stays — 40% role in white IS pastel
+     by construction (baby blue, peach), which is most of what read as
+     "childish". But the DOSE was the other half of "mostly the colour is
+     meh": --line-2 is a 12–17% alpha, so a 34% mix resolved to a 0.42-alpha
+     rim, i.e. a hue at 42% strength over a near-white disc. That is a
+     pastel too — arrived at from the other direction.
+
+     --rim-role is the dose, and it is a token because the three grounds do
+     not want the same one. On white and tan the mix runs toward a dark
+     hairline, so 70% lands a rim that reads as a drawn line at its own hue
+     (measured against the bubble's own interior: 2.6:1 white, 2.4:1 tan —
+     a line, not a slab). On black --line-2 is WHITE ink, so the same 70%
+     would lighten the rim toward a lit edge, the one thing the black theme
+     is built to avoid; 84% keeps it the hue's own colour there. Above ~90%
+     on any ground the ring starts to read as a coloured outline drawn ON a
+     white disc — candy — which is the failure mode on the other side.
+     A 1.5px ring at full identity hue is the machined register: precise,
+     confident, and still not a glow. (Token declared in :root and re-stepped
+     in the black theme block; --rim-hover is the same ladder's next rung.) */
+  border: 1.5px solid color-mix(in oklab, var(--rc) var(--rim-role), var(--line-2));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,calc(0.92 * var(--node-a, 1))),
+    inset 0 -5px 12px -12px color-mix(in oklab, var(--rc) 20%, transparent),
+    var(--elev-2);           /* this rule is where --elev-2 came from */
+  transition: box-shadow var(--dur-3) var(--ease), border-color var(--dur-3) var(--ease), transform var(--dur-3) var(--ease-spring), background var(--dur-3);
+}
+/* durable hover signal — deepened neutral elevation + a darker border reads
+   clearly on its own, not left to the (fast, easy-to-miss) ripple flourish.
+   Bespoke on purpose: tighter and darker than --elev-2 rather than one step
+   up the ladder, because "deepened" is the signal. Layer count matches
+   .node-glass exactly so box-shadow interpolates instead of snapping. */
+.node:hover .node-glass {
+  transform: scale(1.03);
+  border-color: color-mix(in oklab, var(--rc) var(--rim-hover), var(--line-2));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,calc(0.92 * var(--wa))),
+    inset 0 -5px 12px -12px color-mix(in oklab, var(--rc) 20%, transparent),
+    0 2px 4px rgba(var(--shadow-rgb), calc(0.07 * var(--shadow-k))),
+    0 14px 28px -14px rgba(var(--shadow-rgb), calc(0.3 * var(--shadow-k)));
+}
+.node.dragging .node-glass {
+  transform: scale(1.06);
+  border-color: var(--rc);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,calc(0.95 * var(--wa))),
+    0 22px 44px -16px rgba(var(--shadow-rgb), calc(0.34 * var(--shadow-k))),
+    0 3px 7px rgba(var(--shadow-rgb), calc(0.1 * var(--shadow-k)));
+}
+/* Bubble type is derived from the bubble diameter, and the smallest role
+   (r=39 → --d:78px) put the clock at 12.1px and the caps label at 6.9px —
+   the two worst offenders on the site. max() applies the floor without
+   flattening the size hierarchy on the bigger roles (coordinator --d:124px
+   still gets a 19px clock). Measured against the chord available at the
+   text's own height: at --d:78px the label band is ~72px wide and "RUNTIME"
+   at 11px/--track-caps is ~57px, so the floor stays inside the glass. */
+.node .rt {
+  font-variant-numeric: tabular-nums;
+  font-weight: 640;
+  color: var(--ink-2);
+  font-size: max(13px, calc(var(--d) * 0.155));
+  letter-spacing: 0.01em;      /* optical, on numerals — not the caps role */
+  line-height: 1;
+}
+.node .rl {
+  margin-top: 3px;             /* hairline, below the space scale's floor */
+  font-size: max(11px, calc(var(--d) * 0.088));
+  font-weight: 550; letter-spacing: var(--track-caps); text-transform: uppercase;
+  color: var(--ink-25);
+  line-height: 1.1;
+}
+/* +7px / +26px below are a measured label stack, not spacing: the graph's
+   label-avoidance pass in graph.js reads these two rows' extents. They stay
+   literal — moving either to a step would silently retune that geometry. */
+.node .node-name {
+  position: absolute; top: calc(100% + 7px); left: 50%; transform: translateX(-50%);
+  font-size: 12.5px; font-weight: 640; color: var(--ink-2);
+  white-space: nowrap;
+  display: flex; align-items: center; gap: var(--s1);
+  /* live projection names run 40+ characters — clamp the row near the
+     bubble's own width (mirrored by the labelW estimate in graph.js) and
+     let the full name live in the title + monitoring block. --nn-max is the
+     per-node pitch budget the wrapped-tier packer sets when a flat fleet
+     outgrows one row. */
+  max-width: min(calc(var(--d) + 112px), var(--nn-max, 9999px));
+}
+.node .node-name .nn-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* projection nodes without telemetry present as bare role-rimmed spheres */
+.node.no-telemetry .rt, .node.no-telemetry .rl { display: none; }
+.node .node-name i {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--rc);
+}
+/* +26px clears the 12.5px name line (≈15px tall from +7px) with a hairline
+   of air, so the two label rows never touch at either test size */
+.node .node-role { position: absolute; top: calc(100% + 26px); left: 50%; transform: translateX(-50%);
+  /* 10.5/500/wider tracking: the row beneath every bubble was the loudest
+     text on the canvas — a chunky shout repeated nine times. A quieter,
+     wider-set label reads as engineering annotation instead. (Caps micro-
+     label register, exempt from the 13px reading floor like its peers.) */
+  font-size: 10.5px; letter-spacing: calc(var(--track-caps) + 0.03em); text-transform: uppercase; color: var(--ink-25); white-space: nowrap; font-weight: 500;
+  /* the role label is the one string that can outgrow its bubble (the
+     longest is "Coordinator's Helper"). The force layout keeps centres
+     ≥ r+30 apart, so bounding the label to the bubble + a fixed margin
+     guarantees two neighbouring labels can never meet, whatever the type size.
+     84, not 68: on the agent page the helper's bubble is small enough that
+     +68 resolved to 172px against the 185px the string actually needs, and
+     the one role name a reader most needs to distinguish rendered as
+     "COORDINATOR'S HEL...". Widening the cap is self-correcting rather than
+     risky -- graph.js measures the label's REAL width into rec.labelW and
+     _resolveClampedLabels() pushes neighbouring nodes apart on it, so a wider
+     label buys itself the room instead of colliding (verified: 0 label
+     overlaps on both graph pages at 1600 and 1280 after the change). */
+  /* +96 (was +84): the professional pass set the role caps wider-tracked,
+     which grew "Coordinator's Helper" from 185 to 192px — past the old cap on
+     the agent page's smaller bubbles. Same self-correcting argument as the
+     last raise: graph.js measures the real width into labelW and the
+     label-avoid pass spaces neighbours on it. */
+  max-width: calc(var(--d) + 96px); overflow: hidden; text-overflow: ellipsis; text-align: center; }
+
+/* selection ring — the live "focusable" pulse animation is defined once,
+   in graph.css (.graph-canvas .node.focusable .node-glass::before), which
+   already outranks any rule here by specificity */
+.node.selected .node-glass {
+  border-color: var(--rc);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,calc(0.92 * var(--wa))),
+    var(--elev-2),
+    var(--rg-soft);
+}
+
+/* spawn: graphite → bloom into role color */
+.node.spawning .node-glass {
+  border-color: color-mix(in oklab, var(--c-spawned) 60%, white);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))), 0 8px 20px -10px rgba(var(--shadow-rgb), calc(0.4 * var(--shadow-k)));
+}
+/* .7s again: nodeIn's 0/40/100 staging is choreography, not UI response */
+.node.enter .node-glass { animation: nodeIn .7s var(--ease-spring); }
+/* The contents arrive AFTER the vessel. The bloom scales the glass from 0.15,
+   and everything riding it used to scale too: mid-animation stills showed a
+   ~30px bubble wearing illegible micro-runtime, and the name label — which
+   lives OUTSIDE .node-glass and never animated at all — floating at full
+   opacity beside a bubble that wasn't there yet. Text and labels now fade in
+   over the bloom's tail, so at any instant the node is either a clean empty
+   disc or a legible one, never a smudge with a caption. */
+.node.enter .node-glass .rt, .node.enter .node-glass .rl,
+.node.enter .node-name, .node.enter .node-role {
+  animation: nodeTextIn .9s var(--ease) both;
+}
+@keyframes nodeTextIn { 0%, 55% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes nodeIn { 0% { opacity: 0; transform: scale(0.15); } 40% { opacity: 1; } 100% { transform: scale(1); } }
+.node.leave { opacity: 0; transition: opacity var(--dur-3) var(--ease); }
+.node.leave .node-glass { transform: scale(0.4); }
+
+/* role color bindings */
+/* --rg* are the generated perceptual glow stacks (src/glow.css, built by
+   tools/gen-glow.mjs). They are used ONLY for genuine state moments —
+   selection, a valid drop target, an arrival — never as a resting bloom. */
+.role-coordinator { --rc: var(--c-coordinator); --gc: var(--g-coordinator);
+  --rg-soft: var(--glow-coordinator-soft); --rg-loud: var(--glow-coordinator-loud); }
+.role-helper      { --rc: var(--c-helper);      --gc: var(--g-helper);
+  --rg-soft: var(--glow-helper-soft);      --rg-loud: var(--glow-helper-loud); }
+.role-shadow      { --rc: var(--c-shadow);      --gc: var(--g-shadow);
+  --rg-soft: var(--glow-shadow-soft);      --rg-loud: var(--glow-shadow-loud); }
+.role-manager     { --rc: var(--c-manager);     --gc: var(--g-manager);
+  --rg-soft: var(--glow-manager-soft);     --rg-loud: var(--glow-manager-loud); }
+.role-default     { --rc: var(--c-default);     --gc: var(--g-default);
+  --rg-soft: var(--glow-default-soft);     --rg-loud: var(--glow-default-loud); }
+
+/* --- context chips → chat morph --- */
+.chip {
+  position: absolute; top: 0; left: 0;
+  /* No width here. It is graph.js's CHIP_W, written onto the element -- the
+     collision placement reasons about a box it also has to size, and the two
+     were previously the same number typed in five separate places. */
+  /* asymmetric on purpose — the 12px left clears the ::before accent bar.
+     The 10px right rounds DOWN to --s2 like every other tie in this sheet,
+     which happens to hand the reading line 2px back inside that fixed
+     168px, exactly the direction the note above wants. */
+  padding: var(--s2) var(--s2) var(--s2) var(--s3);
+  border-radius: 3px;
+  z-index: 1;
+  cursor: pointer;
+  will-change: transform;
+  /* The sketch draws context as grey text inside braces — not as a card.
+     At rest a chip is exactly that: no fill, no border, no shadow. Hover
+     brings a faint tint for affordance; .as-chat earns a real panel. */
+  background: transparent;
+  border: 1px solid transparent;
+  /* all four on one step: the box used to resize on .5s while its surface
+     and shadow settled on .4s, so the panel finished arriving before it
+     finished growing */
+  transition: width var(--dur-3) var(--ease), height var(--dur-3) var(--ease), box-shadow var(--dur-3) var(--ease), background var(--dur-3) var(--ease);
+  overflow: hidden;
+}
+.chip::before {
+  content: "";
+  position: absolute; left: 6px; top: 8px; bottom: 8px; width: 2px; border-radius: 2px;
+  /* the context box's one identity mark. It mixed toward literal WHITE,
+     which made it a pastel on the light themes and a LIT bar on black —
+     the same fault the node rim had. Same fix, same ladder: the themed
+     hairline, at the resting rim's dose. The fallback is the neutral role
+     token now that one exists, not a loose grey. */
+  background: color-mix(in oklab, var(--rc, var(--c-spawned)) var(--rim-role), var(--line-2));
+}
+.chip:hover { background: rgba(127,127,127,0.07); border-color: var(--line); z-index: 6; }
+.chip .cl {
+  font-family: var(--font-mono);
+  font-size: 13px; line-height: 1.4; color: var(--ink-25);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.chip .cl b { color: var(--ink-2); font-weight: 640; }
+/* the identity row: slightly tighter to the context under it than the context
+   lines are to each other, so the box reads as "this agent, doing this" rather
+   than as three equal-weight lines */
+.chip .cl-name { margin-bottom: 1px; }
+/* The identity row stays one nowrap line; the ACTIVITY line stops trying to
+   fit a line and starts fitting a THOUGHT. Measured on this page: 6 of 6
+   visible context lines ellipsised at 1600, up to 390px of text through a
+   202px reading column — an overflow ellipsis cannot fix, it just decides
+   which fragment you get ("claiming task lease on co…"). Two wrapped rows
+   carry the whole sentence, which is what the box is for. Clamped at 2 so the
+   box's height stays bounded; graph.js re-measures the real offsetHeight and
+   re-elects the slot, so the taller box re-places instead of overlapping.
+   Scoped to .graph-canvas (both graph pages) rather than bare .chip: the
+   comms watch-pane reuses .chip/.cl for a scrolling many-line history and
+   must keep every line it has. */
+.graph-canvas .chip:not(.as-chat) .chip-preview .cl:not(.cl-name) {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  text-overflow: clip;
+}
+/* BOTH activity lines show, each wrapped to a bounded two rows. An earlier
+   pass dropped the previous-activity line for density's sake; the owner has
+   since asked for the opposite trade — "decently sized with good amounts of
+   text" — and the density problem is solved where it belongs: the graph
+   stops showing boxes entirely once the fleet passes DENSE_AT (graph.js),
+   so the boxes that DO show can afford to say more. */
+.graph-canvas .chip:not(.as-chat) .chip-preview .cl:not(.cl-name) ~ .cl:not(.cl-name) {
+  margin-top: 3px;
+  opacity: 0.82;   /* the previous line recedes a step so "now" reads first */
+}
+.chip.as-chat {
+  width: 316px; height: 368px;
+  padding: var(--s3) var(--s4);
+  cursor: default;
+  z-index: 8;
+  backdrop-filter: blur(30px) saturate(1.7);
+  -webkit-backdrop-filter: blur(30px) saturate(1.7);
+  /* An OVERLAY needs a floor, not a wash. The fill was white at 0.86 scaled by
+     --wa, which is the right idiom for a surface sitting flush on the page and
+     the wrong one for a panel floating over the graph: on the black theme --wa
+     is 0.075, so 0.86 resolved to 6.3% white and the graph read straight
+     through the panel — node circles, link curves and "SHADOW MANAGER"
+     colliding with the chat text behind every message. The opaque --sheet is
+     the floor; the white gradient stays on top of it as the sheen it was
+     always meant to be, and now scales with --wa without taking the panel's
+     opacity down with it. */
+  background:
+    linear-gradient(180deg, rgba(255,255,255,calc(0.10 * var(--wa))), rgba(255,255,255,calc(0.03 * var(--wa)))),
+    var(--sheet);
+  border-color: var(--line-2);
+  /* overlay, not a step: this panel floats above the whole graph, above
+     --elev-3's ceiling */
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(1 * var(--wa))), 0 26px 60px -22px rgba(var(--shadow-rgb), calc(0.35 * var(--shadow-k)));
+  display: flex; flex-direction: column;
+}
+.chip.as-chat::before { display: none; }
+.chip.as-chat .chip-preview { display: none; }
+.chip .chat { display: none; }
+.chip.as-chat .chat { display: flex; animation: chatIn var(--dur-3) var(--ease) both; }
+@keyframes chatIn { from { opacity: 0; } }
+
+/* --- right rail: runtime statistics / agent controls morph --- */
+.rail { position: relative; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.rail-page {
+  position: absolute; inset: 0;
+  padding: var(--s5) var(--s5) var(--s4);
+  display: flex; flex-direction: column;
+  min-height: 0;
+  transition: opacity var(--dur-3) var(--ease), transform var(--dur-3) var(--ease);
+}
+.rail-page.off-r { opacity: 0; transform: translateX(26px) scale(0.985); pointer-events: none; }
+.rail-page.off-l { opacity: 0; transform: translateX(-26px) scale(0.985); pointer-events: none; }
+
+.rail-title {
+  font-size: 11.5px; letter-spacing: var(--track-caps); text-transform: uppercase;
+  color: var(--ink-25); font-weight: 640;
+  display: flex; align-items: center; gap: var(--s2);
+  margin-bottom: var(--s3); flex: none;
+}
+.rail-title .spacer { flex: 1; }
+/* THE FIXED NAV ROW (src/rail-title.js). Three slots whose geometry never
+   depends on content: the back button's centre may not move between pages
+   (owner defect 6), so the columns are constant widths, the row keeps a
+   minimum height even with no buttons, and an absent button is an empty slot,
+   not a collapsed one. 116px fits "‹ Back" and the widest forward label
+   ("Actions ›") with the button's own padding at rest. */
+.rail-title-row {
+  display: grid; grid-template-columns: 116px 1fr 116px;
+  align-items: center; gap: 0; min-height: 34px;
+}
+.rail-title-slot { display: flex; align-items: center; min-width: 0; }
+.rail-title-slot-back { justify-content: flex-start; }
+.rail-title-slot-title { justify-content: center; text-align: center; }
+.rail-title-slot-forward { justify-content: flex-end; }
+.rail-back {
+  border: none; background: none; cursor: pointer;
+  font-size: 12.5px; color: var(--ink-25); font-weight: 640;
+  display: flex; align-items: center; gap: var(--s1);
+  padding: var(--s1) var(--s2); border-radius: 3px; letter-spacing: 0.03em;
+  transition: background var(--dur-2), color var(--dur-2);
+}
+.rail-back:hover { background: rgba(14,23,38,0.05); color: var(--ink); }
+.rail-scroll { flex: 1; min-height: 0; overflow-y: auto; padding-right: var(--s1); }
+
+.stat-hero { display: flex; align-items: baseline; gap: var(--s2); margin-bottom: var(--s1); }
+.stat-hero .v { font-size: 46px; font-weight: 640; color: var(--ink); line-height: 1; }
+.stat-hero .l { font-size: 12.5px; color: var(--ink-25); font-weight: 550; }
+.stat-hero .delta { font-size: 12.5px; font-weight: 640; color: var(--s-good); }
+/* 13px, not 12.5: this is a full mono sentence, and 13 is the reading floor
+   for multi-word prose (12.5 stays reserved for single-datum labels) */
+.rail-sub { font-size: 13px; line-height: 1.45; color: var(--ink-3); margin-bottom: var(--s4); font-family: var(--font-mono); }
+
+.rail-sec {
+  font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase;
+  color: var(--ink-25); font-weight: 640; margin: var(--s4) 0 var(--s2);
+}
+
+/* mini bar chart (CPU/GPU/...) */
+.bars { display: flex; flex-direction: column; gap: var(--s2); }
+/* label column widened 58 → 64px so the longest label ("Network", ~48px at
+   12.5px) keeps its old breathing room after the bump. The two fixed track
+   widths are measured, not spacing — they stay literal. */
+.bar-row { display: grid; grid-template-columns: 64px 1fr 42px; align-items: center; gap: var(--s2); }
+.bar-row .bl { font-size: 12.5px; color: var(--ink-2); font-weight: 550; }
+.bar-row .bv { font-size: 12.5px; color: var(--ink-2); font-weight: 640; font-variant-numeric: tabular-nums; text-align: right; }
+.bar-track { height: 10px; border-radius: 2px; background: rgba(14,23,38,0.055); overflow: hidden; position: relative; }
+.bar-fill {
+  /* Composited fill, not an animated `width` — the same fix metrics.css
+     applied to .meter .mf, which named THIS selector as the remaining copy
+     of the defect: the sim rewrites all four Load bars every stats tick, so
+     the 1.1s width tween kept ~4 live width transitions running a layout
+     per frame at idle. Full-width + left-origin scaleX inside the track's
+     existing overflow:hidden is a drop-in: the gradient already spanned the
+     fill's own width, so scaling it looks identical, and the 2px radius is
+     small enough that the scale's squash of the right corners stays
+     sub-pixel (metrics.css relies on exactly the same property). transform
+     is composited; width is not. */
+  position: absolute; inset: 0 auto 0 0; width: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, color-mix(in oklab, var(--bc) 82%, white), var(--bc));
+  transform-origin: left center;
+  /* 1.1s is a data tween — the bar reads as a value travelling to its new
+     level, which is a different job from a UI response */
+  transition: transform 1.1s var(--ease);
+}
+
+/* task chips */
+.task-list { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.task-chip {
+  display: inline-flex; align-items: center; gap: var(--s2);
+  padding: var(--s1) var(--s3);
+  border-radius: 3px;
+  background: rgba(255,255,255,calc(0.6 * var(--wa)));
+  border: 1px solid color-mix(in oklab, var(--tc) 38%, white);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa)));
+  font-size: 13px; color: var(--ink-25);
+  animation: chipIn var(--dur-3) var(--ease-spring) both;
+  white-space: nowrap;
+}
+@keyframes chipIn { from { opacity: 0; transform: translateY(6px) scale(0.92); } }
+/* Projection service rows carry real sentences ("conflict / health …"), not
+   the sim's short task names — nowrap was amputating them mid-word in the
+   rail. Data rows wrap; the chip skin holds. The name/meta split keeps a
+   wrapped line from ever opening on a bare separator. */
+.projection-state .task-chip { white-space: normal; line-height: 1.5; flex-wrap: wrap; }
+.projection-state .task-chip .svc-meta { color: var(--ink-3); min-width: 0; }
+.task-chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--tc); flex: none; }
+/* done reads from the strike-through and the ink step, not from a 0.45
+   opacity wash that dropped finished task names to ~1.6:1 */
+.task-chip.done { text-decoration: line-through; color: var(--ink-3); }
+.task-chip.done i { opacity: 0.45; }
+
+/* legend */
+/* auto-fit instead of a hard 1fr 1fr: at 12.5px the longest role label
+   ("Coordinator's Helper", ~128px + swatch) no longer fits a half-column in
+   a narrow rail, so the grid drops to one column there instead of wrapping
+   every second entry onto two lines */
+.legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(152px, 1fr)); gap: var(--s2) var(--s3); margin-top: var(--s1); }
+.leg { display: flex; align-items: center; gap: var(--s2); font-size: 12.5px; color: var(--ink-2); font-weight: 550; }
+.leg i {
+  width: 12px; height: 12px; border-radius: 4px; flex: none;
+  background: linear-gradient(150deg, color-mix(in oklab, var(--lc) 70%, white), var(--lc));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.6 * var(--wa)));
+}
+/* the off entry steps down the ink ramp and dims only its swatch — the old
+   blanket 0.45 opacity took the label itself to ~2.4:1 */
+.leg.off { color: var(--ink-3); }
+.leg.off i { opacity: 0.4; }
+.leg .ln { color: var(--ink-3); font-weight: 400; margin-left: auto; font-variant-numeric: tabular-nums; }
+
+/* --- agent controls (rail morph target) --- */
+.agent-head { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s1); }
+.agent-head .role-dot { width: 10px; height: 10px; border-radius: 50%; }
+.agent-head .an { font-size: 20px; font-weight: 640; color: var(--ink); }
+.agent-head .ar { font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase; color: var(--ink-25); font-weight: 640; margin-top: 2px; }
+.agent-ring-wrap { display: grid; place-items: center; padding: var(--s2) 0 var(--s1); }
+
+.ctl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); }
+.ctl-btn {
+  height: 40px;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,calc(0.85 * var(--wa)));
+  background: rgba(255,255,255,calc(0.62 * var(--wa)));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,var(--wa)), var(--elev-1);   /* --elev-1's source recipe */
+  font-family: var(--font-ui); font-size: 13px; font-weight: 640; color: var(--ink-2);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: var(--s2);
+  transition: all var(--dur-2) var(--ease);
+}
+/* THE LINE ABOVE IS WHY THIS ONE EXISTS. `display: flex` is an AUTHOR rule and
+   `[hidden] { display: none }` is a USER-AGENT rule, so every ctl-btn that a
+   module marks hidden is painted anyway — and a ctl-btn with nothing in it is a
+   blank, pressable, full-width box. MEASURED in the shipped 1.0.20 window, on
+   the panel that opens from the "+" node in the fleet tree: the compose panel's
+   `agent-compose-enable` carried `hidden`, computed `display: flex`, an empty
+   textContent, a 349x40 rect, and answered elementFromPoint at its own centre —
+   in the middle of the form a person fills in to start their first agent.
+   src/cloud.css and home.css each met this trap and each guarded their own
+   corner; guarding it here, beside the rule that causes it, is what stops the
+   next corner from having to. */
+.ctl-btn[hidden] { display: none; }
+.ctl-btn svg { width: 15px; height: 15px; }
+.ctl-btn:hover { background: rgba(255,255,255,calc(0.9 * var(--wa))); color: var(--ink); transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,var(--wa)), var(--elev-2); }
+.ctl-btn:active { transform: scale(0.97); }
+/* armed is the DEFAULT state of the first control, so it is what loads —
+   and white-on-cyan measured 2.58:1, identical on all three themes because
+   both the text and the gradient were hardcoded. board.css already fixed
+   exactly this for .board-page .ctl-btn.armed; the base rule was left
+   behind, so it gets the same ink-on-tint recipe mixed toward the THEME's
+   surface (identical on white, where --sheet is #fff). */
+.ctl-btn.armed { color: var(--ink);
+  border-color: color-mix(in oklab, var(--c-coordinator) 42%, var(--sheet));
+  background: linear-gradient(180deg,
+    color-mix(in oklab, var(--c-coordinator) 17%, var(--sheet)),
+    color-mix(in oklab, var(--c-coordinator) 28%, var(--sheet)));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))); }
+.ctl-btn.danger:hover { color: var(--s-serious); border-color: color-mix(in oklab, var(--s-serious) 30%, white); }
+
+.ctl-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); padding: var(--s2) 2px; }
+/* Without this, the flex rule above beats [hidden] and the tree rail's Setup
+   box painted BOTH of its conditional rows: "Restart it in the new folder"
+   with no folder change, and an empty Reports-to menu with a Save button
+   directly above the sentence saying there is nowhere to move the agent —
+   the product contradicting itself in one viewport (proven on the packaged
+   build, tools/tree-panel-audit-drive.mjs shot 07, 2026-08-20). Same rule as
+   .ctl-btn[hidden] below; gate: tools/test/hidden-display-honesty.test.mjs. */
+.ctl-row[hidden] { display: none; }
+.ctl-row .cl { font-size: 12.5px; color: var(--ink-2); font-weight: 550; white-space: nowrap; }
+.ctl-row .cv { font-size: 12.5px; color: var(--ink-25); font-variant-numeric: tabular-nums; font-family: var(--font-mono); flex: none; }
+/* 130 → 118px: the label ("Context budget") and the mono value both grew,
+   and the slider is the one element in the row that can give width back.
+   At the rail's narrowest the row measures ~253px against ~268px of content
+   (320px card − 2×--s5 padding − the scroll gutter), so nothing wraps at
+   1280×800 either. Both figures moved by 4px when the rail padding went to
+   --s5 and this row's gap came down to --s2 — the slack is unchanged, but
+   the arithmetic is written out because the next person will need it. 118px
+   is measured, so it stays literal. */
+.ctl-row input[type="range"] { width: 118px; flex: none; }
+
+/* sliders */
+input[type="range"] {
+  appearance: none; -webkit-appearance: none;
+  height: 22px; background: transparent; cursor: pointer;
+}
+/* The UNFILLED half was rgba(14,23,38,0.08) — light-theme navy, the exact
+   bug the toggle track and the scrollbar were already fixed for: on the
+   black drawer it measured 1.02:1, so the two Settings sliders showed a
+   filled bar ending in nothing and the control never said how much travel
+   was left. --ring-track is the per-theme solved track this sheet already
+   keeps for the uptime ring, which is the same job on the same grounds. */
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 5px; border-radius: 3px;
+  background: linear-gradient(90deg, var(--c-coordinator) var(--fill, 50%), var(--ring-track) var(--fill, 50%));
+}
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none; -webkit-appearance: none;
+  width: 17px; height: 17px; border-radius: 50%;
+  margin-top: -6px;
+  /* the knob stays white on every theme — it is the lit part of the control,
+     the same read as the toggle's knob — but its hairline is themed, or it
+     is invisible navy on black */
+  background: #fff;
+  border: 1px solid var(--line-2);
+  /* bespoke: a 17px thumb needs a tight contact shadow, not a card's pool */
+  box-shadow: 0 2px 7px rgba(var(--shadow-rgb), calc(0.25 * var(--shadow-k)));
+  transition: transform var(--dur-1) var(--ease);
+}
+input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
+
+/* toggle */
+.toggle { position: relative; display: inline-block; width: 42px; height: 24px; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle i {
+  position: absolute; inset: 0; border-radius: 13px;   /* a switch is a capsule, not a box */
+  /* themed: the old flat navy rgba(14,23,38,.12) measured 1.01:1 against the
+     black drawer — a control with an invisible track. Token is solved per
+     theme against the sampled drawer glass (see :root). */
+  background: var(--toggle-track);
+  transition: background var(--dur-2) var(--ease);
+}
+.toggle i::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: #fff; box-shadow: 0 2px 6px rgba(var(--shadow-rgb), calc(0.3 * var(--shadow-k)));
+  transition: transform var(--dur-2) var(--ease-spring);
+}
+.toggle input:checked + i { background: var(--c-coordinator); }
+.toggle input:checked + i::after { transform: translateX(18px); }
+
+/* ---------- segmented control — ONE build, five call sites ----------
+   JS contract: buttons toggle .on / aria-pressed (unchanged in every view);
+   components.js attachSeg() injects .seg-ind and keeps it glued via
+   MutationObserver + ResizeObserver. Until the indicator has measured once
+   (.ready), the .on button carries a bg-swap fallback, so there is no
+   unpainted state on first frame or without the helper.
+
+   The active chip (indicator + fallback) is the selected-pill recipe the old
+   copies already converged on: var(--sheet) fill, never a literal #fff (that
+   put #eef2f6 ink on white under the black theme — 1.12:1 — and an
+   off-palette pure-white chip on tan), a --wa-scaled sheen instead of a hard
+   white hairline (on black a literal white line reads as a lit edge), and
+   the drop shadow on the themed --shadow-rgb/--shadow-k pair rather than a
+   baked light-theme navy.
+
+   The container rule is guarded by :where(:has(> button)) because the
+   uptime ring's digit groups ALSO carry class .seg (components.js seg());
+   unguarded, this trough would draw glass boxes behind the home/agent
+   clocks. :where() keeps specificity at the bare (0,1,0) so the views'
+   later-in-bundle positioning rules (e.g. graph.css .graph-layout-seg
+   position:absolute) still win their ties exactly as they would against an
+   unguarded .seg. */
+.seg:where(:has(> button)) {
+  position: relative;
+  display: inline-flex; align-items: stretch;
+  height: var(--seg-h); box-sizing: border-box;
+  gap: 2px; padding: 3px;
+  border-radius: var(--r-md);
+  background: var(--seg-bg);
+  border: 1px solid var(--seg-border);
+  backdrop-filter: blur(12px) saturate(1.6);
+  -webkit-backdrop-filter: blur(12px) saturate(1.6);
+}
+.seg > button {
+  position: relative; z-index: 1;
+  display: inline-flex; align-items: center;
+  border: none; background: transparent; cursor: pointer;
+  padding: 0 12px; border-radius: var(--r-md);
+  font-family: var(--font-ui); font-size: 12.5px; font-weight: 600; line-height: 1;
+  color: var(--ink-25); white-space: nowrap;
+  transition: color var(--dur-2) var(--ease), transform var(--dur-1) var(--ease);
+}
+.seg > button:hover { color: var(--ink-2); }
+.seg > button.on { color: var(--ink); }   /* weight stays 600: a weight change
+  would resize the button under the indicator */
+.seg > button:active { transform: scale(0.96); }
+/* site halo+band focus recipe; the band consumes --focus-ring */
+.seg > button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1.5px rgba(255,255,255,calc(0.95 * var(--wa))),
+              0 0 0 3.5px var(--focus-ring);
+}
+.seg-ind {
+  position: absolute; top: 3px; bottom: 3px; left: 0; width: 0;
+  border-radius: var(--r-md);
+  background: var(--sheet);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))),
+    0 2px 8px -3px rgba(var(--shadow-rgb), calc(0.28 * var(--shadow-k)));
+  transform: translateX(0);
+  /* .52s spring: kept from the metrics build this mechanic is promoted from.
+     No bespoke reduce-motion rule — the global clamps at the foot of this
+     sheet (body.reduce-motion * and the prefers-reduced-motion block) cap
+     every transition-duration at 0.12s, this one included. */
+  transition: transform .52s var(--ease-spring), width .52s var(--ease-spring),
+              opacity var(--dur-2) var(--ease);
+  opacity: 0; pointer-events: none;
+}
+.seg-ind.ready { opacity: 1; }
+.seg:not(:has(> .seg-ind.ready)) > button.on {
+  background: var(--sheet);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))),
+    0 2px 8px -3px rgba(var(--shadow-rgb), calc(0.28 * var(--shadow-k)));
+}
+
+/* ============================================================
+   AGENT PAGE  (subtree · chat | controls, scroll-snap)
+   ============================================================ */
+/* same page-column adoption as .computers — see the comment there */
+.agentv { height: 100%; display: flex; flex-direction: column; gap: var(--s3); padding: 0 0 20px; width: min(var(--page-max), calc(100% - 2 * var(--page-gutter))); margin-inline: auto; }
+/* min-height was 240px — QA measured the label-avoidance system running out
+   of geometric room at small viewports (a 63px clamp-band deficit at
+   1280x800); this floor gives it more to work with there specifically. */
+.agentv-graph { position: relative; flex: 1.05; min-height: 280px; border-radius: var(--r-lg); overflow: hidden; }
+.agentv-panels {
+  flex: 1;
+  min-height: 300px;
+  display: flex; gap: var(--s3);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  border-radius: var(--r-lg);
+}
+.agentv-panels::-webkit-scrollbar { display: none; }
+.apanel {
+  flex: 0 0 min(560px, 88%);
+  scroll-snap-align: start;
+  padding: 20px var(--s5);
+  display: flex; flex-direction: column; min-height: 0;
+}
+.apanel-title { font-size: 11.5px; letter-spacing: var(--track-caps); text-transform: uppercase; color: var(--ink-25); font-weight: 640; margin-bottom: var(--s3); }
+.scroll-cue {
+  position: absolute; right: 24px; bottom: 24px;
+  font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase;
+  color: var(--ink-25); display: flex; align-items: center; gap: var(--s1);
+  /* 2.6s ambient loop — a heartbeat, not a response */
+  animation: cueSlide 2.6s ease-in-out infinite;
+}
+@keyframes cueSlide { 0%,100% { transform: translateX(0); opacity: .7; } 50% { transform: translateX(6px); opacity: 1; } }
+
+/* ============================================================
+   METRICS
+   ============================================================ */
+/* 34px band rhythm, deliberately off the space scale: the unboxed metrics
+   redesign separates its bands with whitespace instead of card edges, and
+   the --s5 step (24px) still read as one continuous surface at review —
+   the gap IS the separator now, so it needs to be unmistakably larger
+   than any intra-band spacing (which tops out at 22px). */
+.metrics { display: flex; flex-direction: column; gap: 34px; max-width: var(--page-max); margin: 0 auto; }
+.m-row { display: grid; gap: var(--s3); }
+.m-tiles { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+/* auto-fit knows the tile minimum but not the tile COUNT: with six tiles it
+   lands 5+1 once the row is too narrow for six 170s — an orphan with four
+   fifths of its row empty, and shorter than its five siblings (measured
+   133px against 178px at 1024). Six factors as 3+3, so below the width where
+   a single row of six stops fitting, pin three across and let equal implicit
+   rows keep the two rows the same height. */
+@media (max-width: 1100px) {
+  .m-tiles { grid-template-columns: repeat(3, 1fr); grid-auto-rows: 1fr; }
+}
+.m-pools { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+/* sankey (2fr) beside failure-by-lane (1fr) since the command-band rework:
+   the routing diagram is the row's reading centre and needs the width for
+   its three labelled columns; align start, not stretch — the pair is
+   deliberately unequal in height and stretched glass under the shorter card
+   would read as an unfinished panel */
+.m-charts2 { grid-template-columns: 2fr 1fr; align-items: start; }
+/* start, not stretch: three unequal cards stretched to the tallest left the
+   shorter two mostly blank glass */
+.m-charts3 { grid-template-columns: 2fr 1.2fr 1fr; align-items: start; }
+@media (max-width: 1000px) { .m-charts2, .m-charts3 { grid-template-columns: 1fr; } }
+
+/* 20px is 4px from both --s4 and --s5, i.e. outside the 2px conversion
+   tolerance in either direction, so the card padding's horizontal (tiles)
+   or vertical (pools, charts, panels) 20px stays literal */
+.tile { padding: var(--s4) 20px var(--s4); }
+.tile .tl { font-size: 12.5px; color: var(--ink-25); font-weight: 550; margin-bottom: var(--s2); display: flex; align-items: center; gap: var(--s2); }
+.tile .tl i { width: 7px; height: 7px; border-radius: 50%; background: var(--tc, var(--c-coordinator)); }
+.tile .tv { font-size: 30px; font-weight: 640; color: var(--ink); line-height: 1.05; display: flex; align-items: baseline; gap: var(--s2); }
+.tile .tv .unit { font-size: 13px; color: var(--ink-25); font-weight: 550; }
+.tile .td { margin-top: var(--s1); font-size: 12.5px; font-weight: 640; }
+/* flat stays a step below the up/down deltas — 500 and 600 were the same
+   two-step relationship, just off the ladder */
+.tile .td.up { color: var(--s-good); } .tile .td.down { color: var(--s-serious); } .tile .td.flat { color: var(--ink-3); font-weight: 550; }
+.tile .spark { margin-top: var(--s2); }
+
+.pool { padding: 20px var(--s5) var(--s4); }
+.pool-head { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s1); }
+.pool-head .pn { font-family: var(--font-mono); font-size: 13.5px; font-weight: 640; color: var(--ink); }
+/* Both of these mixed toward the LITERAL `white`/`black` rather than the
+   theme's surface, so the badge and the meter track rendered the same
+   near-white slab on all three themes. On black that made an empty meter the
+   brightest object on the page (17.3:1 against #0d0f12 — brighter than any
+   data mark, so the UNUSED remainder out-shouted its own coloured fill);
+   on white and tan the same track measured 1.04–1.14:1, i.e. the meter lost
+   its 100% reference in the other direction. Mixing toward --sheet/--ink
+   makes both follow the surface the way the rest of the card does.
+   10%, not more: --pc is a fixed mid slate (metrics.css --pool-accent), so
+   every extra point of it pulls the track toward the FILL's own lightness
+   from whichever side the theme sits on. At 10% the fill/track boundary —
+   the one WCAG 1.4.11 cares about — measures 4.16–4.75 (white), 3.70–4.23
+   (tan) and 3.06–3.50 (black); at 14% black fell to 2.93. */
+.pool-head .pt { font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase; padding: var(--s1) var(--s2); border-radius: 2px; font-weight: 640;
+  background: color-mix(in oklab, var(--pc) 10%, var(--sheet)); color: color-mix(in oklab, var(--pc) 70%, var(--ink)); }
+.pool-sub { font-size: 12.5px; color: var(--ink-3); margin-bottom: var(--s3); }
+/* the hairline is the meter's 100% reference. A 10% slate tint reads at
+   1.03–1.15:1 against the card on every theme — quiet enough not to fight
+   the fill, too quiet to show the bar's full extent on its own — so the
+   extent is DRAWN rather than tinted in. This is what makes the low tint
+   above affordable. */
+.meter { height: 12px; border-radius: 2px; position: relative; overflow: hidden;
+  background: color-mix(in oklab, var(--pc) 10%, var(--sheet));
+  box-shadow: inset 0 0 0 1px var(--line-2); }
+.meter .mf {
+  position: absolute; inset: 0 auto 0 0; border-radius: 2px;
+  background: linear-gradient(90deg, color-mix(in oklab, var(--pc) 70%, white), var(--pc));
+  /* data tween, like .bar-fill — the quota reads as travelling to its level */
+  transition: width 1.2s var(--ease);
+}
+.meter-caption { display: flex; justify-content: space-between; gap: var(--s3); margin-top: var(--s2); font-size: 12.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.meter-caption b { color: var(--ink-2); font-weight: 640; }
+.pool-stats { display: flex; gap: var(--s4); margin-top: var(--s3); }
+.pool-stat .v { font-size: 16px; font-weight: 640; color: var(--ink); font-variant-numeric: tabular-nums; }
+.pool-stat .l { font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase; color: var(--ink-25); font-weight: 640; margin-top: 2px; }
+
+.chart-card { padding: 20px var(--s5) var(--s3); min-width: 0; }
+.chart-head { display: flex; align-items: baseline; gap: var(--s2); margin-bottom: var(--s1); }
+.chart-head .ct { font-size: 13.5px; font-weight: 640; color: var(--ink); }
+.chart-head .cs { font-size: 12.5px; color: var(--ink-3); }
+.chart-head .spacer { flex: 1; }
+.chart-legend { display: flex; gap: var(--s3); flex-wrap: wrap; font-size: 12.5px; color: var(--ink-2); font-weight: 550; }
+.chart-legend .ck { display: flex; align-items: center; gap: var(--s1); }
+.chart-legend .ck i { width: 8px; height: 8px; border-radius: 50%; background: var(--kc); }
+.chart-body { position: relative; }
+.chart-body svg { display: block; width: 100%; height: auto; }
+.chart-body svg text { font-family: var(--font-ui); }
+
+.tooltip {
+  position: absolute; z-index: 10;
+  pointer-events: none;
+  padding: var(--s2) var(--s3);
+  border-radius: 3px;
+  background: rgba(255,255,255,calc(0.86 * var(--wa)));
+  backdrop-filter: blur(16px) saturate(1.5);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  border: 1px solid rgba(255,255,255,calc(0.95 * var(--wa)));
+  /* overlay, not a step — it tracks the cursor above everything */
+  box-shadow: 0 10px 26px -10px rgba(var(--shadow-rgb), calc(0.3 * var(--shadow-k)));
+  /* 13px tooltip body: multi-word reading text under the 13px prose floor —
+     board.css/metrics.css restate the same number for their scoped tooltips */
+  font-size: 13px; color: var(--ink-2);
+  opacity: 0; transform: translateY(4px);
+  transition: opacity var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
+  white-space: nowrap;
+}
+.tooltip.show { opacity: 1; transform: translateY(0); }
+.tooltip b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.tooltip .tt-title { font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase; color: var(--ink-25); font-weight: 640; margin-bottom: var(--s1); }
+
+/* agent metrics table */
+.mtable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.mtable th {
+  text-align: left; font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase;
+  color: var(--ink-25); font-weight: 640; padding: var(--s2);
+  border-bottom: 1px solid var(--line-2);
+}
+.mtable td { padding: var(--s2); border-bottom: 1px solid var(--line); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.mtable tr:last-child td { border-bottom: none; }
+.mtable tr { transition: background var(--dur-2); }
+.mtable tbody tr:hover { background: rgba(255,255,255,calc(0.55 * var(--wa))); }
+.mtable .aname { display: flex; align-items: center; gap: var(--s2); font-weight: 640; color: var(--ink); }
+.mtable .aname i { width: 8px; height: 8px; border-radius: 50%; background: var(--rc); flex: none; }
+.mtable .num { text-align: right; }
+.mtable .fail-ok { color: var(--s-good); font-weight: 640; }
+.mtable .fail-warn { color: var(--s-warn); font-weight: 640; }
+.mtable .fail-bad { color: var(--s-serious); font-weight: 640; }
+
+/* ---------- settings drawer ---------- */
+.drawer {
+  position: fixed; top: 14px; bottom: 14px; right: 14px;
+  width: 320px;
+  z-index: 80;
+  transform: translateX(calc(100% + 22px));   /* offstage parking, not spacing */
+  transition: transform var(--dur-3) var(--ease);
+  background: linear-gradient(180deg, rgba(255,255,255,calc(0.68 * var(--wa))), rgba(255,255,255,calc(0.5 * var(--wa))));
+  backdrop-filter: blur(30px) saturate(1.7);
+  -webkit-backdrop-filter: blur(30px) saturate(1.7);
+  border: 1px solid rgba(255,255,255,calc(0.85 * var(--wa)));
+  border-radius: var(--r-lg);
+  /* overlay: a full-height sheet over the whole app, above --elev-3 */
+  box-shadow: inset 0 1px 0 rgba(255,255,255,var(--wa)), 0 30px 70px -25px rgba(var(--shadow-rgb), calc(0.4 * var(--shadow-k)));
+  display: flex; flex-direction: column;
+}
+.drawer.open { transform: translateX(0); }
+.drawer-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--s4) 20px var(--s3);
+  /* 0.06em on a 13.5px mixed-case title is an optical nudge, not the caps
+     micro-label role */
+  font-size: 13.5px; font-weight: 640; letter-spacing: 0.06em; color: var(--ink);
+  border-bottom: 1px solid var(--line);
+}
+.drawer-body { padding: var(--s4) 20px; display: flex; flex-direction: column; gap: var(--s4); }
+.set-row { display: flex; flex-direction: column; gap: var(--s2); }
+/* A range input is a 5px track inside a 22px box (the 17px thumb needs the
+   room), so it carries 8.5px of dead space on each side that the segmented
+   rows above it do not. Spending the same --s2/--s4 steps on both therefore
+   DRAWS a different rhythm: the two slider labels floated 16.5px off their
+   tracks where the seg labels sit at 8, and the gap after a slider opened to
+   24.5 against the block's 16. These two corrections cancel the dead space
+   rather than re-tuning the scale — measured, so they stay literal: 0 gap
+   puts the label 8.5px off the track, and −8px bottom returns the block
+   gap to 16.5. Both land inside a pixel of the rows they now match. */
+.set-row:has(input[type="range"]) { gap: 0; margin-bottom: -8px; }
+.set-row.set-toggle { flex-direction: row; align-items: center; justify-content: space-between; }
+/* Which build this is — a fact, so it reads as one: quiet, monospaced, and
+   selectable, because the first thing anybody does with it is copy it into a
+   report. */
+.set-row.set-build { gap: var(--s1); }
+.set-build-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.set-label { font-size: 13px; font-weight: 550; color: var(--ink-2); }
+/* 13px: a three-line mono paragraph — prose, so it obeys the 13px floor */
+.drawer-note { margin-top: auto; font-size: 13px; color: var(--ink-3); line-height: 1.65; font-family: var(--font-mono); }
+
+/* ---------- liquid press + neon focus (every interactive element) ----------
+   professional-pass: press used to fire a blurred colored bloom (0 0 18px
+   .38 alpha) around the control — a different, louder register than the
+   house pattern .node-ripple established (a crisp, zero-blur outline). Press
+   now reads the same way: a solid zero-blur ring, no radiated light. */
+.icon-btn:active, .tab:active, .ctl-btn:active, .chat-send:active, .chat-close:active,
+.rail-back:active, .graph-crumb button:active, .tb-nav a:active {
+  transform: scale(0.96);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,calc(0.85 * var(--wa))),
+    /* pressed sits BELOW --elev-1 by design — the control is going down */
+    0 2px 8px -4px rgba(var(--shadow-rgb), calc(0.2 * var(--shadow-k))),
+    0 0 0 2px color-mix(in oklab, var(--c-coordinator) 28%, transparent);
+}
+.chat-input input:active { transform: scale(0.99); }
+
+/* slider press: thumb grows under the pointer, neutral shadow only */
+input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.18);
+  box-shadow: 0 2px 7px rgba(var(--shadow-rgb), calc(0.25 * var(--shadow-k))), 0 0 0 4px color-mix(in oklab, var(--c-coordinator) 16%, transparent);
+}
+
+/* toggle press: liquid thumb stretch, no bloom */
+.toggle:active i::after { width: 25px; }
+.toggle:active input:checked + i::after { transform: translateX(13px); }
+
+.icon-btn:focus-visible, .tab:focus-visible, .ctl-btn:focus-visible, .chat-send:focus-visible,
+.chat-close:focus-visible, .rail-back:focus-visible, .graph-crumb button:focus-visible,
+.tb-nav a:focus-visible, .chat-input input:focus-visible, input[type="range"]:focus-visible,
+.toggle input:focus-visible + i {
+  outline: none;
+  /* professional-pass: the solid double ring (a white halo + a full-strength
+     saturated ring) is already a strong, unambiguous focus indicator on its
+     own — a blurred bloom behind it added nothing accessibility needs and
+     was the one glow this sweep initially left standing. Site-wide recipe,
+     changed here once. */
+  box-shadow:
+    0 0 0 1.5px rgba(255,255,255,calc(0.95 * var(--wa))),
+    /* the colour band consumes the token: the old rgba(0,169,216,.72)
+       composited to 2.01:1 on white / 1.82 on tan — failing the very
+       affordance this recipe was strengthened for */
+    0 0 0 3.5px var(--focus-ring);
+}
+
+/* ---------- scrollbars (clinical thin) ----------
+   themed: the navy literal was 1.01:1 on the black page — no visible thumb,
+   so nothing said "this scrolls". Tokens are per-theme ink solved to 2.2:1
+   (affordance floor is 2:1) with hover stepping to 3:1 — see :root. */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- reduced motion ----------
+   These two numbers are a ceiling clamped over everything, not a step on the
+   motion scale, so they stay literal: the whole point is that they sit below
+   --dur-1 and override it. */
+body.reduce-motion .node.enter::before { animation: none !important; }  /* frostIn — pseudo animations need their own opt-out */
+body.reduce-motion * { animation-duration: 0.001s !important; transition-duration: 0.12s !important; }
+/* A DURATION CLAMP MUST SHORTEN MOTION, NEVER MANUFACTURE IT.
+   `transition-duration` is only half of a transition: the other half,
+   `transition-property`, has the initial value `all`. So clamping duration on
+   `*` hands a 120ms tween on EVERY animatable property to every element that
+   declared no transition at all — the accessibility control adding motion for
+   the reader who asked for less of it. Measured on page 2: an SVG chip-leader
+   dot with no transition anywhere in its rules resolved to
+   `transition-property: all; transition-duration: 0.12s`, and every reposition
+   of `cx`/`cy` started a real CSSTransition. The same applied to `.tree-link`.
+   The property is therefore pinned back to `none` at ZERO specificity, so any
+   author declaration (a class rule, an inline style, the shorthand `transition:`)
+   still wins and is still clamped, while "nothing was declared" stays nothing.
+   `:where()` contributes no specificity, which is what keeps this rule below
+   even a single-class author rule. */
+:where(body.reduce-motion) * { transition-property: none; }
+:where(body.reduce-motion) *::before,
+:where(body.reduce-motion) *::after { transition-property: none; }
+
+/* ---------- theme selector (settings drawer) ---------- */
+.theme-seg {
+  /* 2px inter-segment hairline is below the scale floor and stays literal;
+     the 3px inset rounds to --s1 */
+  display: flex; gap: 2px; padding: var(--s1);
+  border-radius: 3px;
+  /* The trough was rgba(127,127,127,0.12) — a fixed neutral grey, and the
+     only segmented control in the app that did not read --seg-bg. It showed:
+     on tan, this drawer's two troughs were cold grey slabs while the very
+     same control on #/metrics resolved warm cream, three feet away in the
+     same theme. --seg-bg is ink-tinted glass, so it is warm on tan and cool
+     on white by construction. The BORDER stays --line-2 rather than
+     --seg-border: this is the small build of the control (--s1 inset, 12.5px
+     buttons) and it wants a defined hairline on all three grounds, where
+     --seg-border's 0.7×--wa white would nearly vanish on black. */
+  background: var(--seg-bg);
+  border: 1px solid var(--line-2);
+}
+.theme-seg button {
+  flex: 1;
+  border: none; background: transparent; cursor: pointer;
+  font-family: var(--font-ui); font-size: 12.5px; font-weight: 640; line-height: 1;
+  color: var(--ink-3);
+  padding: var(--s2) var(--s1); border-radius: 2px;
+  transition: background var(--dur-2) var(--ease), color var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease);
+}
+.theme-seg button:hover { color: var(--ink-2); }
+.theme-seg button.on {
+  background: var(--sheet); color: var(--ink);
+  /* bespoke: a segment lifting inside its own track wants a tighter, darker
+     shadow than --elev-1's control lift */
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))), 0 2px 8px -3px rgba(var(--shadow-rgb), calc(0.28 * var(--shadow-k)));
+}
+.theme-seg button:active { transform: scale(0.96); }
+.theme-seg button:focus-visible {
+  outline: none;
+  /* same halo+band recipe as the shared rule above; band reads the token */
+  box-shadow: 0 0 0 1.5px rgba(255,255,255,calc(0.95 * var(--wa))), 0 0 0 3.5px var(--focus-ring);
+}
+
+/* ---------- chart chrome tokens ----------
+   These were hardcoded light-theme ink inside the SVG (gridlines, crosshair,
+   bar tracks, sparkline strokes), which the theme layer could never reach —
+   on the black theme they rendered as near-invisible ink-on-ink. */
+:root {
+  --chart-grid:  rgba(14, 23, 38, 0.07);
+  --chart-cross: rgba(14, 23, 38, 0.24);
+  --chart-track: rgba(14, 23, 38, 0.05);
+  --chart-spark: rgba(14, 23, 38, 0.20);
+}
+:root[data-theme="tan"] {
+  --chart-grid:  rgba(40, 40, 40, 0.10);
+  --chart-cross: rgba(40, 40, 40, 0.30);
+  --chart-track: rgba(40, 40, 40, 0.07);
+  --chart-spark: rgba(40, 40, 40, 0.26);
+}
+:root[data-theme="black"] {
+  --chart-grid:  rgba(255, 255, 255, 0.09);
+  --chart-cross: rgba(255, 255, 255, 0.34);
+  --chart-track: rgba(255, 255, 255, 0.07);
+  --chart-spark: rgba(255, 255, 255, 0.26);
+}
+
+/* ---------- tabular figures on numerals that change or align ----------
+   The two largest live numbers on the site re-tween off sim drift; without
+   tabular figures the digits change width as they count, so the number
+   visibly jitters. Chart text aligns in columns for the same reason. */
+.stat-hero .v,
+.tile .tv,
+.chart-body svg text { font-variant-numeric: tabular-nums; }
+
+/* ---------- respect the OS-level motion preference ----------
+   The site had a Settings toggle but never honoured prefers-reduced-motion,
+   so a user who set it system-wide still got every animation. The toggle
+   still works; this makes the OS preference the default rather than the
+   thing you have to go find. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.12s !important;
+    scroll-behavior: auto !important;
+    /* SAME DEFECT AS THE SETTINGS TOGGLE ABOVE, and worse here because this is
+       the block that fires for a reader who set the preference at the OS level
+       and never opened Settings at all. `transition-duration` alone cannot
+       shorten a transition that was never declared -- it CREATES one, because
+       `transition-property` initially resolves to `all`. Pinning the property
+       to `none` at this selector's own zero specificity keeps every declared
+       transition (any author rule outranks `*`) and clamps it, while an element
+       that asked for no motion keeps none. */
+    transition-property: none;
+  }
+}
+
+/* ============================================================
+   The top strip — three pieces, each worth looking at
+   The sketch has a back arrow, the word "settings" with a gear,
+   and a forward arrow. That is the whole banner: no container, no
+   breadcrumb, no tabs. With so little left, each piece earns real
+   craft rather than a default hover box.
+   ============================================================ */
+
+/* The arrows carry ALL navigation now, so each names its destination — but
+   only once you reach for it. The label sits BELOW its arrow (to its side it
+   collided with the gear) and is silent at rest.
+
+   It hangs from the OUTER edge of its own arrow rather than from the arrow's
+   centre. Centring was the intent, and it does not fit: each arrow sits at
+   its end of the page column, so a centred caption puts half its width
+   outside the column — and the longest destination ("computers", 82.2px at
+   this size and tracking) then left the VIEWPORT by 1.1px at 1280 and 5.1px
+   at 1024, clipped silently under body{overflow:hidden}. Anchoring outward
+   costs nothing at wide sizes (the caption still reads as this arrow's
+   label, 46px of it under the arrow), can never leave the page at any
+   width, and makes the pair bracket the column the way the arrows do. */
+.topbar .icon-btn { position: relative; }
+.topbar .icon-btn[data-dest]:not([data-dest=""])::after {
+  content: attr(data-dest);
+  position: absolute; top: calc(100% - 2px);
+  transform: translateY(-3px);
+  /* 11px + uppercase is the caps micro-label role, so it spends the role's
+     one tracking value. This was the last 0.14em holdout in the sheet —
+     it survived the tracking sweep only because the rule above kept it
+     invisible, so nobody could see it disagreeing. */
+  font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase;
+  color: var(--ink-3);
+  white-space: nowrap; pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--dur-2, 240ms) var(--ease),
+              transform var(--dur-2, 240ms) var(--ease);
+}
+/* These two selectors have to repeat the [data-dest] guard above. Without it
+   the reveal is (0,3,1) against a resting rule at (0,4,1) — LOWER specificity
+   — so `opacity: 0` won its own cascade and this caption has never once
+   appeared, on any route, for anyone. It measures 0 while hovered; it now
+   measures 1. Same reveal, same timing, nothing else changed. */
+.topbar .tb-left  .icon-btn[data-dest]:not([data-dest=""])::after { left: 0; right: auto; }
+.topbar .tb-right .icon-btn[data-dest]:not([data-dest=""])::after { right: 0; left: auto; }
+.topbar .icon-btn[data-dest]:not([data-dest=""]):hover::after,
+.topbar .icon-btn[data-dest]:not([data-dest=""]):focus-visible::after { opacity: 1; transform: translateY(0); }
+
+/* no hover slab anywhere on this strip — the glyph itself answers, by
+   darkening and leaning the way it travels */
+.topbar .icon-btn { background: none; }
+.topbar .icon-btn:hover,
+.topbar .icon-btn:active { background: none; box-shadow: none; }
+.topbar .icon-btn svg { transition: transform var(--dur-2, 240ms) var(--ease), color .2s var(--ease); }
+.topbar .icon-btn:hover { color: var(--ink); }
+#nav-back:hover:not([disabled]) svg { transform: translateX(-2px); }
+#nav-next:hover:not([disabled]) svg { transform: translateX(2px); }
+/* the gear turns toward its own detent rather than lighting up */
+#open-settings svg { transition: transform var(--dur-3, 420ms) var(--ease); }
+#open-settings:hover svg { transform: rotate(45deg); }
+
+.topbar .icon-btn[disabled] { opacity: 0.2; }
+/* the 0.7 rest opacity + :hover lift that used to live here is gone — see
+   .tb-settings-label above; the word now reads at full strength at rest */
+
+/* ---------- the settings file could not be read ----------------------------
+ *
+ * See src/settings-recovery-notice.js. It appears only when a person's saved
+ * settings did not load, which is a state most installs will never reach, so
+ * it costs nothing at rest and must be unmissable when it happens.
+ *
+ * IT IS A FIXED BAR AT THE BOTTOM RATHER THAN A BANNER AT THE TOP, and that is
+ * layout, not taste: `.topbar` is fixed at top:14px and every `.view` is
+ * absolutely positioned at `inset: 82px 0 0 0`, so a notice in normal flow at
+ * the top of <body> is painted underneath the running view, and one placed over
+ * that band covers the only navigation this product has. The bottom edge is the
+ * one place a persistent message can sit without taking a control away from
+ * somebody who is already having a bad day.
+ *
+ * z-index 70 is above the topbar's 60 and below the settings drawer's 80. The
+ * drawer is modal and covers the page; a notice punching through a modal would
+ * be a second defect.
+ *
+ * COLOURS COME FROM THE THEME TOKENS, so this reads correctly on white, tan and
+ * black -- including for the person whose stored theme is exactly what failed
+ * to load, who is therefore looking at this on the default sheet. */
+.settings-recovery {
+  position: fixed;
+  left: 50%; transform: translateX(-50%);
+  bottom: 14px;
+  /* 100% not 100vw, for the reason spelled out on .topbar: under the Text
+     size zoom this bar was painted wider than the window and its Dismiss
+     button went off the right edge -- on the one screen a person reaches
+     only when their settings have already been lost. */
+  width: min(var(--page-max), calc(100% - 2 * var(--page-gutter)));
+  box-sizing: border-box;
+  z-index: 70;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "heading dismiss"
+    "body    body"
+    "path    path";
+  gap: 4px 12px;
+  align-items: start;
+  padding: 10px 12px;
+  border-radius: var(--board-r, 3px);
+  border: 1px solid var(--line-2);
+  border-left: 3px solid var(--s-serious, var(--ink-2));
+  background: var(--sheet);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.16);
+  color: var(--ink-2);
+  font-size: 12.5px; line-height: 1.45;
+}
+.settings-recovery-heading {
+  grid-area: heading;
+  color: var(--ink); font-weight: 650;
+}
+.settings-recovery-body { grid-area: body; }
+.settings-recovery-path {
+  grid-area: path;
+  color: var(--ink-25);
+}
+/* The path is the actionable half of the message, so it wraps rather than
+   being clipped: a truncated path is a path a person cannot use, and this is
+   the one line they may need to type somewhere else. */
+.settings-recovery-path code {
+  font-family: var(--font-mono); font-size: 12px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.settings-recovery-dismiss {
+  grid-area: dismiss;
+  padding: 2px 9px;
+  border-radius: var(--board-r, 3px);
+  border: 1px solid var(--line-2);
+  background: none;
+  color: var(--ink-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+.settings-recovery-dismiss:hover { color: var(--ink); border-color: var(--line); }
+
+/* OUT FROM UNDER THE OPEN DRAWER.
+ *
+ * The drawer is fixed at right:14px, width:320px, z-index 80 -- above this bar
+ * -- so while it is open it lands on the bar's right-hand end, which is exactly
+ * where Dismiss sits. A control that is covered but still in the tab order is
+ * the WCAG 2.2 SC 2.4.11 failure src/main.js already had to fix once for this
+ * same drawer; shipping a second one would be introducing the defect rather
+ * than inheriting it. Pinning the right edge inside the drawer's left edge
+ * (320 + its 14 offset + a 12 gap) is what prevents it.
+ *
+ * MOVED, NOT HIDDEN. Going quiet at the moment somebody opens Settings is the
+ * worst available timing for a message about settings. A sibling selector does
+ * it, because the notice is appended to <body> after the drawer -- so no
+ * JavaScript has to know this rule exists.
+ *
+ * MEASURED IN THE PACKAGED APP, not derived: with the drawer open on a
+ * 1400-wide window the bar computes to right:346px / width:354px, and the base
+ * `left:50%` and centring transform above are what it is 354px wide instead of
+ * ~1040. Overriding either of them from here did not take -- both stayed at
+ * their base values in getComputedStyle -- so those two declarations were
+ * removed rather than left in looking like they did something. The narrower bar
+ * is a cosmetic cost while a drawer is open; the property that matters, that
+ * Dismiss is never both covered and focusable, is carried by `right` alone. */
+.drawer.open ~ .settings-recovery {
+  right: 346px;
+  width: auto;
+}
+
+/* ============================================================================
+   WINDOWS HIGH CONTRAST (forced colors), and specifically the ONE indicator a
+   keyboard user has.
+
+   THE DEFECT, MEASURED, not reasoned about. This design system draws focus as a
+   box-shadow with `outline: none` beside it -- the shared recipe above, the
+   `.seg > button` recipe, the theme seg, the computers tabs. In forced-colors
+   mode the user agent DISCARDS box-shadow entirely (CSS Color Adjust 1: box
+   shadows are not repainted in a forced-colors palette), so that pairing does
+   not dim there, it disappears. Driven with real Tab presses on the packaged
+   build under `forced-colors: active` (tools/a11y-keyboard-qa.mjs): all four
+   controls of the first-run permission question, and seven of the controls on
+   the agent surface, computed to outline-style `none` and box-shadow `none`
+   with `:focus-visible` true. A person in High Contrast tabbing through the
+   walkthrough could not see where they were, at any step.
+
+   `!important` IS REQUIRED HERE AND IS NOT A SHORTCUT. The rules being
+   corrected are `.ctl-btn:focus-visible`, `.seg > button:focus-visible` and
+   friends -- one class plus a pseudo-class each -- so no bare `:focus-visible`
+   rule can outrank them, and a media query adds no specificity. Restating every
+   one of those selectors here would mean a new focus recipe ANYWHERE silently
+   opting itself out of high contrast; this cannot be opted out of.
+
+   THE SYSTEM COLOURS ARE THE POINT. `Highlight` is the palette the person
+   themselves chose, so the ring is guaranteed to contrast with their own
+   background rather than with the one we assumed.
+   ========================================================================= */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 3px solid Highlight !important;
+    outline-offset: 2px !important;
+  }
+
+  /* WHICH ANSWER IS CHOSEN, when colour can no longer say so.
+     Selection in this set is drawn with a background: the seg's sliding sheet,
+     the tab's tinted fill, the choice row's left rule. Forced colors flattens
+     every one of those to the same system pair, so all three options of the
+     first-run question read as unselected -- measured: the chosen tier button
+     had no outline, no underline and no border in forced colors, and
+     `aria-pressed` was the only remaining difference, which is a promise to a
+     screen reader and nothing at all to a person who can see. An underline is
+     text decoration, so it survives the palette and costs no layout. */
+  .seg > button.on,
+  .seg > button[aria-pressed='true'],
+  .theme-seg button.on,
+  .tab.active,
+  .computers .tab.active {
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+  }
+
+  /* The sliding indicator is a painted sheet with no text and no border; in
+     forced colors it is an invisible box that still animates. The underline
+     above carries its meaning, so it is stood down rather than left as a lie. */
+  .seg-ind { display: none; }
+
+  /* The first-run choice rows mark the current option with a 2px left rule and
+     leave `transparent` on the others. That does NOT survive here: photographed
+     under emulated forced colors, all four blocks on the permission question
+     carried an identical black rule, because the palette is applied to the
+     transparent border too. So the mark is re-made with something forced colors
+     cannot flatten -- a rule of the person's own highlight colour, and a box
+     around the row that the unselected rows do not have. */
+  .setup-choice[aria-current='true'] {
+    border-left-color: Highlight;
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}
+
+/* Native dropdown popups do NOT inherit a transparent control background:
+   Chromium paints them in UA colors unless told otherwise, which on the black
+   theme meant near-black text on near-black rows (the role menu, owner
+   walkthrough). Painted with the theme's own tokens; color-scheme above makes
+   the popup chrome itself dark. */
+select option,
+select optgroup {
+  background-color: var(--sheet);
+  color: var(--ink);
+}

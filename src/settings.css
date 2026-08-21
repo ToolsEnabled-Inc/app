@@ -1,0 +1,632 @@
+/* Settings is a bare clinical register: headings, whitespace and hairlines.
+   Only the existing control skins are allowed to form enclosed surfaces. */
+
+.drawer .drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* The drawer's two registers (R1520): the page group first, the app-wide
+   appearance group under it, separated by the same hairline the head uses.
+   Group heads are the app's 11px caps micro-label role. */
+.drawer-group { display: flex; flex-direction: column; gap: var(--s4); }
+.drawer-group + .drawer-group {
+  margin-top: var(--s2);
+  padding-top: var(--s4);
+  border-top: 1px solid var(--line);
+}
+.drawer-group-label {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 640;
+  text-transform: uppercase;
+  letter-spacing: var(--track-caps);
+  color: var(--ink-3);
+}
+/* the honest line for a page with no page-specific settings — prose, 13px floor */
+.drawer-page-empty { font-size: 13px; color: var(--ink-3); line-height: 1.65; }
+
+/* THE QUICK MOVE (R1520: "with a quick move to settings page"). This was a
+   13px ink-3 text line a cold reader could take for a caption; the owner asked
+   for a clearly visible action, so it now wears the app's segmented-control
+   skin (--seg-bg trough, --line-2 hairline) as a full-width pressable row,
+   pinned under the scrolling body. */
+.drawer .drawer-all {
+  flex: none;
+  display: block;
+  margin: var(--s3) 20px var(--s4);
+  padding: var(--s2) var(--s3);
+  text-align: center;
+  background: var(--seg-bg);
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 640;
+  text-decoration: none;
+  transition: color var(--dur-2) var(--ease), background var(--dur-2) var(--ease);
+}
+
+.drawer .drawer-all:hover { color: var(--ink); background: var(--sheet); }
+.drawer .drawer-all:active { transform: scale(0.98); }
+.drawer .drawer-all:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* A FLOATING NOTICE MUST NOT SIT ON TOP OF THE OPEN DRAWER.
+   The fleet-profile notice is position:fixed at z-index 190, above the drawer's
+   80, pinned to the same bottom-right corner as this "all settings" link. On
+   every route where the notice shows (home hides it; the settings route does
+   not) it painted over the link, so a person who opened the drawer there could
+   not press it -- measured by tools/account-isolation-leak-qa.mjs. The drawer is
+   a modal that takes focus while it is open, so the notice has nothing to add
+   until it closes; it is hidden for exactly that span rather than moved or
+   restyled. */
+body:has(#drawer.open) .fleet-profile-notice { display: none; }
+
+/* AND NOT ON TOP OF THE SETTINGS PAGE EITHER — the notice's own href points at
+   #/settings, so on that route it is a nag standing on its own destination.
+   Measured 2026-08-13 (owner screenshot): it painted over the System section's
+   "Your account" row, semi-transparent, swallowing the row's clicks. Same
+   remedy as the drawer above, same reasoning: on this route it has nothing to
+   add that the page it covers is not already saying. */
+body[data-route="settings"] .fleet-profile-notice { display: none; }
+
+.settings-shell {
+  width: 100%;
+  max-width: var(--page-max);
+  margin-inline: auto;
+}
+
+.settings-header.m-head {
+  align-items: center;
+  margin-bottom: calc(var(--s5) + var(--s2));
+  padding-inline: 0;
+}
+
+.settings-header .mt { margin: 0; }
+
+.settings-search {
+  width: min(calc(var(--s5) * 12), 42vw);
+}
+
+.settings-search input {
+  width: 100%;
+  padding: var(--s2) 0;
+  border: none;
+  border-bottom: 1px solid var(--line-2);
+  outline: none;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.2;
+  transition: color var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease);
+}
+
+.settings-search input::placeholder { color: var(--ink-3); }
+.settings-search input:hover { border-bottom-color: var(--ink-3); }
+.settings-search input:focus {
+  color: var(--ink);
+  border-bottom-color: var(--focus-ring);
+}
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: calc(var(--s5) * 6) minmax(0, 1fr);
+  align-items: start;
+  gap: calc(var(--s5) * 2);
+}
+
+.settings-rail {
+  position: sticky;
+  top: var(--s2);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--s3);
+}
+
+/* The rail mirrors the page's two levels: six group lines, and the seventeen
+   category buttons indented under whichever groups are open. */
+.settings-rail-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s2);
+}
+
+/* Outranks `.settings-rail button`'s nowrap so a two-word group name wraps
+   instead of ending in an ellipsis -- read off the second screenshot pass. */
+.settings-rail .settings-rail-head {
+  color: var(--ink-2);
+  white-space: normal;
+}
+
+.settings-rail-sections {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s2);
+  padding-left: var(--s3);
+  border-left: 1px solid var(--line-2);
+}
+
+/* An author `display` beats the hidden attribute's own rule, so a closed
+   group's rail list stayed on screen -- read off the first screenshot pass.
+   Said explicitly for both hidden surfaces. */
+.settings-rail-sections[hidden],
+.settings-group-body[hidden] { display: none; }
+
+.settings-rail button {
+  max-width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: none;
+  background: transparent;
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 640;
+  letter-spacing: var(--track-caps);
+  line-height: 1.3;
+  text-align: left;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--dur-2) var(--ease);
+}
+
+.settings-rail button:hover,
+.settings-rail button.is-active { color: var(--ink); }
+.settings-rail button:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: var(--s1);
+  border-radius: var(--r-md);
+}
+
+.settings-main { min-width: 0; }
+
+/* ---------- the six top-level groups ----------
+   Collapsed by default, a first visit is six scannable lines; what a person
+   opens is remembered. The head is one full-width button: name and glyph,
+   then a one-line description, then — only while closed — the section names,
+   so anything can still be FOUND without opening a thing. */
+.settings-group {
+  margin-bottom: var(--s4);
+  border-top: 1px solid var(--line);
+  scroll-margin-top: var(--s3);
+}
+
+.settings-group-head {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: var(--s3) 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-group-name {
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 660;
+  letter-spacing: var(--track-caps);
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+.settings-group-head:hover .settings-group-name { color: var(--ink); }
+
+.settings-group-detail {
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.settings-group-list {
+  color: var(--ink-25);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 640;
+  letter-spacing: var(--track-caps);
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+
+.settings-group.is-open .settings-group-list { display: none; }
+
+.settings-group-head:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: var(--s1);
+  border-radius: var(--r-md);
+}
+
+.settings-group-body { padding-top: var(--s2); }
+
+.settings-section,
+.settings-results {
+  margin-bottom: calc(var(--s5) * 2);
+  scroll-margin-top: var(--s3);
+}
+
+.settings-section-title {
+  margin: 0 0 var(--s1);
+  padding: 0 0 var(--s2);
+  border-bottom: 1px solid var(--line-2);
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 660;
+  letter-spacing: var(--track-caps);
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.settings-section-rows,
+.settings-tier-inner {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ONE ROW ANATOMY: name — state sentence — description — control — disclosure.
+   `align-items: start`, not center, and the disclosure on a full-width grid row
+   of its own, because the centred two-column row moved the control 14-81px
+   under the pointer whenever its guidance text opened mid-press (measured on
+   the driven build). With the control pinned to the row's top and everything
+   that grows placed BELOW it, nothing a pointer is over ever moves. */
+.settings-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(calc(var(--s5) * 9), auto);
+  align-items: start;
+  gap: var(--s2) var(--s5);
+  min-height: calc(var(--s5) * 3);
+  padding-block: var(--s2);
+}
+
+.settings-row > .settings-disclosure {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.settings-row > .settings-disclosure:empty { display: none; }
+
+/* The truth the switch shows, in words, directly under the name. It leads with
+   "On." or "Off." so it can never be read against the control beside it. */
+.settings-state {
+  margin-top: 2px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+/* One press to the thing this switch gates, instead of working out which page
+   it means and walking the ring to it. */
+.settings-jump {
+  display: inline-block;
+  margin-top: var(--s1);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.4;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.settings-jump:hover { color: var(--ink); }
+.settings-jump:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: var(--s1);
+  border-radius: var(--r-md);
+}
+
+.settings-row + .settings-row { margin-top: var(--s1); }
+
+/* THE ROW A LINK SENT SOMEBODY TO. A page with 219 controls scrolled to the
+   right one still looks like a page with 219 controls, so the row that was
+   asked for says so. It is a rule and an inset, not a colour on its own: the
+   accent is the second signal, and the row is already centred in the viewport
+   by the scroll, which is the first.
+   It persists rather than fading. A flash that has finished by the time the eye
+   arrives has told nobody anything, and this row is the answer to a question
+   the person asked one screen ago -- it stays until they render the page some
+   other way. */
+.settings-row.is-landed {
+  border-left: 2px solid var(--focus-ring, var(--ink-2));
+  padding-left: var(--s3);
+  margin-left: calc(-1 * var(--s3) - 2px);
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+  border-radius: var(--r-sm, 4px);
+}
+.settings-copy { min-width: 0; }
+.settings-name {
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.settings-desc {
+  margin-top: var(--s1);
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.settings-prefix {
+  margin-bottom: var(--s1);
+  color: var(--ink-25);
+  font-size: 11px;
+  font-weight: 640;
+  letter-spacing: var(--track-caps);
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.settings-row.is-engineer .settings-name {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.settings-control {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.settings-seg { max-width: 100%; }
+.settings-seg > button { padding-inline: var(--s2); }
+.settings-toggle { flex: none; }
+
+.settings-range {
+  display: grid;
+  grid-template-columns: minmax(calc(var(--s5) * 5), calc(var(--s5) * 8)) calc(var(--s5) * 3);
+  align-items: center;
+  justify-content: end;
+  gap: var(--s3);
+  width: 100%;
+}
+
+.settings-range input { width: 100%; }
+.settings-range output,
+.settings-stepper output {
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.settings-stepper {
+  display: inline-grid;
+  grid-template-columns: var(--s5) minmax(calc(var(--s5) * 4), auto) var(--s5);
+  align-items: center;
+  gap: var(--s2);
+}
+
+.settings-stepper button {
+  width: var(--s5);
+  height: var(--s5);
+  padding: 0;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease);
+}
+
+.settings-stepper button:hover {
+  color: var(--ink);
+  border-color: var(--ink-3);
+}
+
+.settings-stepper button:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: var(--s1);
+}
+
+.settings-reveal {
+  display: block;
+  margin-top: var(--s2);
+  padding: var(--s1) 0;
+  border: none;
+  background: transparent;
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 550;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--dur-2) var(--ease);
+}
+
+.settings-reveal:hover { color: var(--ink); }
+.settings-reveal-glyph {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 14px;
+  line-height: 1;
+  vertical-align: -1px;
+  transition: transform 160ms var(--ease);
+}
+.settings-reveal:hover .settings-reveal-glyph { transform: translateY(2px); }
+body.reduce-motion .settings-reveal-glyph { transition: none; transform: none; }
+.settings-reveal:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: var(--s1);
+  border-radius: var(--r-md);
+}
+
+.settings-tier {
+  position: relative;
+  max-height: 0;
+  margin-left: var(--s3);
+  padding-left: var(--s4);
+  overflow: hidden;
+  border-left: 1px solid var(--line-2);
+  opacity: 0;
+  transform: translateY(calc(-1 * var(--s1)));
+  transition: max-height 220ms var(--ease), opacity 220ms var(--ease), transform 220ms var(--ease);
+}
+
+.settings-tier::before,
+.settings-tier::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  width: var(--s2);
+  height: 0;
+  border-top: 1px solid var(--line-2);
+}
+
+.settings-tier::before { top: 0; }
+.settings-tier::after { bottom: 0; }
+.settings-tier.is-open {
+  max-height: 2600px;
+  opacity: 1;
+  transform: none;
+}
+
+.settings-tier .settings-reveal { margin-left: 0; }
+.settings-empty {
+  padding-block: var(--s4);
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.settings-footer {
+  padding: var(--s3) 0 var(--s5);
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.settings-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+body.reduce-motion .settings-tier {
+  transition: none;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-tier { transform: none; }
+}
+
+@media (max-width: 760px) {
+  .settings-layout {
+    grid-template-columns: 1fr;
+    gap: var(--s5);
+  }
+
+  .settings-rail {
+    top: 0;
+    flex-direction: row;
+    gap: var(--s4);
+    padding: var(--s2) 0;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+  }
+
+  .settings-rail button { flex: none; }
+
+  /* On a narrow screen the rail is one scrolling line: a group's sections
+     follow their group inline rather than stacking under it. */
+  .settings-rail-group {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--s4);
+  }
+
+  .settings-rail-sections {
+    flex-direction: row;
+    gap: var(--s4);
+    padding-left: 0;
+    border-left: none;
+  }
+}
+
+@media (max-width: 620px) {
+  .settings-header.m-head {
+    align-items: stretch;
+    flex-direction: column;
+    gap: var(--s3);
+  }
+
+  .settings-header .spacer { display: none; }
+  .settings-search { width: 100%; }
+  .settings-row {
+    grid-template-columns: 1fr;
+    gap: var(--s3);
+    padding-block: var(--s3);
+  }
+
+  .settings-control { justify-content: flex-start; }
+  .settings-range { justify-content: start; }
+  .settings-tier {
+    margin-left: var(--s2);
+    padding-left: var(--s3);
+  }
+}
+
+/* ---------- the research drawer's tool switches ---------- */
+.drawer-tools { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line-2); }
+.drawer-tools-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.drawer-tools-count { font-size: 12px; color: var(--ink-3); }
+.drawer-tools-all { display: flex; gap: 8px; margin: 8px 0; }
+.drawer-tools-all button {
+  padding: 3px 10px;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  color: var(--ink-2);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.drawer-tools-all button:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-3); }
+.drawer-tools-all button:disabled { opacity: 0.5; cursor: default; }
+.drawer-tools-list {
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 2px;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+}
+.drawer-tools-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-family: var(--font-mono);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.drawer-tools-row:hover { color: var(--ink); }
+.drawer-tools-note { margin: 8px 0 0; font-size: 12px; color: var(--ink-3); }

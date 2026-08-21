@@ -1,0 +1,412 @@
+/* LEDGER — a bare owner-request register. Hairlines and type carry the page;
+   only gate-class chips are boxed inside the register. */
+
+.ledger-page { scrollbar-gutter: stable; }
+.ledger-shell { width: min(var(--page-max), 100%); margin-inline: auto; padding-top: var(--s3); }
+.ledger-sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+/* five bare figures, one measured strip */
+.ledger-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border-bottom: 1px solid var(--line-2);
+}
+.ledger-stat {
+  min-width: 0;
+  padding: var(--s3) clamp(10px, 2vw, 24px) var(--s4);
+  border-right: 1px solid var(--line);
+}
+.ledger-stat:first-child { padding-left: 0; }
+.ledger-stat:last-child { border-right: 0; padding-right: 0; }
+.ledger-stat-value {
+  display: block;
+  font-size: 30px;
+  line-height: 1;
+  font-weight: 640;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.ledger-stat-label,
+.ledger-stat-note {
+  display: block;
+  margin-top: var(--s2);
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 640;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-25);
+}
+.ledger-stat-note { margin-top: var(--s1); font-weight: 500; color: var(--ink-3); }
+
+.ledger-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  padding: var(--s4) 0 var(--s3);
+}
+.ledger-register-note {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* register geometry: state | outline id | title | quiet metadata */
+.ledger-register { border-top: 1px solid var(--line-2); }
+.ledger-record {
+  border-bottom: 1px solid var(--line);
+  transition: background var(--dur-2) var(--ease);
+}
+.ledger-record:hover { background: color-mix(in oklab, var(--ink) 4%, transparent); }
+.ledger-line { position: relative; }
+.ledger-row {
+  width: 100%;
+  min-height: 45px;
+  display: grid;
+  grid-template-columns: 28px minmax(190px, 230px) minmax(210px, 1fr) max-content;
+  align-items: center;
+  gap: 0 var(--s3);
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+.ledger-row:focus-visible,
+.ledger-root-toggle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.ledger-state {
+  width: 20px;
+  display: grid;
+  place-items: center;
+  justify-self: start;
+}
+/* The five state glyphs are set OPTICALLY, not geometrically. At one shared
+   13px they are centred on the same x — geometrically perfect and visually
+   uneven, because the font draws them at wildly different sizes: ◐ occupies
+   12px of advance while ● and ■ occupy 7.2px. The rail read as loud/loud/
+   quiet/quiet/loud and "open" — the commonest state — nearly vanished. Each
+   glyph now gets the size that makes its INK land at the same weight as its
+   neighbours, so the rail scans as one column of equal marks that differ only
+   in shape and hue. Every value is a per-glyph correction to one target, not
+   a hierarchy: no state is louder than another. */
+.ledger-glyph {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1;
+  font-weight: 750;
+  color: var(--ink-25);
+}
+.ledger-line[data-state="open"] .ledger-glyph { font-size: 16.5px; }      /* ● smallest ink; a disc needs ~1.13× a square to match it */
+.ledger-line[data-state="gated"] .ledger-glyph { font-size: 13px; }       /* ■ solid — the heaviest mark per unit, so it stays at the base */
+.ledger-line[data-state="in-progress"] .ledger-glyph { font-size: 11px; } /* ◐ widest ink */
+.ledger-line[data-state="done"] .ledger-glyph { font-size: 14px; }        /* ✓ thin open strokes */
+.ledger-line[data-state="in-progress"] .ledger-glyph,
+.ledger-stat[data-state="in-progress"] .ledger-stat-value {
+  color: color-mix(in oklab, var(--c-coordinator) 72%, var(--ink));
+}
+.ledger-line[data-state="gated"] .ledger-glyph,
+.ledger-stat[data-state="gated"] .ledger-stat-value { color: var(--s-warn); }
+.ledger-line[data-state="done"] .ledger-glyph,
+.ledger-stat[data-state="done"] .ledger-stat-value { color: var(--s-good); }
+.ledger-line[data-state="blocked"] .ledger-glyph,
+.ledger-stat[data-state="blocked"] .ledger-stat-value { color: var(--s-serious); }
+/* "Open" is the absence of a status colour, and the two places it appears say
+   that at their own scale: a quiet grey dot in a 13px rail, and plain ink at
+   30px. On --ink-25 the figure was the same grey as its own caps label, so
+   the one neutral cell in the strip read as a disabled zero next to four lit
+   ones. Plain ink is the house neutral for a figure (metrics .stat .tv). */
+.ledger-line[data-state="open"] .ledger-glyph { color: var(--ink-25); }
+.ledger-stat[data-state="open"] .ledger-stat-value { color: var(--ink); }
+
+/* A cell reading zero has nothing to be that colour ABOUT. The Q register
+   leaves three of the five at zero, and a scarlet 0 under BLOCKED is the one
+   thing on this page that says "look here" while meaning "there is nothing
+   here" — the strip was flying three alarm colours for five empty items. A
+   zero recedes, figure and label together, so the strip's colour appears only
+   where a count does. (Must follow the [data-state] rules: same specificity.) */
+.ledger-stat[data-empty] .ledger-stat-value { color: var(--ink-4); }
+.ledger-stat[data-empty] .ledger-stat-label { color: var(--ink-3); }
+
+.ledger-id-cell {
+  position: relative;
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding-left: calc(22px + var(--depth) * 20px);
+}
+.ledger-id {
+  position: relative;
+  z-index: 1;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1;
+  font-weight: 640;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* The rails run one exact row pitch: the id cell is the row minus its 9px
+   padding, so -10/-9 makes each rail (row + its 1px hairline) tall. Adjacent
+   rails then abut with no seam and no overhang — the last child's rail stops
+   ON the rule under it instead of poking into the next row. */
+.ledger-guides { position: absolute; inset: -10px 0 -9px; pointer-events: none; }
+/* Each rail stands exactly where its ancestor's id begins (22px + 20px per
+   level = the same padding-left the ids themselves use), so a level-3 row is
+   read by sliding up its own rail to the id that owns it. At 30px they stood
+   8px right of that — the rail struck through the parent's id instead of
+   descending from it, and the outline looked hand-placed rather than ruled. */
+.ledger-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(22px + var(--rail-index) * 20px);
+  width: 1px;
+  background: var(--line-2);
+}
+
+.ledger-title {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.35;
+  font-weight: 550;
+  color: var(--ink);
+}
+/* The right-hand metadata is THREE columns, not a flex run. As a flex run each
+   row sized itself: the row grid's last track is max-content, so a row that
+   carried a gate chip pushed its agent and age left by the chip's width and a
+   row without one did not. Measured on the R register that put the agent name
+   on three different rails (1218 / 1243 / 1336) and the age on three more —
+   a register whose whole promise is that you read DOWN a column. Fixed tracks
+   give every row the same three right-aligned rails whether or not it is
+   gated; the widths are the longest real token plus a lead, so nothing that
+   exists in the data can push a neighbour off its rail.
+   Track 1 is 0-wide on purpose: the branch count is a rare aside on collapsed
+   roots only, and it right-aligns into the slack the title column already
+   leaves rather than reserving 90px on every row for it. */
+.ledger-meta {
+  --led-agent: 90px;   /* "sandbox-w1" / "gem-lane-2" = 76px + lead */
+  --led-age: 62px;     /* "30h 0m" / "2d 13h" = 48px + lead */
+  --led-gate: 120px;   /* "IRREVERSIBLE" chip = 106px + lead */
+  min-width: 0;
+  justify-self: end;
+  display: grid;
+  grid-template-columns: 0 var(--led-agent) var(--led-age) var(--led-gate);
+  align-items: center;
+  justify-items: end;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1;
+  color: var(--ink-3);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.ledger-branch-count { grid-column: 1; padding-right: var(--s3); color: var(--ink-3); font-family: var(--font-ui); }
+.ledger-agent { grid-column: 2; color: var(--ink-25); }
+.ledger-age { grid-column: 3; text-align: right; }
+/* Q items carry no gate class at all, so the register drops the gate rail
+   rather than ruling 120px of empty column down the whole page. */
+.ledger-record.is-question .ledger-meta { grid-template-columns: 0 var(--led-agent) var(--led-age) 0; }
+
+/* the one boxed thing in a bare register, so it stays a whisper: hairline at
+   a quarter of the state hue, a 5% wash, 3px square. It marks a class of
+   care, not a state — state is the glyph at the fixed left rail. */
+.ledger-gate {
+  grid-column: 4;
+  padding: 4px 6px;
+  border: 1px solid color-mix(in oklab, var(--s-warn) 26%, var(--line-2));
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--s-warn) 5%, transparent);
+  color: var(--s-warn);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 620;
+  letter-spacing: var(--track-caps);
+}
+
+.ledger-root-toggle {
+  position: absolute;
+  z-index: 2;
+  left: 38px;
+  top: 50%;
+  width: 18px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  transform: translateY(-50%);
+  background: transparent;
+  /* Decorative grey at rest, deliberately. A branch root carries TWO marks
+     within 18px of each other — the state glyph and this caret — and at
+     --ink-3 they read as equal siblings, so the eye had to work out which one
+     was the state. The caret is an affordance, not information (the button
+     carries the label; the span is aria-hidden), so it recedes until the
+     cursor or focus is on it. */
+  color: var(--ink-4);
+  cursor: pointer;
+  transition: color var(--dur-2) var(--ease);
+}
+.ledger-root-toggle span {
+  display: block;
+  font-size: 14px;
+  line-height: 1;
+  transition: transform var(--dur-2) var(--ease);
+}
+.ledger-root-toggle[aria-expanded="false"] span { transform: rotate(-90deg); }
+.ledger-root-toggle:hover,
+.ledger-root-toggle:focus-visible,
+.ledger-record:hover .ledger-root-toggle { color: var(--ink-2); }
+.ledger-root-toggle:hover { color: var(--ink); }
+
+/* answered Qs recede one register below the question line */
+.ledger-answer {
+  display: grid;
+  grid-template-columns: 28px minmax(190px, 230px) minmax(0, 1fr) max-content;
+  gap: 0 var(--s3);
+  padding: 0 10px 10px;
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.ledger-answer-mark { grid-column: 2; justify-self: end; color: var(--ink-4); }
+.ledger-answer span:last-child { grid-column: 3; }
+
+/* Detail opens inline with no reveal animation, including reduced motion.
+   Two alignment corrections:
+   · the gap was --s2 where the row it hangs under uses --s3, so the first
+     label started 8px LEFT of the title it belongs to — the one place on a
+     page built out of columns where a column visibly missed;
+   · the code track was 1fr, which threw claimed-at to the far right edge and
+     split one caption into two disconnected fragments a screen apart. With no
+     fr track and justify-content:start the whole run packs left under the
+     title and reads as the single line of provenance it is. */
+.ledger-detail {
+  display: grid;
+  grid-template-columns: 28px minmax(190px, 230px) max-content minmax(0, auto) max-content max-content max-content;
+  justify-content: start;
+  align-items: baseline;
+  gap: 0 var(--s3);
+  padding: 0 10px 10px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+.ledger-detail[hidden] { display: none; }
+.ledger-detail > .ledger-detail-label:first-child { grid-column: 3; }
+.ledger-detail-label {
+  font-size: 11px;
+  font-weight: 640;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-25);
+}
+.ledger-detail code,
+.ledger-detail time { font-family: var(--font-mono); font-size: 12.5px; color: var(--ink-2); }
+.ledger-detail code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ledger-detail-sep { color: var(--ink-4); }
+
+.ledger-empty {
+  margin: 0;
+  padding: var(--s5) 10px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+@media (max-width: 930px) {
+  .ledger-row { grid-template-columns: 28px 190px minmax(180px, 1fr); }
+  /* under the title the metadata is a wrapping run, not three rails: there is
+     no column left to hold, and fixed tracks would only rule empty air */
+  .ledger-meta {
+    display: flex; flex-wrap: wrap; justify-content: flex-start;
+    grid-column: 3; justify-self: start; margin-top: var(--s2); gap: var(--s2) var(--s3);
+  }
+  .ledger-branch-count, .ledger-agent, .ledger-age, .ledger-gate { grid-column: auto; }
+  .ledger-branch-count { padding-right: 0; }
+  .ledger-age { text-align: left; }
+  .ledger-answer { grid-template-columns: 28px 190px minmax(0, 1fr); }
+  .ledger-detail {
+    display: flex;
+    flex-wrap: wrap;
+    /* the title's x at this step: 10 + 28 + --s3 + 190 + --s3 (was 256, four
+       px past the column it hangs under) */
+    padding-left: 252px;
+  }
+}
+
+@media (max-width: 680px) {
+  .ledger-shell { padding-top: var(--s2); }
+  .ledger-stat { padding: var(--s3) var(--s2); }
+  .ledger-stat:first-child { padding-left: 0; }
+  .ledger-stat-value { font-size: 25px; }
+  .ledger-stat-note { letter-spacing: 0; text-transform: none; }
+  .ledger-toolbar { align-items: flex-start; flex-direction: column; gap: var(--s3); }
+  .ledger-row { grid-template-columns: 26px 152px minmax(140px, 1fr); gap: 0 var(--s2); padding-inline: var(--s2); }
+  .ledger-root-toggle { left: 32px; }
+  .ledger-answer { grid-template-columns: 26px 152px minmax(0, 1fr); gap: 0 var(--s2); padding-inline: var(--s2); }
+  /* --s2 + 26 + --s2 + 152 + --s2 = the title's x at this step (was 194) */
+  .ledger-detail { padding-left: 202px; padding-right: var(--s2); }
+  .ledger-meta { gap: var(--s2); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ledger-record,
+  .ledger-root-toggle,
+  .ledger-root-toggle span { transition: none !important; }
+}
+body.reduce-motion .ledger-record,
+body.reduce-motion .ledger-root-toggle,
+body.reduce-motion .ledger-root-toggle span { transition: none !important; }
+
+/* THE SENTENCE UNDER A FIELD, WHICH THIS PANEL HAD NOWHERE TO PUT.
+ *
+ * The two forms on this page used to explain themselves inside their fields --
+ * `placeholder="its number, as shown in the list"` -- which is the worst place
+ * for an explanation: it is grey, it is gone the moment somebody types, and it
+ * was pointing at a list that in the state a first-time reader meets is empty.
+ * A hint is a sentence about the field, so it is a sentence UNDER the field,
+ * and it stays there while they type.
+ *
+ * It lives here rather than in src/styles.css because it is this page's panel.
+ * The size and colour are the label's, one step quieter, so a hint reads as
+ * subordinate to the thing it explains rather than competing with it. */
+.ledger-write-surface .write-form-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-3);
+  max-width: 62ch;
+  margin-top: calc(var(--s1) * -1);
+}
+/* A HINT THAT IS THE REASON A CONTROL IS OFF READS AS A STATE, NOT AS ADVICE.
+   Same channel the rest of this product uses for a refusal, so a person who has
+   met one anywhere else recognises it here. */
+.ledger-write-surface .write-form-hint[data-state='unavailable'] {
+  color: var(--ink-2);
+}
+
+/* [hidden] LOSES TO display:grid, AND THE SCREENSHOT IS HOW THAT WAS FOUND.
+ *
+ * The queued-work form is written `hidden` and revealed by its own button. The
+ * attribute was there, a probe that asked the DOM said "hidden: true", and the
+ * form was plainly on the screen: `.write-form` sets `display: grid`, and an
+ * author rule beats the user-agent rule that gives [hidden] display:none. So
+ * the panel opened at full complexity for everybody while every measurement of
+ * it said otherwise -- the exact shape of defect this lane exists to close, one
+ * level down. Text in the DOM is not text on the screen. */
+.ledger-write-surface .write-form[hidden] { display: none; }

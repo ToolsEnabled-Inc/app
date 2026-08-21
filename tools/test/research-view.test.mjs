@@ -1,0 +1,260 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+import { assertValidProjection } from '../gen-projection-lib.mjs'
+
+const ROOT = resolve(import.meta.dirname, '..', '..')
+const read = path => readFileSync(resolve(ROOT, path), 'utf8')
+
+// The SHIPPED research envelope. Two clauses in this file used to assert its
+// contents -- 7 safe rows, 7 gated rows, 7 method notes, an observed-empty
+// findings register. T4c ("ship honest empty data instead of the owner's
+// snapshot") replaced every shipped projection with an unavailable envelope,
+// because the populated ones carried the titles and absolute paths of ~14 of
+// the owner's private reports into the installer. Those assertions then read a
+// file that policy requires to be empty.
+//
+// The counts are properties of the GENERATOR, not of a shipping decision, and
+// they now live in research-generator.test.mjs against a fixture that cannot be
+// emptied out from under them -- with two clauses that were missing there
+// (methodNotes length, and the exact source-out-of-scope reasons) carried over.
+//
+// What stays here is what this file is actually about: the view's contract, and
+// the shipped file's structural honesty in whichever state it ships. These are
+// deliberately written to hold BOTH before and after the open question of
+// whether real data should ship is settled, so settling it does not turn this
+// suite red again.
+const shippedEnvelope = () => JSON.parse(read('public/data/research.json'))
+
+function assertHonestEnvelope(envelope) {
+  assert.doesNotThrow(() => assertValidProjection('research', envelope))
+  if (envelope.ok === true) {
+    assert.equal(envelope.reason, null, 'an available envelope states no reason')
+    assert.notEqual(envelope.data, null, 'an available envelope carries data')
+    return true
+  }
+  assert.equal(envelope.data, null, 'an unavailable envelope must carry no data at all')
+  assert.equal(typeof envelope.reason, 'string')
+  assert.notEqual(envelope.reason.length, 0, 'an unavailable envelope must say why')
+  return false
+}
+
+test('research is an independent ring route backed by the research projection', () => {
+  const main = read('src/main.js')
+  const liveStatus = read('src/live-status.js')
+
+  // The ring is pinned exactly, not loosely matched, so that adding or moving a
+  // route is a visible, reviewed change rather than a silent one. 'approvals'
+  // joined it when the owner replaced the interrupting prompt popup with a
+  // screen he navigates to; the arrows are the only navigation, so a route
+  // absent from the ring is a route nobody can reach.
+  //
+  // 'checkout' joined it next, directly after approvals, when the owner asked
+  // for the purchase list to be a working surface inside ToolsEnabled
+  // rather than a document. The two sit together because both are places he
+  // decides about money. This edit IS the visible reviewed change the pin
+  // exists to force.
+  //
+  // 'settings' joined last, closing the ring one Back press from home, when
+  // the owner asked for "a second way to access it by just going through the
+  // pages to the settings page" (R1520). Before that the settings page's only
+  // door was the drawer's "all settings" link.
+  //
+  // THE PIN NOW HAS A SECOND HALF, and without it the first half stopped being
+  // worth anything. The constant was renamed ORDER -> RING when checkout became
+  // conditional: it shipped the operator's own purchase list to strangers, so
+  // the stop exists only on a copy that has a list (src/checkout-visibility.js).
+  // Membership of RING is therefore no longer sufficient for reachability --
+  // a predicate in CONDITIONAL_STOPS can take a stop off the ring at runtime,
+  // which is exactly the thing a text match on the array cannot see. So research
+  // is pinned as being on the ring AND as not being conditional.
+  assert.match(main, /const RING = \['home', 'computers', 'metrics', 'research', 'comms', 'ledger', 'approvals', 'checkout', 'settings'\]/)
+  const conditional = main.slice(main.indexOf('const CONDITIONAL_STOPS'), main.indexOf('function stopIsOffered'))
+  assert.ok(conditional.length > 0, 'the conditional-stop table is gone; ring membership may no longer mean what this test assumes')
+  assert.doesNotMatch(conditional, /research/, 'research must be on every copy\'s ring, not conditional on anything')
+  assert.match(main, /if \(parts\[0\] === 'research'\) return \{ name: 'research' \}/)
+  assert.match(main, /case 'research': return researchView\(\)/)
+  assert.match(main, /case 'research': return `\$\{base\} \/ research`/)
+  assert.match(liveStatus, /'coordinator', 'research'/)
+  assert.match(liveStatus, /export const fetchResearch = options => fetchProjection\('research', options\)/)
+})
+
+test('research view keeps authorization-gated rows metadata-only', () => {
+  const view = read('src/views/research.js')
+  const lockedBranch = view.slice(
+    view.indexOf('function lockedReportMarkup'),
+    view.indexOf('function safeReportMarkup'),
+  )
+  assert.match(view, /report\?\.needsOwnerAuthorization === true/)
+  assert.match(lockedBranch, /report\?\.title/)
+  assert.match(lockedBranch, /report\?\.authorizationReason/)
+  assert.doesNotMatch(lockedBranch, /report\?\.(?:summary|path|bytes|dateObserved|source|id)/)
+
+  // The shipped envelope must never contradict that view contract. Counts are
+  // proved in research-generator.test.mjs; what is proved here is that no gated
+  // row can reach the installer carrying the fields the locked branch refuses
+  // to render. When the file ships unavailable this is true because there are
+  // no rows at all, which is asserted rather than assumed.
+  const envelope = shippedEnvelope()
+  if (!assertHonestEnvelope(envelope)) return
+  const catalog = envelope.data.corpusCatalog.value
+  const locked = catalog.filter(item => item.needsOwnerAuthorization === true)
+  for (const item of locked) {
+    assert.equal(typeof item.title, 'string')
+    assert.equal(typeof item.authorizationReason, 'string')
+    assert.equal(Object.hasOwn(item, 'summary'), false)
+  }
+})
+
+test('research view distinguishes unavailable observations from observed-empty data', () => {
+  const view = read('src/views/research.js')
+
+  // The distinction itself: an observation that could not be made renders
+  // differently from one that was made and found nothing. This is the clause
+  // that matters, and it is a property of the view.
+  assert.match(view, /if \(!observation\?\.ok\) return unavailableMarkup/)
+  assert.match(view, /observation\.value\.length === 0\) return emptyMarkup/)
+  // Order matters: an unavailable observation has no .value to measure, so the
+  // ok check must come first or an unavailable section renders as "empty" --
+  // which is the exact false-liveness claim T4c was fixing.
+  assert.ok(
+    view.indexOf('if (!observation?.ok) return unavailableMarkup') < view.indexOf('observation.value.length === 0'),
+    'the unavailable check must precede the empty check',
+  )
+
+  // The shipped envelope must state its own availability honestly, whichever
+  // state it ships in. The generator's observed-empty vs out-of-scope sections
+  // are proved in research-generator.test.mjs.
+  const envelope = shippedEnvelope()
+  if (!assertHonestEnvelope(envelope)) return
+  assert.equal(envelope.data.findingsRegister.ok, true)
+  assert.deepEqual(envelope.data.findingsRegister.value, [])
+  assert.equal(envelope.data.failureTaxonomy.ok, false)
+  assert.equal(envelope.data.failureTaxonomy.reason, 'source-out-of-scope')
+  assert.equal(envelope.data.openQuestions.ok, false)
+  assert.equal(envelope.data.openQuestions.reason, 'source-out-of-scope')
+})
+
+test('the experiment designer is builders first, with the raw text behind an Advanced disclosure', () => {
+  const view = read('src/views/research.js')
+
+  /* The builder rows and their controls: a researcher adds an axis or a result
+     column as a row, never as raw text, and every row carries its way out. */
+  for (const hook of [
+    'data-axis-rows', 'data-axis-add', 'data-axis-row', 'data-axis-name', 'data-axis-values', 'data-axis-remove',
+    'data-col-rows', 'data-col-add', 'data-col-row', 'data-col-name', 'data-col-kind', 'data-col-required', 'data-col-remove',
+  ]) {
+    assert.match(view, new RegExp(hook), `the designer lost its ${hook} control`)
+  }
+  assert.match(view, /axisRowsToObject\(/, 'the axis rows no longer compose through the grid engine helper')
+  assert.match(view, /columnRowsToSchema\(/, 'the column rows no longer compose through the grid engine helper')
+
+  /* The live preview: the grid renders as a sentence and chips before Save,
+     and a parse refusal renders ITS sentence in the same spot. */
+  assert.match(view, /data-exp-preview/, 'the preview host is gone')
+  assert.match(view, /gridRunPreview\(/, 'the preview no longer runs the real grid engine')
+  assert.match(view, /This grid makes/, 'the preview sentence is gone')
+  assert.ok(view.includes('and ${model.more} more'), 'the preview no longer bounds its chips with a count of the rest')
+
+  /* The runner select rewrites the ONE detail field to one meaning at a time;
+     the field keeps its name so the submit handler keeps working. */
+  assert.match(view, /The task each session runs\. Write \{axis\} tokens and \{dataset\} where values belong\./)
+  assert.match(view, /The command, then each argument on its own line\./)
+  assert.match(view, /The https address; \{axis\} tokens are filled per run\./)
+  assert.match(view, /data-runner-detail-label/, 'the detail label lost its hook')
+  assert.match(view, /name="runnerDetail"/, 'the detail field was renamed; the submit handler contract broke')
+
+  /* Nothing was removed: the two raw fields survive behind Advanced, named as
+     the submit handler reads them, and the page says the text wins there. */
+  assert.match(view, /data-exp-advanced/, 'the Advanced disclosure is gone')
+  assert.match(view, /name="moreAxes"/, 'the raw axes field left the form')
+  assert.match(view, /name="resultColumns"/, 'the raw columns field left the form')
+  assert.match(view, /replaces the axis and column rows above/, 'the Advanced-wins sentence is gone')
+
+  /* Column kinds face the person as words; the stored names ride only on the
+     option values, where no person reads them. */
+  assert.match(view, /<option value="string">words<\/option>/)
+  assert.match(view, /<option value="number">a number<\/option>/)
+  assert.match(view, /<option value="boolean">yes or no<\/option>/)
+})
+
+test('the tracking layer gathers, duplicates, files findings, and pulses honestly', () => {
+  const view = read('src/views/research.js')
+
+  /* The gathered view: a card opens into one inline panel holding its cells,
+     its queued runs, and its results — with a way back out. */
+  for (const hook of ['data-exp-open', 'data-exp-gathered', 'data-exp-close', 'data-gathered-service', 'data-gathered-chart']) {
+    assert.match(view, new RegExp(hook), `the gathered view lost its ${hook} hook`)
+  }
+  /* Reuse, not duplication: the panel renders through the boards' own
+     builders, so the two surfaces cannot drift apart. */
+  assert.match(view, /runDrillMarkup\(run\)/, 'the gathered view no longer reuses the drill rows')
+  assert.match(view, /resultTableModel\(\{ runs: doneRuns/, 'the gathered view no longer builds the shared table model')
+  assert.match(view, /createResultChart\(chartHost/, 'the gathered view lost its chart mount')
+
+  /* Duplicate and the starter templates only PREFILL the one form; the pins
+     hold the controls and the sentence that says nothing was saved. */
+  for (const hook of ['data-exp-duplicate', 'data-exp-template', 'data-exp-templates']) {
+    assert.match(view, new RegExp(hook), `the designer lost its ${hook} control`)
+  }
+  assert.match(view, /nothing is saved yet/, 'the prefill sentence stopped saying nothing was saved')
+  assert.doesNotMatch(view, /expDuplicate[\s\S]{0,400}?persistExperiments/, 'Duplicate must prefill, never save')
+
+  /* Save as finding: the claim posts through the findings client with the
+     open status, and the list renders per selected project. */
+  for (const hook of ['data-finding-form', 'data-finding-status', 'data-research-findings', 'data-research-findings-list']) {
+    assert.match(view, new RegExp(hook), `the findings surface lost its ${hook} hook`)
+  }
+  assert.match(view, /saveFinding\(\{ projectId: form\.dataset\.findingProject, claim: form\.elements\.claim\.value, status: 'open' \}\)/)
+  assert.match(view, /await readFindings\(wanted\)/, 'the findings list no longer reads through the findings client')
+  assert.match(view, /selection !== wanted\) return/, 'a slow findings answer for a left project is no longer dropped')
+  assert.match(view, /Recorded as \$\{saved\.findingId\}\./, 'the saved finding is no longer named back to the person')
+
+  /* The status strip: computed from the run reads and local cells, absent
+     states said honestly, never invented from a refusal. */
+  assert.match(view, /data-research-pulse/, 'the status strip host is gone')
+  assert.match(view, /nothing running/, 'the strip lost its honest absence sentence')
+  assert.ok(view.includes('${running} running · ${queued} queued · ${finished} finished'),
+    'the strip lost its three-count sentence')
+})
+
+test('research styling stays theme-native across white, tan, and black', () => {
+  const css = read('src/research.css')
+  const shared = read('src/styles.css')
+
+  assert.doesNotMatch(css, /#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i)
+  for (const theme of ['white', 'tan', 'black']) {
+    assert.match(shared, new RegExp(`:root\\[data-theme="${theme}"\\]`))
+  }
+  for (const token of ['--ink', '--ink-2', '--ink-3', '--ink-4', '--line', '--line-2', '--brace']) {
+    assert.match(css, new RegExp(token))
+  }
+})
+
+test('live Sankey empty state preserves the hero slot and offers an explicit simulation switch', () => {
+  const view = read('src/views/metrics.js')
+  const css = read('src/metrics.css')
+
+  /* R1522 language pass: the sentence leads with what cannot be drawn and why,
+     in plain words; the button names the demonstration the way the rest of the
+     product does.
+   *
+   * THE SENTENCE CHANGED, AND THE CHANGE IS THE POINT. It used to describe the
+   * BUILD-TIME projection -- a file written on the builder's machine, absent by
+   * construction on every installed copy -- so the widest panel on the page
+   * reported the absence of a thing the reader had never had. The panel now
+   * draws this computer's own signed record of what each turn used, and its
+   * empty state is that record's own absence, which distinguishes a browser, a
+   * shell too old to keep the record, a record that will not open, and a record
+   * with nothing in it yet. The hero slot and the demonstration switch below are
+   * unchanged and are what this test is really guarding. */
+  assert.match(view, /LOCAL_USAGE_COPY\.empty/)
+  assert.doesNotMatch(view, /measured usage does not say which pool, provider, or role it belongs to/,
+    'the empty state still describes a build-time file the reader does not have')
+  assert.match(view, /View the demonstration/)
+  assert.match(view, /setLiveView\('metrics', false\)/)
+  assert.match(view, /host\.replaceChildren\(panel\)/)
+  assert.match(css, /#sankey-chart\.m-sankey-empty-host[\s\S]*?min-height: 430px/)
+})

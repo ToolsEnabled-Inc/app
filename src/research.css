@@ -1,0 +1,536 @@
+/* RESEARCH — an unboxed report register. Hairlines establish hierarchy; a
+   left rule identifies curated context as quoted, not as the app's own
+   voice. Every colour comes from the shared theme. */
+
+.research-page { scrollbar-gutter: stable; }
+.research-shell {
+  width: min(var(--page-max), 100%);
+  margin-inline: auto;
+  padding-top: var(--s3);
+}
+
+.research-mast {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--s4);
+  padding-bottom: var(--s4);
+  border-bottom: 1px solid var(--line-2);
+}
+.research-eyebrow,
+.research-source {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 640;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+.research-mast h1 {
+  margin: var(--s1) 0 0;
+  color: var(--ink);
+  font-size: clamp(32px, 4vw, 48px);
+  font-weight: 610;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+.research-source {
+  padding-bottom: 4px;
+  color: var(--ink-25);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.research-loading,
+.research-envelope-unavailable {
+  min-height: 280px;
+  border-bottom: 1px solid var(--line);
+}
+.research-envelope-unavailable { color: var(--ink-3); }
+
+.research-section { padding: var(--s5) 0; }
+.research-section + .research-section { border-top: 1px solid var(--line-2); }
+.research-section-head {
+  display: grid;
+  grid-template-columns: minmax(160px, 230px) minmax(0, 1fr);
+  gap: var(--s3);
+  align-items: baseline;
+  margin-bottom: var(--s3);
+}
+.research-section-head h2,
+.research-register-row > h3 {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 660;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+.research-section-head p {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.research-catalog,
+.research-method-list,
+.research-register-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.research-catalog { border-top: 1px solid var(--line-2); }
+.research-report {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  min-width: 0;
+  padding: var(--s4) 8px;
+  border-bottom: 1px solid var(--line);
+}
+.research-report:not(.is-locked)::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border: 1px solid var(--ink-4);
+  background: transparent;
+}
+.research-report-body { min-width: 0; }
+.research-report-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: var(--s4);
+  align-items: baseline;
+}
+.research-report h3,
+.research-method-list h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 610;
+  line-height: 1.4;
+}
+.research-report-meta {
+  display: flex;
+  gap: var(--s4);
+  margin: 0;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.research-report-meta div { display: flex; gap: var(--s2); }
+.research-report-meta dt {
+  color: var(--ink-4);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 640;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+.research-report-meta dd { margin: 0; }
+
+/* ---- curated context is QUOTED material, and a rule says so; a bracket
+   pair could not ----
+   The register is full-bleed, so the pair's two halves landed at the row's
+   opposite ends: measured at 1440x900 the left '{' sat at x=190 and the
+   right '}' at x=1815, i.e. 1.6k pixels apart around a paragraph that was
+   often a single line. Nothing at that separation reads as one bracket --
+   they read as two unrelated marks, and the right one collided with the
+   mono STATE/ORIGIN metadata above it. The glyph also could not fit the
+   block it enclosed: a fixed 38px shape over a paragraph that is 1 line in
+   the queue and 2-3 in the catalog, so it towered over the short ones and
+   sank under the long.
+   A left rule plus inset is the mark for held text, and it is layout, not
+   ornament: its height IS the paragraph's, at every width, in every theme,
+   with no JS and no measurement. It keeps the tone the brackets carried --
+   --brace is the theme-solved value (see styles.css) whose alpha is picked
+   per theme so the stroke composites to the same 2.10 weight on black, tan
+   and white, rather than --line-2, which is the token for a separator and
+   would say "divider" where this has to say "quoted". */
+.research-context {
+  margin-top: var(--s3);
+  padding-left: var(--s3);
+  border-left: 1px solid var(--brace);
+  color: var(--ink-3);
+}
+.research-context p {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.research-report.is-locked {
+  align-items: start;
+  background: color-mix(in oklab, var(--ink) 2%, transparent);
+}
+.research-lock {
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+  color: var(--ink-4);
+}
+.research-lock svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.25;
+  vector-effect: non-scaling-stroke;
+}
+.research-authorization {
+  max-width: 78ch;
+  margin: var(--s2) 0 0;
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.research-method-list { border-top: 1px solid var(--line-2); }
+.research-method-list li {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: var(--s3);
+  padding: var(--s3) 8px;
+  border-bottom: 1px solid var(--line);
+}
+.research-method-index {
+  color: var(--ink-4);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.research-method-list p {
+  margin: var(--s1) 0 0;
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.research-registers { padding-bottom: 40px; }
+.research-register-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 230px) minmax(0, 1fr);
+  gap: var(--s3);
+  padding: var(--s3) 8px;
+  border-top: 1px solid var(--line);
+}
+.research-register-row:last-child { border-bottom: 1px solid var(--line); }
+.research-register-row > h3 { padding-top: 2px; color: var(--ink-25); }
+.research-register-row p { margin: 0; }
+.research-unavailable,
+.research-observed-empty {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.research-register-list li {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: var(--s3);
+  padding: var(--s2) 0;
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.research-register-list li + li { border-top: 1px solid var(--line); }
+.research-register-list span {
+  color: var(--ink-25);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.research-register-list small { color: var(--ink-3); font-size: 12.5px; }
+
+@media (max-width: 760px) {
+  .research-mast { align-items: start; flex-direction: column; }
+  .research-section-head,
+  .research-register-row { grid-template-columns: 1fr; }
+  .research-report-head { grid-template-columns: 1fr; gap: var(--s2); }
+  .research-report-meta { flex-wrap: wrap; white-space: normal; }
+  .research-context { padding-left: var(--s2); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .research-page *, .research-page *::before, .research-page *::after { scroll-behavior: auto !important; }
+}
+
+/* ============================================================
+   WORKBENCH CHROME — the modules bar, the Modules popover, and the
+   none-enabled state. Layout edit-mode chrome (tray, grips, ghost) is the
+   engine's own: src/metrics-layout.css.
+   ============================================================ */
+
+.research-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0 12px;
+  border-bottom: 1px solid var(--line-2);
+}
+.research-bar .spacer { flex: 1; }
+
+/* THE COMPONENTS TRAY, WHICH THIS PAGE PUTS UNDER A DIFFERENT BAR.
+   The tray belongs to the shared layout engine and carries margin-top: -20px so
+   it tucks under the METRICS filter row's hairline. That row is unpositioned,
+   so the tray still paints on top of it. This bar is position: relative -- it
+   has to be, the modules popover hangs off it -- and a positioned element
+   paints ABOVE its unpositioned siblings, so here the tuck slid the tray
+   underneath the bar. MEASURED on the shipped 1.0.20 installer: in Edit layout
+   the bar spanned 453-501 and the tray 481-517, putting Reset at 490-507 with
+   elementFromPoint returning the bar. The control was drawn, looked live, and
+   no mouse could reach it. Reset the tuck for this page only; the tray keeps
+   its own hairline above it. */
+.research-modules .m-tray { margin-top: 0; }
+
+.research-popover {
+  position: absolute;
+  z-index: 40;
+  margin-top: 4px;
+  min-width: 260px;
+  padding: 12px 14px;
+  background: var(--sheet);
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  box-shadow: 0 26px 60px -20px color-mix(in oklab, var(--ink) 34%, transparent);
+}
+.research-popover h3 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-25);
+  font-weight: 650;
+}
+.research-popover-list { display: flex; flex-direction: column; gap: 6px; }
+.research-popover-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.research-popover-row:hover { color: var(--ink); }
+.research-popover-all {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-2);
+}
+.research-popover-all button {
+  padding: 3px 10px;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  color: var(--ink-2);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.research-popover-all button:hover { color: var(--ink); border-color: var(--ink-3); }
+
+.research-none-enabled { padding: var(--s5) 0; }
+
+/* the engine tucks its tray under the bar's hairline (margin-top: -20px in
+   metrics-layout.css); the bar's 12px bottom padding keeps that overlap in
+   the hairline zone rather than over the buttons */
+
+/* ---------- the writable queue: form and item controls ---------- */
+.research-queue-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: var(--s3);
+  padding: 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+}
+.research-queue-form input,
+.research-queue-form textarea {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  padding: 6px 8px;
+  resize: vertical;
+}
+.research-queue-form input:focus-visible,
+.research-queue-form textarea:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.research-queue-form-row { display: flex; align-items: center; gap: 10px; }
+.research-queue-form-row button {
+  padding: 4px 12px;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 640;
+  color: var(--ink-2);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.research-queue-form-row button:hover { color: var(--ink); border-color: var(--ink-3); }
+.research-queue-form-status { font-size: 12.5px; color: var(--ink-3); }
+.research-queue-controls { display: flex; gap: 8px; margin-top: 8px; }
+.research-queue-controls button {
+  padding: 2px 10px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--ink-3);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.research-queue-controls button:hover { color: var(--ink); border-color: var(--ink-3); }
+
+/* ---------- the experiment bench: designer tiers, run board, results ---------- */
+.research-designer-tiers { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.research-designer-tiers .research-popover-row { font-size: 12.5px; }
+.research-queue-form select {
+  margin-left: 6px;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  padding: 3px 6px;
+}
+.research-designer-hint {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.research-designer-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.research-designer-rows { display: flex; flex-direction: column; gap: 6px; align-self: stretch; }
+.research-designer-rows:empty { display: none; }
+.research-designer-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.research-designer-row input[data-axis-values] { flex: 1; min-width: 180px; }
+.research-row-btn {
+  padding: 2px 10px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--ink-3);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.research-row-btn:hover { color: var(--ink); border-color: var(--ink-3); }
+.research-exp-preview {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.research-exp-preview p { margin: 0; }
+.research-designer-advanced summary {
+  cursor: pointer;
+  color: var(--ink-3);
+  font-size: 12.5px;
+}
+.research-designer-advanced summary:hover { color: var(--ink); }
+.research-designer-advanced > .research-designer-hint { margin-top: 6px; }
+.research-designer-advanced > textarea,
+.research-designer-advanced > input { width: 100%; margin-top: 6px; }
+.research-runboard-exp { padding: var(--s3) 0; border-top: 1px solid var(--line); }
+.research-runboard-exp:first-child { border-top: none; }
+.research-runboard-exp h3 { margin: 0 0 8px; color: var(--ink); font-size: 14px; font-weight: 610; }
+.research-runboard-cells { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.research-cell {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+}
+.research-cell.is-running { border-color: color-mix(in oklab, var(--c-coordinator) 45%, transparent); }
+.research-cell.is-finished { color: var(--ink); }
+.research-cell.is-failed { border-style: dashed; color: var(--ink-3); }
+.research-cell.is-queued { border-style: dotted; color: var(--ink-2); }
+.research-project-bar { display: inline-flex; align-items: center; gap: var(--s2); }
+.research-assign-control { display: inline-flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.research-run-drill { border: 1px solid var(--line); border-radius: 6px; padding: var(--s1) var(--s2); margin: var(--s1) 0; }
+.research-run-drill summary { cursor: pointer; color: var(--ink-2); }
+.research-run-drill-body { padding-top: var(--s1); }
+.research-run-drill-files { margin: var(--s1) 0 0; padding-left: var(--s4); color: var(--ink-2); }
+.research-chart-pick { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 0.85em; }
+.research-finding-id { font-family: var(--font-mono); font-size: 11px; opacity: 0.75; }
+.research-result-chart { height: 220px; margin-top: var(--s2); }
+.research-results-exp { padding: var(--s3) 0; border-top: 1px solid var(--line); }
+.research-results-exp:first-child { border-top: none; }
+.research-results-exp h3 { margin: 0; color: var(--ink); font-size: 14px; font-weight: 610; }
+.research-results-scroll { overflow-x: auto; margin-top: 8px; }
+.research-results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.research-results-table th {
+  text-align: left;
+  padding: 4px 10px 4px 0;
+  color: var(--ink-25);
+  font-size: 10px;
+  font-weight: 640;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--line-2);
+}
+.research-results-table td {
+  padding: 6px 10px 6px 0;
+  color: var(--ink-2);
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.research-results-table td:last-child { color: var(--ink-3); max-width: 48ch; }
+
+/* ---------- the tracking layer: gathered view, findings, status strip ---------- */
+li[data-research-experiment] h3 { cursor: pointer; }
+.research-gathered {
+  margin-top: var(--s3);
+  padding: var(--s3);
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+}
+.research-gathered h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 610;
+}
+.research-gathered-block { margin-top: var(--s3); }
+.research-gathered-block h5 {
+  margin: 0 0 6px;
+  color: var(--ink-25);
+  font-size: 10px;
+  font-weight: 640;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+.research-exp-templates { align-items: center; margin: 0 0 var(--s2); }
+.research-finding-form { margin-top: var(--s2); }
+[data-research-pulse]:empty { display: none; }

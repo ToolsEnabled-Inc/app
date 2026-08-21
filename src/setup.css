@@ -1,0 +1,198 @@
+/* First-run permission level: LAYOUT ONLY.
+ *
+ * Every colour, weight, size and control skin on this screen is already in
+ * settings.css, fleet-profile-settings.css or styles.css, because
+ * docs/design/INSTALLER-EXPERIENCE.md 2.1 names the settings surface as the
+ * model for this question. This sheet does four things and nothing else: it
+ * narrows the column, it takes the control column off the three description
+ * rows, it marks which description the seg is currently on, and it takes the
+ * navigation chrome away while the question is unanswered. No new token, no
+ * new colour, no new component.
+ */
+
+/* A single question does not want the full 1240px settings column; it wants to
+   be read. --page-max stays the outer bound (.settings-shell), this narrows it
+   inside that. */
+.setup-shell { max-width: min(var(--page-max), calc(var(--s5) * 30)); }
+
+.setup-page { display: flex; }
+.setup-page > .setup-shell { margin-block: auto; padding-block: var(--s5); }
+
+/* Exactly .agent-head .an -- 20px/640/--ink -- which is this app's existing
+   size for "the name of the thing you are looking at". Not a new heading. */
+.setup-title {
+  margin: 0 0 var(--s5);
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 640;
+  line-height: 1.25;
+}
+
+/* .settings-row is a two-column grid, copy | control. These rows have no
+   control: the one seg above them is the control for all three. */
+.setup-choice {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  /* The same 2px-left-rule geometry .fleet-profile-status uses, so "this block
+     carries state" reads the same way it does everywhere else in this family.
+     Transparent at rest: the rule appears on the chosen option rather than a
+     new colour being introduced for it. */
+  padding: var(--s2) 0 var(--s2) var(--s3);
+  border-left: 2px solid transparent;
+}
+
+.setup-choice[aria-current='true'] { border-left-color: var(--ink-3); }
+
+/* The card is pressable where it carries the seg's own attribute: the person
+   is reading the card when they decide, so the card takes the press. Hover
+   shows the same left-rule the chosen state uses, at rest strength. */
+.setup-choice.is-pressable { cursor: pointer; }
+.setup-choice.is-pressable:hover { border-left-color: var(--ink-25, var(--line-2)); }
+.setup-choice.is-pressable[aria-current='true']:hover { border-left-color: var(--ink-3); }
+
+/* WHAT AN OPTION COSTS, PRINTED WITH THE OPTION.
+   The consequence line sits under the description of the choice it belongs to,
+   at the same size, in --s-warn rather than the reading grey. It is not an
+   error -- choosing to run nothing is a legitimate answer -- but a reader
+   skimming three descriptions that all look alike is exactly the reader who
+   ends up hunting for a control that was never rendered, so this one line is
+   allowed to break the scan. No new colour: --s-warn is the token this family
+   already uses for "a stated property you must weigh". */
+.setup-consequence {
+  margin-top: var(--s1);
+  color: var(--s-warn);
+}
+
+/* All three descriptions stay at full strength whichever is selected. 2.1
+   requires them to be comparable -- a reader deciding between the levels is
+   reading the two they have NOT picked. */
+.setup-question { border-top: none; padding-top: 0; }
+
+.setup-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin-top: var(--s5);
+}
+
+/* The spacer, not `justify-content: flex-end`, because the row now carries a
+   left-aligned Skip and right-aligned Back/Continue. One rule handles both the
+   single-button step and the three-control one. */
+.setup-actions-spacer { flex: 1 1 auto; }
+
+/* .ctl-btn carries no horizontal padding of its own -- every surface that uses
+   it sizes it (the agent view's control strip sets `padding: 5px 6px`, the
+   settings rows give it a grid track). Dropped into a plain flex row it shrinks
+   to the width of its own label, and "Continue" rendered with its text against
+   both edges. Sizing it here rather than adding padding to the shared class,
+   which would move every button in the product. */
+.setup-actions .ctl-btn { padding-inline: var(--s4); }
+
+/* While the question is unanswered the arrows and the settings gear are the
+   only way off this screen, and leaving it would land someone in a product
+   whose permission level was never recorded. The chrome comes back the moment
+   a level exists -- including when this screen is revisited later to change
+   one, which must NOT be a trap. src/main.js owns the body class. */
+body.first-run .topbar { display: none; }
+body.first-run.in-shell #stage,
+body.first-run #stage { padding-top: 0; }
+
+/* ---------- the rest of the walkthrough ----------
+ *
+ * Same rule as everything above: layout only. Every colour here is an existing
+ * token and every control is an existing component. The three additions below
+ * exist because a multi-step flow needs to say WHERE you are, and a review needs
+ * a second heading level that the single-question screen never did.
+ */
+
+/* "Question 2 of 3" -- the whole defence of "relatively few steps" is that the
+   person can see how few. Sized as the app's existing micro-label: the same
+   11px/0.14em uppercase treatment .settings-prefix uses. */
+.setup-progress {
+  margin: 0 0 var(--s2);
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.setup-lede {
+  margin: calc(var(--s5) * -1 + var(--s2)) 0 var(--s4);
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* The lede's negative top margin is sized for the h1 above it. Under a
+   section subtitle it climbed into the heading -- read off the driven review
+   shot -- so the pairing gets its own sane spacing. */
+.setup-subtitle + .setup-lede { margin-top: 0; }
+
+/* Exactly .settings-section-title, which is what this is: a group heading over
+   settings rows. Declared rather than reused only because the review's groups
+   are inside one section element instead of being sections themselves. */
+.setup-subtitle {
+  margin: var(--s5) 0 var(--s2);
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 640;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* Skip is a real exit and is styled as text rather than as a button, so it can
+   be found without competing with the action the screen is actually for. It is
+   never hidden: a walkthrough with a hidden exit is a trap. */
+.setup-skip {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.setup-skip:hover { color: var(--ink-2); }
+
+.setup-root {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+/* The folder is the one path this program shows the person, and it is theirs.
+   Set in the data face because it is a machine value they may need to compare
+   character by character, and allowed to wrap rather than truncate: a path cut
+   off in the middle cannot be checked. */
+.setup-root-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.setup-hint {
+  display: block;
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* The fleet notice is appended to <body> once, at module evaluation, and is
+   not route-aware -- it predates there being any screen before the fleet. Seen
+   on the real first-run screen it reads as a second, competing message ("This
+   is a labelled sample fleet, not your machines") about a fleet the person has
+   not reached yet, next to the one question they were asked to answer. It
+   returns the moment a level is recorded, which is also the moment its subject
+   becomes visible.
+   `:not(.is-serious)` is deliberate: the same element carries a genuine
+   "fleet profile failed to load" ALERT, and suppressing an error would be a
+   worse first impression than a crowded one. Only the informational copy goes. */
+body.first-run .fleet-profile-notice:not(.is-serious) { display: none; }
