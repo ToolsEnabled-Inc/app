@@ -16,6 +16,7 @@ import { resolveDataSource, currentDataSource, DATA_SOURCE_EVENT } from '../data
    anything imported from the modules being deleted. When the source is mock,
    THIS is the whole record the page draws; no real store is read beside it. */
 import { sampleFleetData } from '../sample-fleet.js'
+import { createSampleTreeStore, SAMPLE_TREE_COMPUTER_ID } from '../sample-trees.js'
 import { fetchFleet, fetchAgents } from '../live-status.js'
 import {
   LAUNCH_TIERS, launchTier, tierArgvFragment, UNSUPPORTED_CONTROLS,
@@ -2182,11 +2183,51 @@ export function computersView({ initialComputer = null, navigate }) {
      surface refuses under mock with the example sentence (the compose panel
      via composeUnavailableReason, the drag via syncEditAvailability). */
   function syncTreeStore() {
-    if (mockSource() || !computer) {
+    if (!computer) {
       releaseTreeStore()
       return null
     }
+    /* THE EXAMPLE GETS TREES, BECAUSE THE TREES ARE THE PAGE.
+     *
+     * This read `if (mockSource() || !computer) releaseTreeStore()`, which
+     * pointed the example at the projection face -- the surface a machine with
+     * no fleet host falls back to -- and took the tree face away with the
+     * store. Everything a person works in went with it: the tree chip row (it
+     * deletes itself when listTrees() is empty), every path to
+     * showTreeNodeControls (no node is a tree node without a store), and with
+     * it treeChatConfigFor, where the actions palette and the attachment and
+     * mention pickers are wired. The owner found it the only way it could be
+     * found -- by looking: "where are my agent actions and such and the file
+     * upload?" They were never removed. They were unreachable.
+     *
+     * So the example opens a store of its own. It is the REAL store (same
+     * createFleetTreeStore, same validation, same refusals) over a memory
+     * backing that writes nothing down, seeded with the example's trees. His
+     * tree code runs over it unmodified, which is the point: there is no
+     * example rail to maintain, because there is no second rail. */
+    if (mockSource()) return openSampleTreeStore()
     return openTreeStore(computer.id)
+  }
+
+  /* The example's store, built once per mount, never persisted. Mirrors
+     openTreeStore for the parts that are about THIS page, and deliberately
+     omits the parts that are about a person's machine: markTreeStoreLive
+     (nothing here is live), the transcript store (an example has no saved
+     conversations to reload), and the localStorage seam. */
+  function openSampleTreeStore() {
+    if (treeStore && treeStoreId === SAMPLE_TREE_COMPUTER_ID) return treeStore
+    releaseTreeStore()
+    treeStoreProblem = ''
+    try {
+      treeStore = createSampleTreeStore()
+      treeStoreId = SAMPLE_TREE_COMPUTER_ID
+      transcriptStore = null
+    } catch {
+      treeStore = null
+      treeStoreId = null
+      treeStoreProblem = 'The example trees could not be built on this page.'
+    }
+    return treeStore
   }
 
   /* Open the saved trees for one computer.
@@ -3288,11 +3329,16 @@ export function computersView({ initialComputer = null, navigate }) {
           return
         }
         setOpenTarget(agent)
-        /* The rail chooser for a record agent follows the source: an example
-           seat opens in the tree rail's family (conversation first), a real
-           declared seat in the projection rail. See showExampleAgentControls. */
-        if (mockSource()) showExampleAgentControls(agent)
-        else showProjectionControls(agent)
+        /* ONE RAIL FOR A RECORD AGENT, WHATEVER THE SOURCE. A look-alike built
+           from the tree rail's primitives lived here for one commit and was the
+           wrong answer twice over: it maintained a second rail, and it still
+           could not carry the actions palette or the pickers, because those come
+           from treeChatConfigFor and a record agent has no tree node to
+           configure from. The example's own agents ARE tree nodes now (see
+           syncTreeStore), so they take the branch above and get his real rail;
+           what reaches here is a seat from the fleet record, which is what the
+           projection rail was written to describe. */
+        showProjectionControls(agent)
       },
       onRootChange: (next, trail) => { renderCrumb(next, trail); refreshTreeSwitch(); railFollowsCanvas(next) },
       onOverridesChange: syncResetButton,
@@ -5651,62 +5697,6 @@ export function computersView({ initialComputer = null, navigate }) {
    *
    * showProjectionControls is untouched: it is the rail for REAL declared
    * seats on local and relay, and it is reached from nowhere under mock. */
-  function showExampleAgentControls(agent) {
-    clearBoard()
-    const role = ROLES[agent.role] || ROLES.default
-    controlsPage.style.setProperty('--rc', role.hex)
-    const runtime = Number.isFinite(agent.bornAt)
-      ? fmtRuntime(agent.bornAt, Number.isFinite(agent.stoppedAt) ? agent.stoppedAt : Date.now())
-      : null
-    const taskSummary = Number.isFinite(agent.tasksDone)
-      ? `${agent.tasksDone} tasks${Number.isFinite(agent.failRate) ? ` · ${agent.failRate}% fail` : ''}`
-      : null
-    const missing = [runtime === null ? 'runtime' : null, taskSummary === null ? 'task history' : null, 'activity'].filter(Boolean)
-    /* DISPOSE BEFORE THE WIPE — the rule stated where railChat is declared:
-       never innerHTML over a mounted chat. */
-    disposeRailSaid()
-    disposeRailChat()
-    controlsPage.innerHTML = `
-      ${railTitleRow({ back: { aria: 'Back to the fleet overview' }, title: 'Example agent' })}
-      <div class="seg rail-tabs" data-rail-tabs role="group" aria-label="Agent panels">
-        <button type="button" class="on" data-rail-tab="chat">Chat</button>
-        <button type="button" data-rail-tab="details">Details</button>
-      </div>
-      <div class="rail-tab-body rail-chat-body" data-rail-body="chat">
-        <div class="rail-chat-host" data-rail-chat-host></div>
-      </div>
-      <div class="rail-tab-body rail-scroll" data-rail-body="details" hidden>
-        <div class="agent-head board-head"><span class="role-dot"></span><div><div class="an">${escapeMarkup(agent.name)}</div><div class="ar">${escapeMarkup(agent.declaredRole)}</div></div></div>
-        <div class="board-box board-ctl-box">
-          <div class="board-box-h"><span class="bh-t">On the example record</span></div>
-          <div class="rail-sub">ID · ${escapeMarkup(agent.id)}</div>
-          <div class="rail-sub">Provider · ${escapeMarkup(agent.provider)}</div>
-          <div class="rail-sub">State · ${escapeMarkup(agent.state)}</div>
-          <div class="rail-sub">Origin · ${escapeMarkup(agent.origin || 'unresolved')}</div>
-          ${runtime === null ? '' : `<div class="rail-sub">Runtime · ${escapeMarkup(runtime)}</div>`}
-          ${taskSummary === null ? '' : `<div class="rail-sub">${escapeMarkup(taskSummary)}</div>`}
-          <div class="projection-unavailable">${escapeMarkup(missing.join(', '))} unavailable · ${escapeMarkup(agent.projectionUnavailableReason)}</div>
-        </div>
-        <div class="board-start-work-slot"></div>
-      </div>`
-    controlsPage.querySelector('.rail-back').addEventListener('click', showStats)
-    /* The tabs toggle [hidden] on persistent bodies, exactly as the tree rail
-       does, so the mounted chat is never rebuilt by a tab press. */
-    const railTabs = controlsPage.querySelector('[data-rail-tabs]')
-    railTabs?.addEventListener('click', (event) => {
-      const pressed = event.target.closest('[data-rail-tab]')
-      if (!pressed) return
-      for (const button of railTabs.querySelectorAll('[data-rail-tab]')) {
-        button.classList.toggle('on', button === pressed)
-      }
-      for (const body of controlsPage.querySelectorAll('[data-rail-body]')) {
-        body.hidden = body.dataset.railBody !== pressed.dataset.railTab
-      }
-    })
-    mountRailChat(agent, role, { host: controlsPage.querySelector('[data-rail-chat-host]'), tall: true })
-    mountStartWorkControls({ id: agent.id, name: agent.name }, controlsPage.querySelector('.board-start-work-slot'))
-    activateRail(controlsPage)
-  }
 
   /**
    * THE FOUR ANSWERS TO "HOW DOES WORK GET STARTED FROM THIS COMPUTER",
