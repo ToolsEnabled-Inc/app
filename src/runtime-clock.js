@@ -57,3 +57,44 @@ export function tickRuntimes(fmt) {
 export function runtimeRegistrySize() {
   return runtimeEls.size
 }
+
+/* ---------- the formatters, re-homed out of the simulation engine ----------
+ *
+ * fmtRuntime and uptimeParts lived in sim.js, which made every LIVE surface
+ * that prints a runtime import the demonstration engine to format a number.
+ * sim.js is being deleted (the separate simulated render is gone; mock data
+ * feeds the one real render instead), and these two were never simulation:
+ * they format elapsed time, whoever measured it. They land HERE because this
+ * file is already the app's clock module and already holds the rule that
+ * matters -- dependency-free, testable directly.
+ *
+ * Byte-for-byte the same implementations as sim.js carried, deliberately:
+ * half the product's screenshots show these digits, and a re-home that also
+ * "improved" the formatting would make every one of them stale for no reason
+ * anyone asked.
+ *
+ * (An earlier pass this session put these in a NEW file at this path without
+ * noticing the path was taken -- overwriting the registry above and breaking
+ * components.js's re-export of it. Restored from HEAD and merged. The lesson
+ * is recorded where lessons go; the code is whole here.)
+ */
+
+const now = () => Date.now()
+
+export function fmtRuntime(bornAt, stoppedAt = now()) {
+  let s = Math.max(0, Math.floor((stoppedAt - bornAt) / 1000))
+  const d = Math.floor(s / 86400); s -= d * 86400
+  const h = Math.floor(s / 3600); s -= h * 3600
+  const m = Math.floor(s / 60); s -= m * 60
+  const pad = (n) => String(n).padStart(2, '0')
+  return d > 0 ? `${d}:${pad(h)}:${pad(m)}:${pad(s)}` : `${h}:${pad(m)}:${pad(s)}`
+}
+
+export function uptimeParts(epoch) {
+  let s = Math.max(0, Math.floor((now() - epoch) / 1000))
+  const d = Math.floor(s / 86400); s -= d * 86400
+  const h = Math.floor(s / 3600); s -= h * 3600
+  const m = Math.floor(s / 60); s -= m * 60
+  const pad = (n) => String(n).padStart(2, '0')
+  return { d: String(d), h: pad(h), m: pad(m), s: pad(s), frac: ((now() - epoch) % 60000) / 60000 }
+}
