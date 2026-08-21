@@ -350,6 +350,11 @@ const AGENT_EFFORT_VALUES = Object.freeze(['none', 'minimal', 'low', 'medium', '
 const MAX_SURFACE_LENGTH = 64
 const MAX_TURN_TEXT_LENGTH = 200_000
 
+/* The one key the close warning owns. Named for what it controls rather than
+   what it is off by default, so a person reading the prefs file can tell what
+   turning it off costs them. */
+const CLOSE_WARNING_KEY = 'mc.warn.close-ends-agents'
+
 const agentSessions = new Map()
 const boundAgentOwners = new WeakSet()
 let agentHost = null
@@ -4120,7 +4125,71 @@ async function createWindow() {
   win.on('moved', persistBounds)
   win.on('maximize', persistBounds)
   win.on('unmaximize', persistBounds)
-  win.on('close', () => { closeRequested = true })
+  /* CLOSING THE WINDOW ENDS EVERY AGENT, AND NOBODY WAS TOLD.
+   *
+   * `window-all-closed` quits this app, and the quit tears down every running
+   * session -- the owner-destroyed sweep above records each one as
+   * 'app-shutdown'. That lifetime is deliberate and stays: the window IS the
+   * app. What was missing is the sentence. A person closing a window does not
+   * expect to kill work they cannot see, because the agents run in a child
+   * process rather than in the page in front of them, and the only signal was
+   * the silence afterwards.
+   *
+   * The close is held ONLY when something is at stake, and the sentence names
+   * how many. With no agents running there is no dialog: a warning that fires
+   * when nothing can be lost is one people learn to dismiss, and then it is not
+   * there on the day it matters.
+   *
+   * THE ASYNC FORM, DELIBERATELY. showMessageBoxSync returns the button index
+   * and nothing else -- it cannot report the checkbox, so a person who ticked
+   * "do not warn me again" would have had that silently thrown away. The async
+   * form answers { response, checkboxChecked }, and preventDefault above means
+   * the window is still here when the answer arrives.
+   *
+   * The opt-out rides in the same durable prefs file as every other choice
+   * (renderer-prefs), so it survives a relaunch and a port change -- which is
+   * the whole reason that store exists. */
+  win.on('close', (event) => {
+    if (closeRequested) return
+    const running = agentSessions.size
+    if (running === 0) { closeRequested = true; return }
+    let warned = true
+    try { warned = rendererPrefs.snapshot().values[CLOSE_WARNING_KEY] !== 'off' } catch { warned = true }
+    if (!warned) { closeRequested = true; return }
+
+    event.preventDefault()
+    const agents = running === 1 ? '1 agent' : `${running} agents`
+    void dialog.showMessageBox(win, {
+      type: 'warning',
+      buttons: ['Close and end them', 'Keep working'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+      title: 'Close ToolsEnabled?',
+      message: `Closing this window ends ${agents} that ${running === 1 ? 'is' : 'are'} still running.`,
+      detail: 'Their work stops where it is. Whatever an agent has already written down is kept; what it was part-way through is not.',
+      checkboxLabel: 'Do not warn me again',
+      checkboxChecked: false,
+    }).then((answer) => {
+      /* The checkbox is honoured whichever button was pressed. Someone who
+         ticks it and then chooses to keep working has still said what they want
+         to happen next time, and ignoring that would make them tick it twice. */
+      if (answer.checkboxChecked) {
+        try { rendererPrefs.set(CLOSE_WARNING_KEY, 'off') } catch { /* a prefs file that cannot be written costs the opt-out, not the close */ }
+      }
+      if (answer.response !== 0) return
+      closeRequested = true
+      /* destroy(), not close(): close() would re-enter this handler, and
+         closeRequested is what stops it -- set first, so the guard at the top
+         returns before the dialog can be raised a second time. */
+      if (win && !win.isDestroyed()) win.destroy()
+    }).catch(() => {
+      /* A dialog that cannot be shown must not trap a person in a window they
+         asked to close. */
+      closeRequested = true
+      if (win && !win.isDestroyed()) win.destroy()
+    })
+  })
   win.on('closed', () => { if (win === window) win = null })
 
   try {
