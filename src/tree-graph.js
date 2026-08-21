@@ -1,4 +1,4 @@
-import { sim, fmtRuntime } from './sim.js'
+import { fmtRuntime } from './runtime-clock.js'
 import { ROLES } from './vocab.js'
 import { el, buildChat, bindRuntime, formatInlineText } from './components.js'
 import { dragBand, layoutTree, TREE_ROLE_RADII, TREE_LABEL_STACK, treeNodeRadius, hierarchyParents } from './tree-layout.js'
@@ -324,7 +324,6 @@ export class StaticTreeGraph {
     this.ro.observe(container)
     if (this.screenChips && this.zoomHost !== container) this.ro.observe(this.zoomHost)
 
-    this._subscribe()
     this._reconcile({ initial: true })
     this._publishProbe()
   }
@@ -402,37 +401,15 @@ export class StaticTreeGraph {
     this._writePositions()
   }
 
-  _subscribe() {
-    this.unsubs.push(
-      sim.on('spawn', ({ comp, agent }) => {
-        if (comp !== this.computer || this._destroyed) return
-        this.addAgent(agent)
-      }),
-      sim.on('reap', ({ comp, agent }) => {
-        if (comp !== this.computer || this._destroyed) return
-        this.removeAgent(agent.id)
-      }),
-      sim.on('agent-state', ({ comp, agent }) => {
-        if (comp !== this.computer || this._destroyed) return
-        const record = this.nodes.get(agent.id)
-        if (record) record.el.classList.toggle('spawning', agent.state === 'spawning')
-      }),
-      sim.on('context', ({ comp, agent }) => {
-        if (comp !== this.computer || this._destroyed) return
-        const record = this.nodes.get(agent.id)
-        if (record?.chip && !record.chatOpen) {
-          this._renderChipPreview(record)
-          this._placeChips()
-        }
-      }),
-      sim.on('reparent', ({ comp, agent }) => {
-        if (comp !== this.computer || this._destroyed) return
-        const record = this.nodes.get(agent.id)
-        if (record) record.el.dataset.parentId = agent.parentId || ''
-        this._layoutNow()
-      }),
-    )
-  }
+  /* _subscribe() lived here: five sim.on(...) wires that animated the old
+     demonstration engine's spawn/reap/context drift. Every handler filtered on
+     object identity against sim's own computer records, so once the example
+     began flowing through mountProjection like real data, they could never
+     match again -- live subscriptions for this graph arrive through the
+     projection re-render path instead. Deleted with the engine; the example
+     fleet is deliberately STATIC now, the same way the example run record is:
+     deterministic data that holds still for a screenshot. */
+
 
   visibleAgents(rootId = this.rootId) {
     const agents = Array.isArray(this.computer?.agents) ? this.computer.agents : []
@@ -943,9 +920,14 @@ export class StaticTreeGraph {
         return
       }
     } else if (target) {
+      /* No onReparent callback means nobody can apply this drop -- the old
+         fallback silently rearranged the demonstration engine's records, which
+         let a drag LOOK like it took effect on data that nothing owned. A drop
+         with no applier is refused like any other, and the refusal path below
+         names it. */
       const changed = this.onReparent
         ? this.onReparent(record.id, target.id)
-        : sim.reparentAgent(this.computer, record.id, target.id)
+        : false
       if (changed) {
         this._clearPosition(record.id)
         record.el.dataset.parentId = target.id

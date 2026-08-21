@@ -48,7 +48,7 @@ import {
   reconcileUndeliveredDecisions,
   undeliveredDecisionCount,
 } from '../approval-outcomes.js'
-import { isLiveView } from '../live-flags.js'
+import { isExampleMode, currentDataSource, resolveDataSource, announceDataSourceChange } from '../data-source.js'
 import { isWriteEnabled } from '../write-flags.js'
 import { bridgeStatus, postBridgeAction } from '../mission-bridge.js'
 import { FLEET, isSampleFleet } from '../fleet-profile.js'
@@ -193,10 +193,19 @@ const BRACE_SVG = `<svg width="22" height="26" viewBox="0 0 22 26"><path d="M20.
 let panelInstances = 0
 
 export function homeView() {
-  /* A person chose the demonstration in Settings, or they did not. This is the
-     ONLY thing that puts sample content on this screen, and it is the only
-     thing that puts a badge on it. */
-  const sample = !isLiveView('home')
+  /* The SOURCE decides what this screen shows, and it alone puts the badge on.
+     `sample` is baked into this view's closures (the send fork, the arrivals,
+     the write gate), so it is fixed at construction from what is known
+     synchronously: the example toggle, or an already-resolved verdict. On a
+     public page the first-ever mount may not know yet -- the relay probe is
+     async -- so the resolution below runs once, and if the settled verdict
+     disagrees with the construction guess it announces the change, which
+     remounts this view through main.js's DATA_SOURCE_EVENT hook. One honest
+     rebuild beats a screen whose closures disagree with its badge. */
+  const sample = isExampleMode() || currentDataSource() === 'mock'
+  void resolveDataSource().then((settled) => {
+    if ((settled === 'mock') !== sample) announceDataSourceChange('first-resolution')
+  }).catch(() => {})
   const fleetConfigured = !isSampleFleet()
   const writeReplyEnabled = !sample && isWriteEnabled('thread-reply')
   const composerTarget = FLEET.composerTarget || 'coordinator'

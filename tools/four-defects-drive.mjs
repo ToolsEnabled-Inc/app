@@ -245,7 +245,10 @@ async function scenarioB(executable, scratch, appRoot) {
     ledger.check('B0 the staged app opened a window', window.timeline.windowAt !== null, describeTimeline(window.timeline))
     assertIsolated(profile)
     await recordAnswers(window, { autonomy: 'assisted', flags: { 'agent-session': true } })
-    await window.evaluate(`(() => { localStorage.setItem('mc.live.computers', 'live'); return true })()`)
+    /* Example off -- the shipped default, made explicit: the board must read
+       this computer, and mc.example is the one switch that could point every
+       screen at the example fleet instead (src/data-source.js). */
+    await window.evaluate(`(() => { localStorage.removeItem('mc.example'); return true })()`)
 
     /* Which computer this page is showing, asked of the page rather than
        assumed, so the seeded record lands under the id the store will open. */

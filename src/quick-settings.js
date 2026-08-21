@@ -7,18 +7,19 @@
  *
  * So the drawer the gear opens is built HERE, fresh at every open, from the
  * route that is on screen: first the settings that belong to that page, then
- * the app-wide appearance controls, then the promoted "all settings" action
- * (the quick move; the second way is the ring — #/settings is a ring stop,
- * see RING in src/main.js). The simulation-pace slider that used to sit in
- * this drawer on every page lives on the settings page's Data & Sim section
- * now, stored and re-applied at launch (src/views/settings.js).
+ * the app-wide controls, then the promoted "all settings" action (the quick
+ * move; the second way is the ring — #/settings is a ring stop, see RING in
+ * src/main.js). The simulation-pace slider that used to sit in this drawer on
+ * every page died with the simulation engine it paced.
  *
  * WHAT COUNTS AS A PAGE SETTING is bounded by the measured fact recorded in
  * src/chatbox-feed.js: a setting is real only when a module reads it and
- * changes behaviour because of it. The per-page settings that exist today are
- * the per-view live-data flags (src/live-flags.js) — one per surface that has
- * a simulated twin. A page without one gets an honest "no settings specific
- * to this page" line, never an invented control (owner, R1502).
+ * changes behaviour because of it. The per-view live-data flags that used to
+ * be the page settings are gone -- the one switch that replaced them reaches
+ * every screen, so it lives with the app-wide rows below, and the only page
+ * setting left today is the research page's tool switches. A page without one
+ * gets an honest "no settings specific to this page" line, never an invented
+ * control (owner, R1502).
  *
  * The markup uses the drawer's existing control language (.set-row, .theme-seg,
  * .toggle) and keeps the historical ids (#theme-seg, #text-seg, #set-glow,
@@ -26,7 +27,7 @@
  * changes, and the QA harnesses drive them by id.
  */
 
-import { LIVE_VIEW_FLAGS, isLiveView, setLiveView } from './live-flags.js'
+import { isExampleMode, setExampleMode } from './data-source.js'
 import { rangeFill } from './views/computers.js'
 /* WHAT EACH OF THESE GRANTS AND WHAT IT RISKS (owner, R1529). Both surfaces
    show it -- this drawer and the settings page -- and both ask the same module
@@ -44,20 +45,8 @@ import {
 /* Announced after this drawer applies a value, so an open settings PAGE can
    re-sync its own copy of the same control. detail: { settingId, value },
    settingId in the settings page's vocabulary (theme, text_size, glow,
-   reduce_motion, live_<view>). */
+   reduce_motion, example_mode). */
 export const QUICK_SETTING_EVENT = 'mc:quick-setting-changed'
-
-/* Which live-data flag belongs to which route. Only routes with a flag appear;
-   the flags themselves are the register in src/live-flags.js. */
-const PAGE_LIVE_FLAG = Object.freeze({
-  home: 'home',
-  computers: 'computers',
-  agent: 'agent',
-  metrics: 'metrics',
-  comms: 'comms',
-  ledger: 'ledger',
-  research: 'research',
-})
 
 const esc = value => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -103,28 +92,15 @@ function groupMarkup(id, label, content) {
 }
 
 function pageRows(routeName) {
-  const flagId = PAGE_LIVE_FLAG[routeName]
-  if (!flagId) return '<div class="drawer-page-empty">No settings specific to this page.</div>'
-  const flag = LIVE_VIEW_FLAGS.find(f => f.id === flagId)
-  /* The title carries the same sentence the settings page uses for this flag
-     (R1522 language pass wording), so the two surfaces can never describe one
-     control two ways. */
-  /* The disclosure is a SIBLING of the label, never inside it. A <details>
-     nested in a <label> makes clicking the summary toggle the checkbox, so
-     reading about a setting would change it -- which on this particular row
-     would silently swap the page between your own records and the example. */
-  const liveRow = `<label class="set-row set-toggle" title="Show your computer's own records on this page (read from ${esc(flag.domain)}.json). Turn off to see the labelled demonstration instead.">
-    <span class="set-label">Live data</span>
-    <span class="toggle"><input type="checkbox" data-quick-live="${esc(flag.id)}" ${isLiveView(flag.id) ? 'checked' : ''}/><i></i></span>
-  </label>
-  ${guidanceMarkup(`live_${flag.id}`, { summary: 'What this shows, and what it risks' })}`
-  /* The research page's settings additionally carry the agent tool switches.
-     The list is async (it comes from the engine registry over IPC), so the
-     markup ships a stated loading line and populateResearchTools() replaces
-     it — never a control that silently does nothing while it waits. */
-  if (routeName !== 'research') return liveRow
-  return `${liveRow}
-  <div class="drawer-tools" data-drawer-tools>
+  /* The per-view "Live data" toggle that used to sit here on seven routes is
+     gone: the one switch that replaced it reaches every screen, so it lives
+     with the app-wide rows in appRows() where "every page" is the honest
+     heading for it. The research page's settings still carry the agent tool
+     switches. The list is async (it comes from the engine registry over IPC),
+     so the markup ships a stated loading line and populateResearchTools()
+     replaces it — never a control that silently does nothing while it waits. */
+  if (routeName !== 'research') return '<div class="drawer-page-empty">No settings specific to this page.</div>'
+  return `<div class="drawer-tools" data-drawer-tools>
     <p class="drawer-tools-note">Reading the tool list from this copy's engine.</p>
   </div>`
 }
@@ -228,7 +204,19 @@ async function populateResearchTools(host) {
 function appRows() {
   const motion = document.body.classList.contains('reduce-motion')
   const note = (id, section) => guidanceMarkup(id, { section, summary: 'What this changes, and what it risks' })
-  return `<div class="set-row">
+  /* The example row's disclosure is a SIBLING of the label, never inside it.
+     A <details> nested in a <label> makes clicking the summary toggle the
+     checkbox, so reading about a setting would change it -- which on this
+     particular row would silently swap every screen between your own records
+     and the example. The title carries the same sentence the settings page
+     uses for this switch, so the two surfaces can never describe one control
+     two ways. */
+  return `<label class="set-row set-toggle" title="Every screen shows the product's built-in example instead of your own activity, and each screen showing it is labelled as an example. It is what a signed-out visitor to the website sees.">
+    <span class="set-label">Example fleet</span>
+    <span class="toggle"><input type="checkbox" data-quick-example ${isExampleMode() ? 'checked' : ''}/><i></i></span>
+  </label>
+  ${guidanceMarkup('example_mode', { section: 'Data & Sim', summary: 'What this shows, and what it risks' })}
+  <div class="set-row">
     <span class="set-label">Theme</span>
     ${segMarkup('theme-seg', 'theme', [['white', 'White'], ['tan', 'Tan'], ['black', 'Black']], currentTheme(), 'Theme')}
   </div>
@@ -350,15 +338,16 @@ function wire(body) {
     announce('reduce_motion', e.target.checked)
   })
 
-  for (const input of body.querySelectorAll('input[data-quick-live]')) {
-    input.addEventListener('change', () => {
-      /* setLiveView announces LIVE_FLAGS_EVENT itself, which is what rebuilds
-         the (inert) page behind this drawer — the toggle is visibly real. */
-      const enabled = setLiveView(input.dataset.quickLive, input.checked)
-      input.checked = enabled
-      announce(`live_${input.dataset.quickLive}`, enabled)
-    })
-  }
+  body.querySelector('input[data-quick-example]')?.addEventListener('change', (e) => {
+    /* setExampleMode announces DATA_SOURCE_EVENT itself, which is what makes
+       the (inert) page behind this drawer re-resolve its source — the toggle
+       is visibly real, and this handler must not dispatch that event again.
+       The QUICK_SETTING_EVENT announced here is the drawer's own, separate
+       contract: it lets an open settings PAGE re-sync its copy of the row. */
+    const enabled = setExampleMode(e.target.checked)
+    e.target.checked = enabled
+    announce('example_mode', enabled)
+  })
 }
 
 /** Rebuild the drawer body for the page the person is on. */

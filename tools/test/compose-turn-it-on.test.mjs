@@ -194,7 +194,7 @@ test('clearing one absence can reveal another, and the panel says the new one', 
 
 test('the view offers the switch only for the switched-off flag', () => {
   const fn = view.slice(view.indexOf('function composeUnavailableAction'), view.indexOf('function composeUnavailableAction') + 2200)
-  assert.match(fn, /if \(!liveMode \|\| treeStoreProblem\) return null/, 'the switch is offered on the example board or over an unreadable forest')
+  assert.match(fn, /if \(mockSource\(\) \|\| treeStoreProblem\) return null/, 'the switch is offered on the example fleet or over an unreadable forest')
   assert.match(fn, /if \(isWriteEnabled\(START_CONTROL_FLAG\)\) return null/, 'the switch is offered when nothing is switched off')
   assert.match(fn, /setWriteEnabled\(START_CONTROL_FLAG, true\)/, 'the press no longer writes the recorded answer')
   assert.match(fn, /if \(!isWriteEnabled\(START_CONTROL_FLAG\)\) \{ composeToRestore = null; return false \}/, 'the write is reported without being read back')

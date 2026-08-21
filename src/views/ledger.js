@@ -1,11 +1,29 @@
-// /ledger — simulated owner requests (R) and owner questions (Q).
+// /ledger — owner requests (R) and owner questions (Q).
 // State is deliberately encoded once, at a fixed left rail: a distinct glyph
 // plus a themed status colour. Everything after the title is quiet metadata.
+//
+// ONE RENDER PATH. This page used to keep a second face -- its own markup
+// builders, its own richer data shape, an age ticker -- selected by a
+// per-view flag. The owner's ruling collapsed that: "all simulated pages ARE
+// the UI pages, just mock data." So the register is drawn by one set of
+// builders whatever the data's origin. src/data-source.js answers where the
+// data comes from ('local', 'relay' or 'mock'), and that answer changes
+// exactly two things here: what feeds the render, and whether the page is
+// badged as an example. Nothing about HOW it renders.
 
 import { el, attachSeg } from '../components.js'
-import { R_ITEMS, Q_ITEMS, liveAgeMs, formatLedgerAge } from '../ledger-data.js'
-import { isLiveView, LIVE_FLAGS_EVENT } from '../live-flags.js'
 import { fetchLedger } from '../live-status.js'
+/* WHERE THE DATA COMES FROM -- one axis, three answers, resolved async and
+   re-resolved whenever the host announces the world changed. The badge rule
+   lives there too (sourceIsBadged: mock is badged, real data never is), so
+   this page cannot derive a private one and drift from its neighbours. */
+import { DATA_SOURCE_EVENT, resolveDataSource, sourceIsBadged } from '../data-source.js'
+/* The example fleet's register, ALREADY in the exact shape a validated
+   projection's `data` member has -- src/sample-ledger.js's header carries the
+   why. It is handed to the very assignment a fetched register lands in, so
+   from that line on the render cannot tell the two apart and never needs to:
+   the badge, not the code path, is what separates them. */
+import { sampleLedgerData } from '../sample-ledger.js'
 import { mountLedgerWriteSurface } from '../write-surfaces.js'
 import { registerNotice } from '../ledger-copy.js'
 /* THE DOOR OUT OF THIS SCREEN'S EMPTY STATE. The ledger is one of the four
@@ -18,7 +36,6 @@ import { GUIDE_ACTION } from '../first-run-needs.js'
 import '../ledger.css'
 
 const MODE_KEY = 'mc.ledger.mode'
-const ROOT_KEY = 'mc.ledger.root.'
 const SUMMARY_STATES = ['open', 'in-progress', 'gated', 'done', 'blocked']
 
 const STATE = {
@@ -30,19 +47,19 @@ const STATE = {
   unknown: { glyph: '?', label: 'Unclassified status' },
 }
 
-const itemByKey = new Map([
-  ...R_ITEMS.map(item => [`r:${item.id}`, item]),
-  ...Q_ITEMS.map(item => [`q:${item.id}`, item]),
-])
+/* THE EXAMPLE MARKING, IN HOME'S EXACT WORDS. Every landing view labels its
+   own example data and "Example, not your data" is the product's one phrasing
+   for it (src/local-activity.js, src/approvals-example.js). It rides in the
+   counter line, which sits directly above the register it describes, so the
+   label and the rows it disclaims cannot scroll apart. */
+const EXAMPLE_COUNT_PREFIX = 'Example, not your data — '
 
-const childrenByParent = new Map()
-for (const item of R_ITEMS) {
-  const key = item.parent || ''
-  if (!childrenByParent.has(key)) childrenByParent.set(key, [])
-  childrenByParent.get(key).push(item)
-}
-
-const branchRoots = R_ITEMS.filter(item => !item.parent && childrenByParent.has(item.id))
+/* The sentence a press on Approve, Decline, Claim or Close gets while the
+   register is the example, instead of a write. Tone 'note', never 'refused':
+   nothing failed -- there was never anything real to send -- and painting
+   "nothing happened, by design" in the failure colour is the register's own
+   old defect one level down. */
+const EXAMPLE_WRITE_NOTE = 'Nothing was sent. These are example records, not yours, so there is nothing real here to act on. Connect your own computers to act on real work.'
 
 const esc = (value) => String(value)
   .replace(/&/g, '&amp;')
@@ -59,92 +76,18 @@ function writeMode(mode) {
   try { localStorage.setItem(MODE_KEY, mode) } catch {}
 }
 
-function readCollapsed(id) {
-  try { return localStorage.getItem(`${ROOT_KEY}${id}`) === 'collapsed' }
-  catch { return false }
-}
-
-function writeCollapsed(id, collapsed) {
-  try {
-    if (collapsed) localStorage.setItem(`${ROOT_KEY}${id}`, 'collapsed')
-    else localStorage.removeItem(`${ROOT_KEY}${id}`)
-  } catch {}
-}
-
-function stateFor(item, mode) {
-  if (mode === 'q') return item.status === 'answered' ? 'done' : 'open'
-  return item.status
-}
-
-function liveRequestState(status) {
+function requestState(status) {
   if (Object.hasOwn(STATE, status)) return status
   if (status.startsWith('blocked')) return 'blocked'
   return 'unknown'
 }
 
-function liveQuestionState(statusClass) {
+function questionState(statusClass) {
   return Object.hasOwn(STATE, statusClass) ? statusClass : 'unknown'
 }
 
-function descendantCount(id) {
-  return (childrenByParent.get(id) || []).reduce(
-    (count, child) => count + 1 + descendantCount(child.id), 0,
-  )
-}
-
-function guideMarkup(depth) {
-  return Array.from({ length: depth }, (_, index) =>
-    `<i class="ledger-guide" style="--rail-index:${index}" aria-hidden="true"></i>`
-  ).join('')
-}
-
-function recordMarkup(item, { mode, depth = 0, expanded = false, collapsed = false, branch = false }) {
-  const state = stateFor(item, mode)
-  const meta = STATE[state]
-  const key = `${mode}:${item.id}`
-  const detailId = `ledger-detail-${mode}-${item.id.replace(/\./g, '-')}`
-  const title = mode === 'q' ? item.question : item.title
-  const branchCount = branch && collapsed ? `· ${descendantCount(item.id)} sub-items` : ''
-  const answer = mode === 'q' && item.status === 'answered'
-    ? `<div class="ledger-answer"><span class="ledger-answer-mark" aria-hidden="true">↳</span><span>${esc(item.answer)}</span></div>`
-    : ''
-  const gate = item.gate ? `<span class="ledger-gate">${esc(item.gate)}</span>` : ''
-  const rootToggle = branch
-    ? `<button class="ledger-root-toggle" type="button" data-root="${esc(item.id)}" aria-expanded="${collapsed ? 'false' : 'true'}" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${esc(item.id)}"><span aria-hidden="true">⌄</span></button>`
-    : ''
-
-  return `
-    <div class="ledger-record ${branch ? 'is-branch-root' : ''} ${mode === 'q' ? 'is-question' : ''}" style="--depth:${depth}" role="${mode === 'r' ? 'treeitem' : 'listitem'}" ${mode === 'r' ? `aria-level="${depth + 1}"` : ''} data-record-key="${key}">
-      <div class="ledger-line" data-state="${state}">
-        <button class="ledger-row" type="button" data-expand="${key}" aria-expanded="${expanded ? 'true' : 'false'}" aria-controls="${detailId}">
-          <span class="ledger-state" title="${meta.label}"><span class="ledger-glyph" aria-hidden="true">${meta.glyph}</span><span class="ledger-sr-only">${meta.label}</span></span>
-          <span class="ledger-id-cell">
-            <span class="ledger-guides" aria-hidden="true">${guideMarkup(depth)}</span>
-            <span class="ledger-id">${esc(item.id)}</span>
-          </span>
-          <span class="ledger-title">${esc(title)}</span>
-          <span class="ledger-meta">
-            ${branchCount ? `<span class="ledger-branch-count">${branchCount}</span>` : ''}
-            <span class="ledger-agent">${esc(item.agent)}</span>
-            <span class="ledger-age" data-ledger-age="${key}">${formatLedgerAge(liveAgeMs(item))}</span>
-            ${gate}
-          </span>
-        </button>
-        ${rootToggle}
-      </div>
-      ${answer}
-      <div class="ledger-detail" id="${detailId}" ${expanded ? '' : 'hidden'}>
-        <span class="ledger-detail-label">evidence</span>
-        <code>${esc(item.evidence)}</code>
-        <span class="ledger-detail-sep" aria-hidden="true">·</span>
-        <span class="ledger-detail-label">claimed-at</span>
-        <time>${esc(item.claimedAt)}</time>
-      </div>
-    </div>`
-}
-
-function liveRequestMarkup(item, { expanded = false }) {
-  const state = liveRequestState(item.status)
+function requestMarkup(item, { expanded = false }) {
+  const state = requestState(item.status)
   const meta = STATE[state]
   const key = `r:${item.id}`
   const detailId = `ledger-detail-r-${item.id.replace(/\./g, '-')}`
@@ -175,8 +118,8 @@ function liveRequestMarkup(item, { expanded = false }) {
     </div>`
 }
 
-function liveQuestionMarkup(item, { expanded = false }) {
-  const state = liveQuestionState(item.statusClass)
+function questionMarkup(item, { expanded = false }) {
+  const state = questionState(item.statusClass)
   const meta = STATE[state]
   const key = `q:${item.id}`
   const detailId = `ledger-detail-q-${item.id.replace(/\./g, '-')}`
@@ -244,11 +187,14 @@ export function ledgerView() {
     onMount: api => { showRegisterInForms = api.showRegister },
   })
   const modeGroup = root.querySelector('.ledger-mode')
-  const collapsedRoots = new Set(branchRoots.filter(item => readCollapsed(item.id)).map(item => item.id))
   const expandedRows = new Set()
   let mode = readMode()
   let source = null
-  let ageTimer = null
+  /* Whether the register on screen is the example. Set ONLY from
+     sourceIsBadged() at each resolution, never inferred from the data --
+     the badge follows the source, and the whole point of the example being
+     shaped exactly like a real register is that the data cannot tell you. */
+  let badged = false
   let requestVersion = 0
   let destroyed = false
 
@@ -260,12 +206,10 @@ export function ledgerView() {
     }
   }
 
-  function renderSummary(items, { unavailable = false, live = false } = {}) {
+  function renderSummary(items, { unavailable = false } = {}) {
     const counts = Object.fromEntries(SUMMARY_STATES.map(state => [state, 0]))
     for (const item of items) {
-      const state = live
-        ? (mode === 'r' ? liveRequestState(item.status) : liveQuestionState(item.statusClass))
-        : stateFor(item, mode)
+      const state = mode === 'r' ? requestState(item.status) : questionState(item.statusClass)
       if (Object.hasOwn(counts, state)) counts[state] += 1
     }
     for (const state of SUMMARY_STATES) {
@@ -276,24 +220,13 @@ export function ledgerView() {
       node.closest('.ledger-stat').toggleAttribute('data-empty', !unavailable && counts[state] === 0)
     }
     for (const note of root.querySelectorAll('[data-summary-note]')) {
-      note.textContent = unavailable ? '· unavailable' : (live ? '· your records' : '· this session')
+      /* "your records" over somebody else's example numbers would be the exact
+         lie the badge exists to prevent, so the note is keyed to it too. */
+      note.textContent = unavailable ? '· unavailable' : (badged ? '· example data' : '· your records')
     }
   }
 
-  function renderRBranch(item, depth, output) {
-    const children = childrenByParent.get(item.id) || []
-    const branch = !item.parent && children.length > 0
-    const collapsed = branch && collapsedRoots.has(item.id)
-    output.push(recordMarkup(item, {
-      mode: 'r', depth, branch, collapsed, expanded: expandedRows.has(`r:${item.id}`),
-    }))
-    if (collapsed) return
-    for (const child of children) renderRBranch(child, depth + 1, output)
-  }
-
-  function renderRegister({ focusRoot = null } = {}) {
-    const rows = []
-
+  function renderRegister() {
     /* ONE NOTICE, ONE STORY. Everything this state paints -- the paragraph, the
        register's accessible name, the counter, the state marker and whether the
        totals above are even knowable -- comes from the one object, so the page
@@ -302,7 +235,7 @@ export function ledgerView() {
        what the owner was reading. */
     const notice = registerNotice(source, { mode })
     if (notice) {
-      renderSummary([], { unavailable: !notice.countsKnown, live: true })
+      renderSummary([], { unavailable: !notice.countsKnown })
       register.removeAttribute('role')
       register.setAttribute('aria-label', notice.label)
       const door = notice.door
@@ -320,18 +253,20 @@ export function ledgerView() {
       return
     }
 
-    const live = source.kind === 'live'
-    const rItems = live ? source.data.requests : R_ITEMS
-    const qObservation = live ? source.data.questions : null
-    const qItems = live ? qObservation?.value : Q_ITEMS
+    /* Past the notices there is exactly one case left: a register in the
+       validated shape -- read from this copy, carried over the relay, or the
+       example fleet's. The three were made indistinguishable on purpose, so
+       nothing below may branch on where it came from except the badge. */
+    const rItems = source.data.requests
+    const qObservation = source.data.questions
 
     /* THE QUESTIONS HALF, IN THE SAME TWO STATES AS THE REQUESTS HALF. It used
        to have a third vocabulary of its own -- "the questions could not be
        read" with the raw reason after a middle dot -- so one page refused in
        three different accents. */
-    if (mode === 'q' && live && !qObservation.ok) {
+    if (mode === 'q' && !qObservation.ok) {
       const qNotice = registerNotice({ kind: 'unreadable' }, { mode: 'q' })
-      renderSummary([], { unavailable: !qNotice.countsKnown, live: true })
+      renderSummary([], { unavailable: !qNotice.countsKnown })
       register.removeAttribute('role')
       register.setAttribute('aria-label', qNotice.label)
       register.innerHTML = `<p class="ledger-empty ${qNotice.className}">${esc(qNotice.body)}</p>`
@@ -342,62 +277,48 @@ export function ledgerView() {
       return
     }
 
-    renderSummary(mode === 'r' ? rItems : qItems, { live })
+    const qItems = qObservation.value
+    renderSummary(mode === 'r' ? rItems : qItems)
 
+    const rows = []
     if (mode === 'r') {
-      if (live) {
-        for (const item of rItems) rows.push(liveRequestMarkup(item, { expanded: expandedRows.has(`r:${item.id}`) }))
-      } else {
-        for (const item of childrenByParent.get('') || []) renderRBranch(item, 0, rows)
-      }
+      for (const item of rItems) rows.push(requestMarkup(item, { expanded: expandedRows.has(`r:${item.id}`) }))
       register.setAttribute('role', 'tree')
-      register.setAttribute('aria-label', live ? 'Your requests' : 'Owner request outline')
+      register.setAttribute('aria-label', badged ? 'Example requests — not yours' : 'Your requests')
       register.innerHTML = rows.length
         ? rows.join('')
         : '<p class="ledger-empty">There are no requests in this list.</p>'
-      root.querySelector('[data-visible-count]').textContent = live
-        ? `${rItems.length} requests · with their status and gates`
-        : `${R_ITEMS.length} requests · 3 decomposed roots`
+      root.querySelector('[data-visible-count]').textContent =
+        `${badged ? EXAMPLE_COUNT_PREFIX : ''}${rItems.length} requests · with their status and gates`
     } else {
-      for (const item of qItems) {
-        rows.push(live
-          ? liveQuestionMarkup(item, { expanded: expandedRows.has(`q:${item.id}`) })
-          : recordMarkup(item, { mode: 'q', expanded: expandedRows.has(`q:${item.id}`) }))
-      }
+      for (const item of qItems) rows.push(questionMarkup(item, { expanded: expandedRows.has(`q:${item.id}`) }))
       register.setAttribute('role', 'list')
-      register.setAttribute('aria-label', live ? 'Your questions' : 'Questions to the owner')
+      register.setAttribute('aria-label', badged ? 'Example questions — not yours' : 'Your questions')
       register.innerHTML = rows.length
         ? rows.join('')
         : '<p class="ledger-empty">There are no questions waiting on a decision.</p>'
-      const open = live
-        ? qItems.filter(item => item.statusClass === 'open').length
-        : Q_ITEMS.filter(item => item.status === 'pending').length
-      root.querySelector('[data-visible-count]').textContent = live
-        ? `${qItems.length} questions · ${open} open`
-        : `${Q_ITEMS.length} questions · ${open} pending`
+      const open = qItems.filter(item => item.statusClass === 'open').length
+      root.querySelector('[data-visible-count]').textContent =
+        `${badged ? EXAMPLE_COUNT_PREFIX : ''}${qItems.length} questions · ${open} open`
     }
 
-    root.dataset.projectionState = live ? 'ready' : 'simulated'
+    /* 'simulated' here is DOM VOCABULARY, not architecture: the attribute's
+       two values predate the source axis and tooling reads them, so the words
+       stay while the thing that decides them is now the badge alone. There is
+       no second render for 'simulated' to name any more. */
+    root.dataset.projectionState = badged ? 'simulated' : 'ready'
     /* THE FORMS BELOW ACT ON REQUESTS, so they are given the requests -- in
        both tabs, because Approve and Decline answer a request whichever list
-       happens to be on screen. The SIMULATED outline is deliberately not
-       offered as choices: those references are a demonstration, and a picker
-       built from them would invite somebody to approve something that does not
-       exist. In that mode the field stays typed and says what it wants. */
+       happens to be on screen. The example rows are offered too, deliberately:
+       a picker that empties itself the moment the data is an example would
+       hide what this surface does from the one person it is demonstrating to.
+       What the example must never do is WRITE, and the fence for that sits on
+       the view (see the capture listener below), not on the picker's contents.
+       The kind keeps the vocabulary src/ledger-copy.js declares. */
     showRegisterInForms({
-      kind: live ? 'live' : 'simulated',
-      items: live ? rItems.map(item => ({ id: item.id, label: `${item.id} · ${item.status}` })) : [],
+      kind: badged ? 'simulated' : 'live',
+      items: rItems.map(item => ({ id: item.id, label: `${item.id} · ${item.status}` })),
     })
-    if (focusRoot) register.querySelector(`[data-root="${focusRoot}"]`)?.focus()
-  }
-
-  function updateAges() {
-    if (source.kind !== 'simulated') return
-    const now = Date.now()
-    for (const node of root.querySelectorAll('[data-ledger-age]')) {
-      const item = itemByKey.get(node.dataset.ledgerAge)
-      if (item) node.textContent = formatLedgerAge(liveAgeMs(item, now))
-    }
   }
 
   modeGroup.addEventListener('click', event => {
@@ -410,16 +331,6 @@ export function ledgerView() {
   })
 
   register.addEventListener('click', event => {
-    const rootToggle = event.target.closest('button[data-root]')
-    if (rootToggle) {
-      const id = rootToggle.dataset.root
-      if (collapsedRoots.has(id)) collapsedRoots.delete(id)
-      else collapsedRoots.add(id)
-      writeCollapsed(id, collapsedRoots.has(id))
-      renderRegister({ focusRoot: id })
-      return
-    }
-
     const row = event.target.closest('button[data-expand]')
     if (!row) return
     const key = row.dataset.expand
@@ -431,29 +342,73 @@ export function ledgerView() {
     detail.hidden = !open
   })
 
+  /* AN EXAMPLE NEVER ISSUES A WRITE. The example register fills the picker so
+     a person can see exactly what this surface does -- but a press must not
+     become a record. This matters beyond the signed-out page: the example
+     toggle works on the desktop too, where the audited connection is real, a
+     press really would land, and a picked example id could collide with a
+     real request's id. The surface cannot hold this line itself -- it is
+     handed a register view, not a data source -- so the fence sits where the
+     knowledge is: the press is stopped here in the capture phase, before the
+     surface's own handler can run, and the person is told nothing was sent.
+     Claim and Close are fenced with Approve and Decline, because a page
+     marked as an example must not reach a real process through ANY of its
+     buttons -- the same line src/views/agent.js draws for its own page. */
+  root.addEventListener('click', event => {
+    if (!badged) return
+    const button = event.target.closest('button[data-decision], button[data-queue-operation]')
+    if (!button) return
+    event.preventDefault()
+    event.stopPropagation()
+    const output = button.closest('form')?.querySelector('[data-action-output]')
+    if (output) {
+      output.dataset.state = 'note'
+      output.textContent = EXAMPLE_WRITE_NOTE
+    }
+  }, true)
+
   syncModeButtons()
   const detachSeg = attachSeg(modeGroup)
 
-  function stopAgeUpdates() {
-    if (ageTimer != null) clearInterval(ageTimer)
-    ageTimer = null
-  }
-
-  function showSimulation() {
-    requestVersion += 1
-    stopAgeUpdates()
-    source = { kind: 'simulated' }
-    root.dataset.liveMode = 'simulated'
-    renderRegister()
-    ageTimer = setInterval(updateAges, 30_000)
-  }
-
-  function showLive() {
+  async function load({ reask = false } = {}) {
     const version = ++requestVersion
-    stopAgeUpdates()
     source = { kind: 'loading' }
-    root.dataset.liveMode = 'live'
     renderRegister()
+    /* Resolution is async because on a public origin the relay-versus-mock
+       answer needs the host asked for its transport; the loading notice is
+       already on screen, so nothing is blank while the question is out. Note
+       data-live-mode is NOT set yet: before the answer arrives the page does
+       not know what world it is in, and stamping either word early would be
+       a guess -- the same rule currentDataSource() states for its null. */
+    let origin
+    try {
+      origin = await resolveDataSource({ reask })
+    } catch (error) {
+      /* No verdict at all: the page cannot say where data would even come
+         from. That is a read that did not answer, and it wears the words a
+         read that did not answer has earned -- never a quiet default to some
+         source, which would either badge real data or unbadge the example. */
+      if (destroyed || version !== requestVersion) return
+      source = { kind: 'unreadable', reason: error?.message || String(error) }
+      renderRegister()
+      return
+    }
+    if (destroyed || version !== requestVersion) return
+    badged = sourceIsBadged(origin)
+    /* 'live'/'simulated' is the attribute's established vocabulary and tools
+       key on it, so the words survive -- but they are derived from the source
+       axis now, not from a second render path. mock -> 'simulated'. */
+    root.dataset.liveMode = badged ? 'simulated' : 'live'
+    if (badged) {
+      /* The example register lands in the SAME assignment a fetched one does:
+         kind 'live', data in the validated shape. Everything downstream of
+         this line is shared with the real path, which is what makes the badge
+         trustworthy -- it is the only difference left. A fresh Date.now()
+         per resolution keeps the sample's observedAt reading as recent. */
+      source = { kind: 'live', data: sampleLedgerData(Date.now()) }
+      renderRegister()
+      return
+    }
     fetchLedger().then(result => {
       if (destroyed || version !== requestVersion) return
       /* THE DISTINCTION WAS ALWAYS IN THE ANSWER AND THIS PAGE THREW IT AWAY.
@@ -476,15 +431,14 @@ export function ledgerView() {
     })
   }
 
-  function onLiveFlagsChanged(event) {
-    if (event.detail?.view !== 'ledger') return
-    if (event.detail.live) showLive()
-    else showSimulation()
-  }
-
-  window.addEventListener(LIVE_FLAGS_EVENT, onLiveFlagsChanged)
-  if (isLiveView('ledger')) showLive()
-  else showSimulation()
+  /* The event deliberately carries no verdict -- a verdict in an event payload
+     is how two views end up in different worlds -- so the whole response is to
+     re-resolve and re-render. reask: true because the moment this fires is
+     exactly the moment a transport may have just appeared (a sign-in), and it
+     is harmless when one is already installed. */
+  const onDataSourceChanged = () => { void load({ reask: true }) }
+  window.addEventListener(DATA_SOURCE_EVENT, onDataSourceChanged)
+  void load()
 
   return {
     el: root,
@@ -492,8 +446,7 @@ export function ledgerView() {
       destroyWriteSurface()
       destroyed = true
       requestVersion += 1
-      stopAgeUpdates()
-      window.removeEventListener(LIVE_FLAGS_EVENT, onLiveFlagsChanged)
+      window.removeEventListener(DATA_SOURCE_EVENT, onDataSourceChanged)
       detachSeg()
     },
   }

@@ -61,7 +61,8 @@ test('every declared no-rows state has a notice, and every notice is declared', 
     assert.equal(notice.state, kind, `${kind} answers with a notice for ${notice.state}`)
   }
   assert.equal(registerNotice({ kind: 'live' }), null, 'a register with rows draws rows, not a notice')
-  assert.equal(registerNotice({ kind: 'simulated' }), null, 'so does the demonstration outline')
+  assert.equal(registerNotice({ kind: 'simulated' }), null,
+    'so does the example register — it goes through the same render path and draws the same rows')
   assert.equal(registerNotice(null), null)
 })
 
@@ -123,8 +124,15 @@ test('the Approve/Decline form is off for a reason, and the reason names the sta
   assert.equal(decisionOff({ kind: 'unreadable', items: [] }), DECISION_OFF.unreadable)
   assert.equal(decisionOff({ kind: 'live', items: [] }), DECISION_OFF.empty, 'a live read with no rows is empty, not broken')
   assert.equal(decisionOff({ kind: 'live', items: [{ id: 'R1' }] }), null, 'with rows it simply works')
+  /* The example register never turns the control off: the picker fills from
+     the example rows so a person can see what this surface does. What keeps a
+     press from becoming a write is the view's own fence (src/views/ledger.js
+     stops it before the surface's handler runs), not a disabled control --
+     so the OFF table must stay out of the way in both example states. */
   assert.equal(decisionOff({ kind: 'simulated', items: [] }), null,
-    'the demonstration outline leaves the field typed rather than turning the control off')
+    'the example register does not turn the control off')
+  assert.equal(decisionOff({ kind: 'simulated', items: [{ id: 'R1' }] }), null,
+    'and stays out of the way with the example rows in the picker')
 
   /* THE COLOUR COMES WITH THE SENTENCE. "There is nothing to approve" is not a
      failure, and painting it as one is the register's own defect one level
@@ -183,4 +191,25 @@ test('the view and the surface read their words from here rather than keeping th
   assert.ok(!viewSays.includes('the questions could not be read'), 'the questions half still has its own accent')
   assert.ok(!surfaceSays.includes('its number, as shown in the list'), 'the old placeholder is still drawn by the surface')
   assert.ok(!surfaceSays.includes('Observed queue SHA-256'), 'the hash field is still asking a person to read a hash')
+})
+
+/* THE ANCHORS BELOW USED TO POINT AT THE SIMULATED RENDER, which is gone: one
+   render path, fed by a fetched register or by src/sample-ledger.js, per the
+   owner's ruling that the simulated pages ARE the UI pages with mock data.
+   What this suite can hold without a browser is the wiring: the view draws
+   its data through the source axis, its example marking follows the axis's
+   one badge rule, and nothing leans on the modules being deleted. */
+test('the view draws through the source axis, and its example marking follows the one badge rule', () => {
+  const view = read('src/views/ledger.js')
+  assert.match(view, /from '\.\.\/data-source\.js'/, 'the view must resolve where its data comes from')
+  assert.match(view, /resolveDataSource\(/, 'and actually ask, in its load path')
+  assert.match(view, /DATA_SOURCE_EVENT/, 'and re-resolve when the host announces the world changed')
+  assert.match(view, /from '\.\.\/sample-ledger\.js'/, 'the example register feeds the same render path')
+  assert.match(view, /sourceIsBadged/,
+    'the badge is keyed to the axis in one place; a view deriving its own is how a screen disagrees with its neighbour')
+  assert.doesNotMatch(view, /live-flags/, 'the per-view flag is being deleted; nothing here may lean on it')
+  assert.doesNotMatch(view, /ledger-data/, 'so is the simulated data module')
+  /* The marking a person actually sees, in home’s exact words -- the one
+     phrasing the product uses for data that is not theirs. */
+  assert.match(view, /Example, not your data/, 'the example register must be unmistakably labelled')
 })

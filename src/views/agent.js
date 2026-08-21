@@ -10,10 +10,17 @@
 // across `COORDINATOR'S HELPER` and still withheld 2 of 5 boxes at 1280px.
 // Cards in a grid cannot overlap, so there is nothing left to solve.
 
-import { sim } from '../sim.js'
 import { ROLES } from '../vocab.js'
 import { el, uptimeRing, buildChat } from '../components.js'
-import { isLiveView } from '../live-flags.js'
+/* THE ONE AXIS THIS PAGE VARIES ON. The per-view live flag and the separate
+   simulated render it selected are gone (owner's ruling: "all simulated pages
+   ARE the UI pages, just mock data"). What remains is where the data comes
+   from — 'local', 'relay', or 'mock' — and this page renders the same way for
+   all three; only the projection's SOURCE and the badge differ. */
+import { resolveDataSource, sourceIsBadged, DATA_SOURCE_EVENT } from '../data-source.js'
+/* The example fleet, in exactly the agents-projection `data` shape the live
+   readers consume — see its header for why it is a copy and not an import. */
+import { sampleAgentsData } from '../sample-fleet.js'
 import { createTerminateController } from '../mission-bridge.js'
 import { mountAgentWriteSurface } from '../write-surfaces.js'
 import { mountAgentSessionSurface } from '../agent-session.js'
@@ -165,13 +172,6 @@ function declaredAgentProjection(compId, agentId, data) {
 }
 
 export function agentView(args) {
-  /* `example` is the route asking for the demonstration copy of this page for
-     the length of one visit — see the note in src/main.js parse(). It reads the
-     same simulator the no-preference path reads, so it arrives carrying the
-     "Example data. These are not your agents" banner below rather than needing
-     a second notice of its own. */
-  if (args.example || !isLiveView('agent')) return buildAgentView(args)
-
   const root = el('<div class="data-live-mode" data-live-mode="live"></div>')
   const showState = (title, reason = '', loading = false) => {
     const state = el(`<div class="projection-state ${loading ? 'is-loading' : 'projection-unavailable'}" role="status"><strong></strong><span></span></div>`)
@@ -209,44 +209,122 @@ export function agentView(args) {
     const declared = org.state === 'ready' ? declaredAgentsData(org.org) : null
     return declared ? { ok: true, data: { data: declared } } : result
   }
-  void agentsProjection().then((result) => {
-    if (destroyed) return
-    const projection = result.ok ? declaredAgentProjection(args.compId, args.agentId, result.data?.data) : null
-    if (!projection) {
-      showState(
-        result.ok ? 'This agent is not on record here' : 'This agent’s record could not be read',
-        result.ok ? `no agent on this computer’s record matches ${args.agentId}` : result.reason,
-      )
-      return
+
+  /* WHAT EACH SOURCE FEEDS THE ONE RENDER. The mock source goes through the
+     SAME adapter the real record goes through — declaredAgentProjection — so
+     the render cannot tell the example from a record and there is no second
+     face for the two to disagree in. The example fleet is deterministic in
+     nowMs, so 'mock' can never fail to load: an id that is not one of its
+     seats resolves to the same honest "not on record here" state a real record
+     answers with, never to an invented agent. */
+  const loadProjection = async (source) => {
+    if (source === 'mock') {
+      return { ok: true, reason: null, projection: declaredAgentProjection(args.compId, args.agentId, sampleAgentsData(Date.now())) }
     }
-    current = buildAgentView(args, projection)
-    root.replaceChildren(current.el)
-  }).catch((error) => {
-    if (!destroyed) showState('This agent’s record could not be read', error?.message || String(error))
-  })
+    const result = await agentsProjection()
+    return {
+      ok: result.ok,
+      reason: result.ok ? null : result.reason,
+      projection: result.ok ? declaredAgentProjection(args.compId, args.agentId, result.data?.data) : null,
+    }
+  }
+
+  /* RENDER PASSES ARE TOKENED, because two of them can be in flight at once:
+     the load path awaits twice (the source verdict, then the record), and a
+     DATA_SOURCE_EVENT can start a newer pass between the two. Only the newest
+     pass may paint; a stale one finishing late must not overwrite a fresher
+     world with an older one. */
+  let renderPass = 0
+  let shownSource = null
+  const render = async () => {
+    const pass = ++renderPass
+    try {
+      /* `args.example` is the route asking for the example copy of this page
+         for the length of one visit — see the note in src/main.js parse(). It
+         pins the source to 'mock' without touching the stored example toggle:
+         a URL is the right lifetime for "show me one example page", and it
+         feeds the very same mock path the resolver's own 'mock' verdict feeds,
+         so the two can never drift apart. */
+      const source = args.example ? 'mock' : await resolveDataSource()
+      if (destroyed || pass !== renderPass) return
+      /* THE SAME VERDICT IS LEFT ALONE, deliberately. DATA_SOURCE_EVENT says
+         "the world may have changed", not what it changed to — and rebuilding
+         this page is destructive: destroy() below closes any CLI session this
+         page started. A desktop host announcing a sign-in still resolves
+         'local', and tearing down a person's running session because an event
+         fired about something else would be the repaint costing more than the
+         fact it repaints. When the verdict genuinely flips (example toggled,
+         relay signed in or out), the rebuild below is the point. */
+      if (source === shownSource) return
+      /* The badge follows the SOURCE, before any content does: mock is badged,
+         real — local and relay alike — never is (sourceIsBadged, the one rule,
+         defined once in data-source.js). */
+      root.dataset.liveMode = sourceIsBadged(source) ? 'simulated' : 'live'
+      /* A world flip closes the old world first. The outgoing page may own a
+         running CLI session; its destroy() is what shuts that down, and it has
+         to run before the loading state detaches its controls from the screen
+         — a session with nothing on screen that can stop it is the exact
+         defect destroy() documents. */
+      if (current) {
+        current.destroy()
+        current = null
+      }
+      showState('Opening this agent', 'reading what this computer has on record…', true)
+      const { ok, reason, projection } = await loadProjection(source)
+      if (destroyed || pass !== renderPass) return
+      shownSource = source
+      if (!projection) {
+        showState(
+          ok ? 'This agent is not on record here' : 'This agent’s record could not be read',
+          ok ? `no agent on this computer’s record matches ${args.agentId}` : reason,
+        )
+        return
+      }
+      current = buildAgentView(args, projection, source)
+      root.replaceChildren(current.el)
+    } catch (error) {
+      if (destroyed || pass !== renderPass) return
+      shownSource = null
+      showState('This agent’s record could not be read', error?.message || String(error))
+    }
+  }
+  void render()
+
+  /* Re-resolve when a host announces the world changed — sign-in, sign-out,
+     the example toggle. The event carries no verdict on purpose (see
+     data-source.js), so the render re-asks rather than trusting a payload. */
+  const onSourceChange = () => { void render() }
+  window.addEventListener(DATA_SOURCE_EVENT, onSourceChange)
 
   return {
     el: root,
     destroy() {
       destroyed = true
+      window.removeEventListener(DATA_SOURCE_EVENT, onSourceChange)
       current?.destroy()
     },
   }
 }
 
-function buildAgentView({ compId, agentId, navigate }, projection = null) {
-  const live = Boolean(projection)
-  const { computer, agent } = projection || sim.agentOf(compId, agentId)
-  if (!computer || !agent) {
-    const back = el(`<div class="view-pad"><p style="color:var(--ink-3);padding-top:40px">Agent no longer running.</p></div>`)
-    setTimeout(() => navigate('#/computers'), 1200)
-    return { el: back, destroy() {} }
-  }
+function buildAgentView({ agentId, navigate }, projection, source) {
+  /* `live` IS THE SOURCE AXIS, NOT THE PROJECTION'S PRESENCE. Every render now
+     arrives with a projection — the mock source builds one through the same
+     adapter — so "is there a projection" stopped being a fact that separates
+     anything. What still genuinely differs is whether the record is somebody's
+     real machine ('local', 'relay') or the product's own example ('mock'), and
+     that one bit drives everything downstream that used to key on the old
+     simulated render: the badge, the write fences, and which rail this page
+     shows. Real data is never badged; the example always is. */
+  const live = !sourceIsBadged(source)
+  const { computer, agent } = projection
   const role = ROLES[agent.role] || ROLES.default
-  const declaredRole = live ? agent.declaredRole : role.label
-  const sessionState = projection?.sessionState
-  const declaredState = live ? (agent.state === 'active' ? 'Enabled' : 'Disabled') : 'Simulated'
-  const declaredStateNote = live ? 'Declared state' : 'No declared state'
+  const sessionState = projection.sessionState
+  /* The record's own words for both sources. The example used to print
+     "Simulated / No declared state" here, which is no longer true of it: the
+     mock is a declared record like any other, and the provenance banner above
+     — not this tile — is what says whose record it is. */
+  const declaredState = agent.state === 'active' ? 'Enabled' : 'Disabled'
+  const declaredStateNote = 'Declared state'
 
   const root = el(`
     <div class="agentv" data-live-mode="${live ? 'live' : 'simulated'}">
@@ -303,8 +381,8 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
 
   /* WHOSE DATA THIS IS, SAID IN NORMAL FLOW AND BEFORE ANYTHING ELSE.
    *
-   * Everything on this page is a demonstration whenever the agent view is in
-   * simulated mode, and until now the page said so in exactly one place: a 48px
+   * Everything on this page is an example whenever the source is 'mock', and
+   * before this banner existed the page said so in exactly one place: a 48px
    * tile in the Controls action row reading "Simulated / No declared state",
    * four columns along and below the fold at two of the three shipping window
    * sizes. The only prominent notice was the app-wide `.fleet-profile-notice`,
@@ -318,7 +396,13 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
    * anything because it participates in layout, and it states this view's own
    * provenance rather than the profile's. The fixed toast is suppressed on this
    * route in agent.css, because two notices that disagree about what is real is
-   * worse than either alone. */
+   * worse than either alone.
+   *
+   * KEYED TO THE SOURCE AXIS, which is the badge rule stated once in
+   * data-source.js: mock is badged, real data — local and relay alike — never
+   * is. data-kind is the machine-readable half the fence suite
+   * (tools/example-page-write-fence-qa.mjs) reads, precisely so a copy pass on
+   * the sentence cannot silently change which banner a page is wearing. */
   const provenance = root.querySelector('.agent-provenance')
   if (live) {
     provenance.dataset.kind = 'declared'
@@ -594,10 +678,10 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
      * agent-session.js, cloud-tasks.js all mount `afterend` of it). So it stays
      * in the DOM, empty, and renders nothing.
      *
-     * THE DEMONSTRATION PAGE KEEPS ITS STRIP, and that is not an oversight:
-     * there the strip reads `name · role · pool · model`, and `pool` and `model`
-     * appear nowhere on that page's cards. Duplication is what is being removed,
-     * not the strip. */
+     * THE EXAMPLE PAGE KEEPS ITS STRIP, and that is not an oversight: on the
+     * mock source the strip reads `name · role · pool · model`, and `pool` and
+     * `model` appear nowhere on that page's cards. Duplication is what is being
+     * removed, not the strip. */
     const strip = root.querySelector('.agent-strip')
     strip.replaceChildren()
     strip.hidden = true
@@ -667,10 +751,10 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
    * is the model a person already expects from a chat box, which is exactly why
    * the fake one misled.
    *
-   * Only on a LIVE page with a real bridge. Without one, onSend stays null and
-   * the sample behaviour is untouched -- the demo surfaces exist to show what
-   * the product looks like, and turning them into failing send attempts would
-   * trade one lie for another.
+   * Only on a REAL source with a real bridge. On the mock source onSend stays
+   * null and the composer stays a local draft -- the example page exists to
+   * show what the product looks like, and turning its chat box into failing
+   * send attempts would trade one lie for another.
    */
   /* WHAT A PERSON READS WHEN THE START OR THE SEND DOES NOT HAPPEN.
    *
@@ -810,7 +894,11 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
     title: agent.name,
     subtitle: `${role.label} · direct line`,
     roleKey: agent.role,
-    seed: live ? 0 : 6,
+    /* No fabricated transcript on ANY source. The example page used to open on
+       six invented messages nobody sent; mock data means the example FLEET, not
+       an invented conversation, and a transcript is the one thing the mock
+       record honestly does not have. */
+    seed: 0,
     tall: true,
     onSend: canStart ? startOrContinue : null,
     /* TWO PANELS ON ONE SCREEN MUST NOT DISAGREE ABOUT WHETHER A SESSION EXISTS.
@@ -842,15 +930,24 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
   // Controls ring.
   let ring = null
   let ringUpdates = false
-  const liveRuntime = live ? liveAgentRuntimeSource(agent) : null
-  if (!live || liveRuntime) {
+  /* ONE CLOCK RULE FOR BOTH SOURCES. This used to skip the normalizer when the
+     page was the old simulated render, on the grounds that the simulator's
+     agents were always running — and feeding the mock record through the same
+     projection exposed why that shortcut cannot survive: the example fleet has
+     a seat that never started (no bornAt — a raw-epoch ring would show decades)
+     and a lane that ran and stopped (a ring that kept counting would be a lying
+     clock on the page whose banner promises honesty). liveAgentRuntimeSource is
+     the record's own arbiter — no epochs, no ring; a finite stop freezes it —
+     and it reads the projection, which every source now supplies. */
+  const agentRuntime = liveAgentRuntimeSource(agent)
+  if (agentRuntime) {
     const smallRing = window.innerHeight < 960
-    const ringEpoch = live && !liveRuntime.running
-      ? Date.now() - liveRuntime.elapsedMs
-      : agent.bornAt
+    const ringEpoch = agentRuntime.running
+      ? agentRuntime.bornAt
+      : Date.now() - agentRuntime.elapsedMs
     ring = uptimeRing({ size: smallRing ? 132 : 180, epoch: ringEpoch, colors: [role.glow, role.hex], caption: 'Runtime', showDays: false })
     if (smallRing) ring.el.classList.add('ctl-ring-sm')
-    if (appendAgentRingNode(runtimeRingMount, ring.el)) ringUpdates = !live || liveRuntime.running
+    if (appendAgentRingNode(runtimeRingMount, ring.el)) ringUpdates = agentRuntime.running
     else ring = null
   }
 
@@ -906,11 +1003,6 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
     if (ring && ringUpdates) ring.update()
   }, 1000)
 
-  const unsubContext = live ? () => {} : sim.on('context', ({ comp }) => {
-    if (comp !== computer) return
-    roster.update()
-  })
-
   return {
     el: root,
     destroy() {
@@ -934,7 +1026,6 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
          Leaving the page is not a stop, which is why nothing here claims it. */
       destroyCloudTasks()
       ctlResize.disconnect()
-      unsubContext()
     },
   }
 }

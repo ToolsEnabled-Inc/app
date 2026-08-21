@@ -349,6 +349,21 @@ export function bridgeTransportInstalled() {
   return transport !== null
 }
 
+/* IS THERE A MACHINE ON THE OTHER END? Asked by the data-source resolver to
+ * decide relay-versus-mock on a public origin. `reask` exists because the lazy
+ * host lookup settles its answer the first time it runs: a page whose first
+ * request happened signed-out would otherwise be marked "asked, none" and a
+ * later sign-in could never install the tunnel without a reload. Re-asking is
+ * only meaningful while no transport is installed -- an installed one is an
+ * explicit choice and stays the final word, exactly as setBridgeTransport
+ * documents. */
+export async function bridgeTransportAvailable({ reask = false } = {}) {
+  if (transport) return true
+  if (reask) hostTransportAsked = false
+  await hostTransport()
+  return transport !== null
+}
+
 /* A HOST MAY SUPPLY THE TRANSPORT, the same way it already supplies the
  * bridge endpoint. `window.mcShell.getBridgeTransport()` is asked once, on the
  * first request, and its answer is installed. The website uses this to hand

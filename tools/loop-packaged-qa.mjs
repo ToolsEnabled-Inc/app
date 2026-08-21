@@ -583,12 +583,14 @@ async function main() {
     /* LIVE, NOT SIMULATED -- and that is the product's rule, not a shortcut.
      *
      * This harness used to select the simulated rail. When it was written the
-     * loop box was built for both rails; it has since been fenced to the
-     * projection rail, which showControls() reaches only when the computers view
-     * is live, because that rail is "the only caller entitled to build a control
-     * that reaches the bridge". A loop control that reaches the bridge cannot be
-     * exercised anywhere else, so asking for the simulated rail now asks for a
-     * page that legitimately has no Loop panel on it.
+     * loop box was built for both rails; it has since been fenced to real
+     * sources -- mountStartWorkControls builds the Loop panel only when the
+     * board reads this computer, and under the example fleet it mounts a
+     * stated absence instead, because only a rail reading this computer "is
+     * entitled to build a control that reaches the bridge". A loop control
+     * that reaches the bridge cannot be exercised anywhere else, so asking
+     * for the example board now asks for a page that legitimately has no
+     * Loop panel on it.
      *
      * That is a SECOND breakage in this harness, independent of the fence, and it
      * was hidden behind the first: the safety gate threw before the click ever
@@ -596,7 +598,7 @@ async function main() {
      * for exactly the reason the gate above established -- "live" resolves to the
      * controlled layer this harness planted, and nothing else. */
     await evaluate(`(() => {
-      localStorage.setItem('mc.live.computers', 'live')
+      localStorage.removeItem('mc.example')
       localStorage.setItem('mc.write.dispatch', 'enabled')
       /* The walk below starts an agent on this computer so that there is a node
          to open a rail on, and this is the switch that decides whether the

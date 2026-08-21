@@ -313,6 +313,13 @@ const READ_BOARD = `(() => {
   return {
     present: Boolean(board),
     liveMode: board ? board.dataset.liveMode : null,
+    /* 'available' on both sources now: the example is a projection like any
+       other (mountMockFleet feeds the same adapter), and the old sim's
+       'simulated' value went with the second render. */
+    projectionState: board ? board.dataset.projectionState : null,
+    /* The bar's own marking, the product's one phrasing for example data.
+       null when the badge node is absent, which is the live board's truth. */
+    exampleBadge: text(document.querySelector('.computers [data-example-badge]')),
     railOpen: Boolean(document.querySelector('.computers .board-ctl-box')),
     launchControls: document.querySelectorAll('.computers [data-launch]').length,
     dispatchButton: Boolean(document.querySelector('.computers [data-launch="dispatch"]')),
@@ -320,9 +327,11 @@ const READ_BOARD = `(() => {
     loopControls: document.querySelectorAll('.computers [data-loop]').length,
     absentBox: Boolean(document.querySelector('.computers .board-ctl-absent')),
     absentText: text(document.querySelector('.computers .board-ctl-absent')),
-    /* The app-wide "some screens show example data" notice. On the simulated
-       board it is replaced by the in-flow statement above, so it must not also
-       be shouting from the corner; on a live board it is true and must stay. */
+    /* The app-wide "some screens show example data" notice. The example board
+       already wears its own badge, and board.css keys on data-live-mode
+       'simulated' to hold this toast off it -- two notices disagreeing about
+       what is real is worse than either; on a live board it is true and must
+       stay. */
     exampleToastShown: shown(document.querySelector('.fleet-profile-notice:not(.is-serious)')),
     bridgeIsReal: typeof globalThis.mcAgent === 'object' && globalThis.mcAgent !== null,
   }
@@ -374,9 +383,11 @@ async function drive(executable, scratch, { live }) {
     /* Every write flag this page can honour is turned ON. The fence must hold
        because of the page's provenance, not because a capability happened to be
        switched off -- a run that left them off would pass without measuring
-       anything. */
+       anything. The source axis is ONE switch now (src/data-source.js):
+       mc.example present-as-'on' pins every screen to the example fleet, and
+       absent is the shipped default, this computer's own data. */
     await evaluate(`(() => {
-      localStorage.setItem('mc.live.agent', ${JSON.stringify(live ? 'live' : 'simulated')});
+      localStorage.${live ? "removeItem('mc.example')" : "setItem('mc.example', 'on')"};
       localStorage.setItem('mc.write.agent-session', 'enabled');
       localStorage.setItem('mc.write.dispatch', 'enabled');
       localStorage.setItem('mc.write.report-read', 'enabled');
@@ -397,11 +408,12 @@ async function drive(executable, scratch, { live }) {
     const page = await evaluate(READ_PAGE)
 
     /* ---------- and now the same question of the computers board ----------
-       Same window, same write flags, only the surface changes. The controls
-       rail is opened by DOUBLE-CLICKING a node, which is how the page opens it
-       for a person; there is no deep link to a rail. */
+       Same window, same write flags, only the surface changes. No second
+       source write: the one mc.example switch set before the agent page IS
+       the whole axis, and it governs this board too. The controls rail is
+       opened by pressing a node, which is how the page opens it for a
+       person; there is no deep link to a rail. */
     await evaluate(`(() => {
-      localStorage.setItem('mc.live.computers', ${JSON.stringify(live ? 'live' : 'simulated')});
       location.hash = '#/computers';
     })()`)
     await evaluate('location.reload()')
@@ -473,8 +485,11 @@ try {
   check('NO audited-dispatch surface is mounted', example.dispatchSurface === false)
 
   console.log('\nEXAMPLE mode -- the computers board, same window, same flags')
-  check('the simulated board is in simulated mode',
-    exampleBoard.liveMode === 'simulated', `liveMode=${exampleBoard.liveMode}`)
+  check('the example board carries the delivered vocabulary: liveMode simulated, projection available',
+    exampleBoard.liveMode === 'simulated' && exampleBoard.projectionState === 'available',
+    `liveMode=${exampleBoard.liveMode} projectionState=${exampleBoard.projectionState}`)
+  check('the board wears the example badge, in the product’s one phrasing',
+    exampleBoard.exampleBadge === 'Example, not your data', JSON.stringify(exampleBoard.exampleBadge))
   check('the controls rail opens on the simulated board',
     exampleBoard.reachedRail === true && exampleBoard.railOpen === true,
     `reachedRail=${exampleBoard.reachedRail} railOpen=${exampleBoard.railOpen} -- if this is false the fence below proves nothing`)
@@ -532,6 +547,8 @@ try {
      is refused. */
   console.log('\nLIVE mode -- the computers board still has the controls the example is refused')
   check('the live board is in live mode', liveBoard.liveMode === 'live', `liveMode=${liveBoard.liveMode}`)
+  check('and no example badge is on it -- real data is never badged',
+    liveBoard.exampleBadge === null, JSON.stringify(liveBoard.exampleBadge))
   check('the controls rail opens on the live board',
     liveBoard.reachedRail === true && liveBoard.railOpen === true,
     `reachedRail=${liveBoard.reachedRail} railOpen=${liveBoard.railOpen}`)
