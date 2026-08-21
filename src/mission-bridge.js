@@ -189,7 +189,50 @@ async function scanWellKnownBridges() {
   }
 }
 
+/* MAY THIS PAGE REACH THE COMPUTER IT IS RUNNING ON?
+ *
+ * Structural, from the page's own origin, and nothing else. The desktop shell
+ * serves dist/ from http://127.0.0.1:<port> (shell/port-scan.cjs), and a dev
+ * `vite preview` is loopback too -- so a loopback origin means the machine in
+ * front of the person is the machine hosting this page, and scanning it is
+ * reaching the HOST, which is fine. A page served from any public origin is the
+ * website: the computer in front of the person is a visitor's own machine --
+ * possibly a friend's -- and this application must never reach into it. That is
+ * the owner's rule stated as architecture: "when a user is on the web we can't
+ * be trying to hook into their computer, even when logged in."
+ *
+ * Until now that rule was held by a CONVENTION: the site's host-bridge.js
+ * answered getBridgeEndpoint with source:'supervised' and a deliberately
+ * invalid baseUrl, so pinnedOwnLayer() refused before fetching. Remove that
+ * file, or fail to load it, and the scan below ran against a visitor's
+ * loopback -- and `?bridge=http://127.0.0.1:4610` pasted into the site's URL
+ * was honoured outright. A rule that depends on a helper file loading is off
+ * exactly when something is wrong, so it is enforced here, where the fetch is.
+ */
+export function pageMayReachLoopback() {
+  try {
+    const host = String(globalThis.window?.location?.hostname || '')
+    return host === '127.0.0.1' || host === 'localhost' || host === '[::1]' || host === '::1'
+  } catch {
+    return false
+  }
+}
+
 export async function configuredBaseUrl() {
+  // The structural gate, ahead of EVERY path that could touch loopback --
+  // including the supervised pin: pinnedOwnLayer only ever accepts loopback
+  // URLs, and on a public origin a loopback URL is a visitor's own machine no
+  // matter which host answered it. A signed-in page reaches a machine through
+  // the host-supplied transport (setBridgeTransport), which request() consults
+  // before ever calling this function, so nothing legitimate is lost here.
+  if (!pageMayReachLoopback()) {
+    return {
+      ok: false,
+      reason: 'this page is served from a public origin, so it will not look for a bridge on the computer it is running on; a signed-in page reaches your own machine through its relay transport instead',
+      code: 'BRIDGE_FORBIDDEN_ON_PUBLIC_ORIGIN',
+    }
+  }
+
   const endpoint = await shellBridgeEndpoint()
 
   // Supervised (customer) path: the shell started the layer and knows its exact

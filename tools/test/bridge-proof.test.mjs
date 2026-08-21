@@ -117,7 +117,7 @@ test('failure paths never leak proof material or call an injected logger', () =>
 
 test('renderer bootstrap sends the shell proof as an encoded query parameter', async () => {
   globalThis.window = {
-    location: { search: '?bridge=http%3A%2F%2F127.0.0.1%3A4610' },
+    location: { hostname: '127.0.0.1', search: '?bridge=http%3A%2F%2F127.0.0.1%3A4610' },
     mcShell: { getBridgeProof: async () => ({ ok: true, proof: TOKEN }) },
   }
   const calls = []
@@ -143,7 +143,7 @@ test('renderer bootstrap sends the shell proof as an encoded query parameter', a
 
 test('plain-browser bootstrap degrades to a typed unavailable result without fetching', async () => {
   globalThis.window = {
-    location: { search: '?bridge=http%3A%2F%2F127.0.0.1%3A4610' },
+    location: { hostname: '127.0.0.1', search: '?bridge=http%3A%2F%2F127.0.0.1%3A4610' },
   }
   let fetches = 0
   globalThis.fetch = async () => { fetches += 1; throw new Error('must not fetch') }

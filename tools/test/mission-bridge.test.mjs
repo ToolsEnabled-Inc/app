@@ -43,7 +43,7 @@ test('discovery walks 4610-4619 in order and authenticates only after an exact v
   // supply one, so a discovery fixture that omits it never reaches the walk's
   // conclusion. Stubbed here, NOT asserted away -- the plain-browser refusal
   // has its own case in bridge-proof.test.mjs.
-  globalThis.window = { location: { search: '' }, mcShell: { getBridgeProof: async () => ({ ok: true, proof: SHELL_PROOF }) } }
+  globalThis.window = { location: { hostname: '127.0.0.1', search: '' }, mcShell: { getBridgeProof: async () => ({ ok: true, proof: SHELL_PROOF }) } }
   const calls = []
   globalThis.fetch = async (url, options) => {
     const href = String(url)
@@ -80,7 +80,7 @@ test('discovery walks 4610-4619 in order and authenticates only after an exact v
 })
 
 test('discovery returns a typed unavailable result when no candidate answers validly', async () => {
-  globalThis.window = { location: { search: '' } }
+  globalThis.window = { location: { hostname: '127.0.0.1', search: '' } }
   const calls = []
   globalThis.fetch = async url => {
     calls.push(url)
@@ -99,7 +99,7 @@ test('discovery returns a typed unavailable result when no candidate answers val
 })
 
 test('an explicit bridge query remains first and bypasses well-known discovery', async () => {
-  globalThis.window = { location: { search: '?bridge=http%3A%2F%2F127.0.0.1%3A4700' } }
+  globalThis.window = { location: { hostname: '127.0.0.1', search: '?bridge=http%3A%2F%2F127.0.0.1%3A4700' } }
   let fetches = 0
   globalThis.fetch = async () => { fetches += 1; throw new Error('should not fetch') }
 
@@ -113,7 +113,7 @@ test('an explicit bridge query remains first and bypasses well-known discovery',
 // squatter on a lower port is never handed this boot's bootstrap proof. ---
 
 const supervised = (port, pid = 43210) => ({
-  location: { search: '' },
+  location: { hostname: '127.0.0.1', search: '' },
   mcShell: {
     getBridgeProof: async () => ({ ok: true, proof: SHELL_PROOF }),
     getBridgeEndpoint: async () => ({ ok: true, source: 'supervised', baseUrl: `http://127.0.0.1:${port}`, pid }),
@@ -188,4 +188,52 @@ test('a supervised layer that does not answer fails closed without scanning', as
   assert.equal(configured.code, 'BRIDGE_OWN_LAYER_UNCONFIRMED')
   // Exactly one attempt -- its own layer -- and no scan of the well-known range.
   assert.deepEqual(fetched, ['http://127.0.0.1:4611/v1/runtime'])
+})
+
+/* ------------------------------------------------------------------
+   The public-origin gate. Everything above fakes a loopback origin because
+   everything above is about what a page served BY the machine may do to it.
+   These cases are the other half: a page served from a public origin -- the
+   website, including a signed-in visitor at a friend's computer -- must never
+   look for a bridge on the machine in front of it. Until this gate existed the
+   rule was held by host-bridge.js answering a deliberately invalid endpoint; a
+   convention a missing file turns off. These tests hold the RULE, not the
+   convention: no fetch happens at all, whatever the host bridge says.
+   ------------------------------------------------------------------ */
+
+function refusesLoopback(label, windowFake) {
+  test(label, async () => {
+    let fetched = 0
+    globalThis.fetch = async () => { fetched += 1; return response(200, runtime(4610)) }
+    globalThis.window = windowFake
+    const result = await configuredBaseUrl()
+    assert.equal(result.ok, false)
+    assert.equal(result.code, 'BRIDGE_FORBIDDEN_ON_PUBLIC_ORIGIN')
+    assert.equal(fetched, 0, 'a public origin reached for the visitor\'s loopback')
+    assert.match(result.reason, /relay transport/, 'the refusal must say where a signed-in page reaches a machine instead')
+  })
+}
+
+refusesLoopback('a public origin never scans, even with no host bridge at all',
+  { location: { hostname: 'toolsenabled.ai', search: '' } })
+
+refusesLoopback('a public origin refuses ?bridge= outright instead of honouring it',
+  { location: { hostname: 'toolsenabled.ai', search: '?bridge=http%3A%2F%2F127.0.0.1%3A4610' } })
+
+refusesLoopback('a supervised endpoint pinning loopback is still refused on a public origin',
+  {
+    location: { hostname: 'toolsenabled.ai', search: '' },
+    mcShell: {
+      getBridgeEndpoint: async () => ({ ok: true, source: 'supervised', baseUrl: 'http://127.0.0.1:4611' }),
+      getBridgeProof: async () => ({ ok: true, proof: SHELL_PROOF }),
+    },
+  })
+
+test('a window with no hostname is treated as public, because unmeasured must fail closed', async () => {
+  let fetched = 0
+  globalThis.fetch = async () => { fetched += 1; return response(200, runtime(4610)) }
+  globalThis.window = { location: { search: '' } }
+  const result = await configuredBaseUrl()
+  assert.equal(result.code, 'BRIDGE_FORBIDDEN_ON_PUBLIC_ORIGIN')
+  assert.equal(fetched, 0)
 })

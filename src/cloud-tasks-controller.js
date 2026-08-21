@@ -84,7 +84,15 @@ export function accountSummary(account) {
    sentence the surface shows. Separated from the DOM so the reason is one
    string with one owner, and so the flag-off case is a described state rather
    than an absent panel. */
-export function cloudAvailability({ writeEnabled = isWriteEnabled('cloud-launch'), inShell = Boolean(globalThis.mcShell) } = {}) {
+/* `mcShell` EXISTING is not the desktop app any more. The website's
+   host-bridge.js defines window.mcShell too (getBridgeEndpoint plus the relay
+   transport), so `Boolean(globalThis.mcShell)` reads true in a signed-in
+   browser and this panel presented itself as live there -- the refusal below
+   became unreachable on the one surface it was written for. getBridgeProof is
+   the discriminator: the desktop preload exposes it, and host-bridge.js
+   deliberately withholds it ("a second closed door behind the first"), so its
+   presence means the shell that can actually spawn a launch is behind us. */
+export function cloudAvailability({ writeEnabled = isWriteEnabled('cloud-launch'), inShell = typeof globalThis.mcShell?.getBridgeProof === 'function' } = {}) {
   if (!inShell) {
     return Object.freeze({
       ok: false,
