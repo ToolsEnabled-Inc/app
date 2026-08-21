@@ -51,9 +51,18 @@ test('a model without a launcher refuses like the start channel does', () => {
 
 test('the send channel takes model and images, and images only from the picker', () => {
   const shell = read('shell/main.cjs')
+  /* parseAgentSend is still main.cjs's own; the send BODY and both pickers
+     moved to shell/agent-command-surface.cjs in the command-surface
+     extraction, so the fence pins below read the surface. The sender check is
+     a boundary fact and stays pinned on main.cjs. */
+  const surface = read('shell/agent-command-surface.cjs')
   assert.match(shell, /agentPayload\(value, \['sessionId', 'text', 'model', 'images'\]\)/,
     'the send allowlist no longer carries the widened fields')
-  const send = shell.slice(shell.indexOf(`ipcMain.handle('mc-agent:send'`))
+  assert.match(shell.slice(shell.indexOf(`ipcMain.handle('mc-agent:send'`), shell.indexOf(`ipcMain.handle('mc-agent:send'`) + 300), /run\('agent:send'/,
+    'the send channel no longer dispatches to the shared surface')
+  const sendAt = surface.indexOf(`'agent:send': async`)
+  assert.ok(sendAt >= 0, 'the surface has no send body')
+  const send = surface.slice(sendAt)
   assert.match(send.slice(0, 1800), /MC_AGENT_ATTACHMENT_UNKNOWN/,
     'an unpicked image path no longer refuses — the renderer could name any file on disk for model context')
   assert.ok(send.slice(0, 1800).indexOf('session.attachments') !== -1,
@@ -62,11 +71,16 @@ test('the send channel takes model and images, and images only from the picker',
     const handler = shell.slice(shell.indexOf(`ipcMain.handle('${channel}'`))
     assert.ok(handler.length > 100, `${channel} left the shell`)
     assert.match(handler.slice(0, 400), /assertTrustedAgentSender/, `${channel} skips the sender check`)
+    assert.match(handler.slice(0, 400), new RegExp(`run\\('${channel.replace('mc-', '')}'`), `${channel} does not dispatch to the shared surface`)
   }
-  /* The attachment picker ISSUES; the mention picker only returns text. */
-  const attach = shell.slice(shell.indexOf(`ipcMain.handle('mc-agent:pick-attachment'`), shell.indexOf(`ipcMain.handle('mc-agent:pick-mention'`))
+  /* The attachment picker ISSUES; the mention picker only returns text.
+     Re-pointed at the surface bodies after the command-surface extraction. */
+  const attachAt = surface.indexOf(`'agent:pick-attachment': async`)
+  const mentionAt = surface.indexOf(`'agent:pick-mention': async`)
+  assert.ok(attachAt >= 0 && mentionAt > attachAt, 'the surface has lost a picker body')
+  const attach = surface.slice(attachAt, mentionAt)
   assert.match(attach, /session\.attachments/, 'the attachment picker no longer issues to the session allowlist')
-  const mention = shell.slice(shell.indexOf(`ipcMain.handle('mc-agent:pick-mention'`))
+  const mention = surface.slice(mentionAt)
   assert.ok(!mention.slice(0, 1200).includes('session.attachments'),
     'the mention picker must not issue image rights — a mention is words, not an attachment')
   const preload = read('shell/fleet-profile-preload.cjs')

@@ -55,6 +55,10 @@ const require = createRequire(import.meta.url)
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const EXITING_ENGINE = join(ROOT, 'tools/test/fixtures/exiting-engine/src/lib/agent-engine/codex-process.js')
 const MAIN_SOURCE = readFileSync(join(ROOT, 'shell/main.cjs'), 'utf8')
+/* The close handler's BODY moved to shell/agent-command-surface.cjs in the
+   command-surface extraction (the shared surface the relay facade design
+   names); the other three endings are still main.cjs's own. */
+const SURFACE_SOURCE = readFileSync(join(ROOT, 'shell/agent-command-surface.cjs'), 'utf8')
 
 function keystore() {
   return {
@@ -435,10 +439,18 @@ test('shell/main.cjs records the two genuine endings and the best-effort quit, a
   assert.doesNotMatch(recorder, /duration|Date\.now\(\)\s*-|elapsed/i, 'the shell computes no span')
 
   /* THE PERSON STOPPED IT: after the host's close resolves, before the session
-     leaves the map. */
-  const close = MAIN_SOURCE.slice(at("ipcMain.handle('mc-agent:close'"), at("ipcMain.handle('mc-agent:close'") + 900)
-  assert.ok(close.indexOf('await agentHost.closeSession(request)') < close.indexOf("recordSessionEnd(session, request.sessionId, 'closed')"),
+     leaves the map. Re-pointed at the surface body after the command-surface
+     extraction; main.cjs's wrapper must still hand the channel to it. */
+  assert.match(MAIN_SOURCE.slice(at("ipcMain.handle('mc-agent:close'"), at("ipcMain.handle('mc-agent:close'") + 300), /run\('agent:close'/,
+    'the close channel no longer dispatches to the shared surface')
+  const closeAt = SURFACE_SOURCE.indexOf("'agent:close': async")
+  assert.notEqual(closeAt, -1, 'shell/agent-command-surface.cjs must hold the close body')
+  const close = SURFACE_SOURCE.slice(closeAt, closeAt + 900)
+  assert.ok(close.indexOf('await currentAgentHost().closeSession(request)') !== -1
+    && close.indexOf('await currentAgentHost().closeSession(request)') < close.indexOf("recordSessionEnd(session, request.sessionId, 'closed')"),
     'closed is recorded once the close has actually happened')
+  assert.ok(close.indexOf("recordSessionEnd(session, request.sessionId, 'closed')") < close.indexOf('agentSessions.delete(request.sessionId)'),
+    'and before the session leaves the map')
 
   /* THE CHILD WENT AWAY: the host's exit report, wired where the event listener is. */
   const host = MAIN_SOURCE.slice(at('function getAgentHost()'), at('function getAgentHost()') + 2600)
@@ -456,6 +468,8 @@ test('shell/main.cjs records the two genuine endings and the best-effort quit, a
   /* AND NOTHING WRITES `crashed`: it is in the closed set for a future writer
      with real evidence, and main.cjs has none tonight. */
   assert.doesNotMatch(MAIN_SOURCE, /recordSessionEnd\([^)]*'crashed'\)/)
+  /* And not from the surface either, now that a session's close body lives there. */
+  assert.doesNotMatch(SURFACE_SOURCE, /recordSessionEnd\([^)]*'crashed'\)/)
 
   /* Turns are counted where every session's events cross, from the engine's
      own completion event. */

@@ -81,6 +81,10 @@ const { resolveGoogleSignInConfig } = require('./google-signin-config.cjs')
 const { vaultRecordPresence: readVaultRecordPresence } = require('./vault-presence.cjs')
 const { readBridgeProof } = require('./bridge-proof.cjs')
 const { readStandingRequests } = require('./standing-requests-read.cjs')
+/* The bodies of every mc-agent:* and mc-org:* handler. They live there, once,
+   so the IPC handlers below and the relay facade the design names can never
+   drift apart; see the header of that file and getAgentCommandSurface(). */
+const { createAgentCommandSurface } = require('./agent-command-surface.cjs')
 const { resolveEnvBridgeProof, recordEnvProofRefusal } = require('./bridge-env-path.cjs')
 const {
   guiEnvironment,
@@ -593,13 +597,11 @@ function parseAgentSessionCommand(value) {
   }
 }
 
-function ownedAgentSession(sender, sessionId) {
-  const session = agentSessions.get(sessionId)
-  if (!session || session.owner !== sender) {
-    agentIpcError('MC_AGENT_UNKNOWN_SESSION', 'Unknown sessionId: ' + sessionId)
-  }
-  return session
-}
+/* ownedAgentSession() -- "does this session belong to the caller" -- moved to
+   shell/agent-command-surface.cjs with the handler bodies. It compares
+   session.owner against the caller's PRINCIPAL identity now, which for the
+   window is event.sender exactly as before; the refusal is the same
+   MC_AGENT_UNKNOWN_SESSION. See windowPrincipal() below. */
 
 /* Every agent channel must come from the application's own main frame.
    These channels start and drive a real CLI child process, so any frame that
@@ -1408,34 +1410,104 @@ function getAgentHost() {
   return host
 }
 
+/* ---------- the agent and organisation channels ----------
+ *
+ * EVERY mc-agent:* AND mc-org:* HANDLER BELOW IS A THIN WRAPPER. The body --
+ * the parse, the bounds, the ownership test, the record, the spawn, the
+ * refusal codes and the order they are made in -- lives in
+ * shell/agent-command-surface.cjs, once. docs/relay-agent-facade-DESIGN.md
+ * (§2.1) names a second caller of those same bodies: a loopback facade the
+ * relay child forwards a signed-in browser's commands to. Two copies of thirty
+ * handlers would be thirty chances for the web to quietly disagree with the
+ * desk about what a person may do to their own computer; one shared surface
+ * with a caller PRINCIPAL is the repair, and this file is its first caller.
+ *
+ * WHAT STAYS HERE, AND WHY. assertTrustedAgentSender() / withFleetProfileSender()
+ * are facts about Electron -- is this our own main frame, at our own origin --
+ * not about a command, so every wrapper still makes that check first, exactly
+ * as before. The principal is built here too, because only this file knows
+ * that the caller is a WebContents.
+ *
+ * BUILT LAZILY, like the spawn recorder and the agent host, and for a plainer
+ * reason: the dependencies it is handed are declared across this whole file
+ * (agentOrgRecord is a const some two thousand lines down), and a handler
+ * only ever runs after the module has finished evaluating. Building it on the
+ * first command keeps every dependency a real value rather than a temporal-
+ * dead-zone throw at require time. */
+let agentCommandSurface = null
+function getAgentCommandSurface() {
+  if (agentCommandSurface) return agentCommandSurface
+  agentCommandSurface = createAgentCommandSurface({
+    agentSessions,
+    /* Two views of the host, because the bodies used two: the session-driving
+       commands read the `agentHost` variable as it stands (null until a start
+       built it -- a null there is a TypeError the renderer-safe wrapper turns
+       into AGENT_SESSION_FAILED, as it always did), while start, request and
+       startable-tiers BUILD it through getAgentHost(). */
+    currentAgentHost: () => agentHost,
+    getAgentHost,
+    agentIpcError,
+    agentPayload,
+    boundedAgentString,
+    parseAgentStart,
+    parseAgentSend,
+    parseAgentSessionCommand,
+    rendererSafeAgentError,
+    spawnRecordAvailability,
+    spawnRecordHistory,
+    usageRecordHistory,
+    engineAvailability,
+    ensureWorkspaceRoot,
+    chosenWorkspaceCwd,
+    readAgentConfinement,
+    listAgentTools,
+    resolveCapabilityRoot,
+    requireModule: require,
+    readStandingRequests,
+    sessionProfiles,
+    recordSpawnIntent,
+    recordSpawnOutcome,
+    recordSessionEnd,
+    bindAgentOwner,
+    agentOrgRecord,
+    /* The native dialog, handed in rather than required there: the surface
+       never imports electron, so it can be tested with a fake and so a caller
+       that is not at this keyboard can be refused a dialog instead of opening
+       one nobody is present to see. */
+    dialog,
+    MAX_AGENT_SESSIONS,
+    MAX_SESSION_ID_LENGTH,
+    AGENT_EFFORT_VALUES,
+    WORKSPACE_ROOT,
+  })
+  return agentCommandSurface
+}
+
+/* WHO IS ASKING, when it is the window. The owner IS event.sender -- the
+   WebContents that sessions were always owned by -- so ownership, the
+   destroyed hook in bindAgentOwner() and every refusal behave exactly as they
+   did before the surface existed. mayWrite is true: the window at the keyboard
+   may do everything it always could. The only other kind the surface knows,
+   'relay', is not constructed anywhere in this file. */
+function windowPrincipal(event) {
+  return Object.freeze({
+    kind: 'window',
+    owner: event.sender,
+    mayWrite: true,
+    label: 'the application window',
+  })
+}
+
 /* Availability is a READ, and deliberately the only agent channel that starts
    nothing. The spawn surface calls it before it offers a Start control, so a
    build with no reachable engine renders a stated-unavailable surface instead
    of a button that always fails. The reply is {ok, code}: no path, no message,
-   no error object -- see engineAvailability() in agent-host.cjs. */
-ipcMain.handle('mc-agent:availability', async (event, value) => {
+   no error object -- see engineAvailability() in agent-host.cjs, and the body
+   (recorder first, then the engine, in the order the start refuses in) in
+   agent-command-surface.cjs. */
+ipcMain.handle('mc-agent:availability', (event, value) => {
   assertTrustedAgentSender(event)
-  agentPayload(value === undefined || value === null ? {} : value, [])
-  /* EVERY condition a start needs, from the same values the start uses, IN THE
-     ORDER THE START REFUSES IN.
-
-     Reporting a subset would let the surface offer a control that the start
-     handler then refuses -- which is exactly what shipped: this used to ask
-     engineAvailability() a question about the ENGINE ALONE while startSession()
-     additionally required the confinement planner, the launch-environment
-     scrub, and a usable working directory. `defaultCwd` is passed rather than
-     defaulted so the probe validates the directory the session will actually
-     run in, prepared by the same ensureWorkspaceRoot() getAgentHost() calls.
-
-     THE RECORDER FIRST, because that is the order mc-agent:start refuses in:
-     recordSpawnIntent() runs before getAgentHost().startSession(). Asking in
-     the other order meant that an installation with BOTH faults was told about
-     the engine while the press would have told it about the record -- the
-     smaller version of the same defect, sending a person to fix the wrong
-     thing. Both are still required; only which one is named first changed. */
-  const record = spawnRecordAvailability()
-  if (record.ok !== true) return record
-  return engineAvailability({ defaultCwd: ensureWorkspaceRoot() })
+  return getAgentCommandSurface().run('agent:availability', value, windowPrincipal(event))
 })
 
 /* WHAT A SESSION STARTED HERE WOULD BE ALLOWED TO DO. A read, like availability
@@ -1449,17 +1521,17 @@ ipcMain.handle('mc-agent:availability', async (event, value) => {
    messages name absolute roots and rendering one into the DOM is BLOCKER 2.
    See shell/agent-confinement-read.cjs for what it measures and why nothing here
    is a constant. */
-ipcMain.handle('mc-agent:confinement', async (event) => {
+ipcMain.handle('mc-agent:confinement', (event, value) => {
   assertTrustedAgentSender(event)
-  return readAgentConfinement({ capabilityRoot: resolveCapabilityRoot() })
+  return getAgentCommandSurface().run('agent:confinement', value, windowPrincipal(event))
 })
 
 /* The tool surface BY NAME, for the research page's checkboxes. A read like
    the confinement channel above: starts nothing, carries registry identifiers
    only (never a path), {ok:false, code} when the payload cannot answer. */
-ipcMain.handle('mc-agent:tools', async (event) => {
+ipcMain.handle('mc-agent:tools', (event, value) => {
   assertTrustedAgentSender(event)
-  return listAgentTools({ capabilityRoot: resolveCapabilityRoot() })
+  return getAgentCommandSurface().run('agent:tools', value, windowPrincipal(event))
 })
 
 /* THE MESSAGES THIS COMPUTER HAS ALREADY WRITTEN DOWN, for the comms page.
@@ -1481,20 +1553,9 @@ ipcMain.handle('mc-agent:tools', async (event) => {
  * grew ownerJournal() answers {ok:false, reason} -- a sentence the page can show
  * -- instead of rejecting the invoke, because "this build cannot read messages
  * yet" and "the messages could not be read" are different things to be told. */
-ipcMain.handle('mc-agent:local-messages', async (event, value) => {
+ipcMain.handle('mc-agent:local-messages', (event, value) => {
   assertTrustedAgentSender(event)
-  try {
-    const engineRoot = resolveCapabilityRoot()
-    if (!engineRoot) return { ok: false, reason: 'the live message reader is not available in this build' }
-    const journal = require(path.join(engineRoot, 'src', 'lib', 'providers', 'agent-comms-local.js'))
-    /* Bounded here rather than trusted from the page: the renderer is the one
-       caller, and a caller that can ask for everything is a caller that can be
-       made to. */
-    const limit = Number.isSafeInteger(value?.limit) ? Math.min(Math.max(value.limit, 1), 200) : 100
-    return await journal.ownerJournal({ limit })
-  } catch {
-    return { ok: false, reason: 'the live message reader is not available in this build' }
-  }
+  return getAgentCommandSurface().run('agent:local-messages', value, windowPrincipal(event))
 })
 
 /* WHICH TIERS THIS INSTALLATION CAN ACTUALLY START.
@@ -1512,10 +1573,9 @@ ipcMain.handle('mc-agent:local-messages', async (event, value) => {
  * renderer takes its fallback.
  *
  * It starts nothing and carries no path; tier ids are the renderer's own words. */
-ipcMain.handle('mc-agent:startable-tiers', async (event) => {
+ipcMain.handle('mc-agent:startable-tiers', (event, value) => {
   assertTrustedAgentSender(event)
-  const host = await getAgentHost()
-  return host.startableTiers()
+  return getAgentCommandSurface().run('agent:startable-tiers', value, windowPrincipal(event))
 })
 
 /* WHICH ASSISTANT PROGRAMS ARE ON THIS COMPUTER, AND WHICH ARE SIGNED IN.
@@ -1714,149 +1774,38 @@ app.on('will-quit', () => {
    backwards. Same sender check as every other agent channel: this returns a
    record of what ran on this machine, which is not something any frame that
    happens to be loaded may ask for. */
-ipcMain.handle('mc-agent:history', async (event, value) => {
+ipcMain.handle('mc-agent:history', (event, value) => {
   assertTrustedAgentSender(event)
-  const payload = agentPayload(value === undefined || value === null ? {} : value, ['limit'])
-  return spawnRecordHistory(payload.limit)
+  return getAgentCommandSurface().run('agent:history', value, windowPrincipal(event))
 })
 
 /* The third agent channel that starts nothing. Same sender check and same
    never-throws contract as history() above; it returns what the turns on this
    computer cost, which is no more anybody's to ask for than the run record is. */
-ipcMain.handle('mc-agent:usage', async (event, value) => {
+ipcMain.handle('mc-agent:usage', (event, value) => {
   assertTrustedAgentSender(event)
-  const payload = agentPayload(value === undefined || value === null ? {} : value, ['limit'])
-  return usageRecordHistory(payload.limit)
+  return getAgentCommandSurface().run('agent:usage', value, windowPrincipal(event))
 })
 
-ipcMain.handle('mc-agent:start', async (event, value) => {
+/* THE START. Its body -- profile resolution, the chosen-workspace fallback, the
+   session-exists and session-limit refusals, the spawn record written BEFORE
+   the spawn, the owner binding, the outcome record -- is 'agent:start' in
+   agent-command-surface.cjs, where the ordering claims the home screen makes
+   ("written down before it starts") are pinned by tools/test. The session's
+   owner is the window principal's identity: event.sender, as it always was. */
+ipcMain.handle('mc-agent:start', (event, value) => {
   assertTrustedAgentSender(event)
-  const request = parseAgentStart(value)
-  if (request.profileId) {
-    /* Resolved HERE, not in the renderer and not in the host: the store only
-       holds folders the person picked through the OS dialog, and a stale or
-       unknown profile refuses the start loudly instead of spawning an agent
-       somewhere nobody chose. The resolved cwd replaces any renderer-sent
-       one; profileId is authoritative when present. */
-    try {
-      request.cwd = sessionProfiles.resolveCwd(request.profileId)
-    } catch (error) {
-      agentIpcError(
-        'MC_AGENT_' + (typeof error?.code === 'string' ? error.code : 'PROFILE_UNKNOWN'),
-        'That session profile could not be used: pick the folder again in its settings.',
-      )
-    }
-    delete request.profileId
-  }
-  /* A START THAT NAMES NO FOLDER RUNS IN THE ONE THE PERSON CHOSE IN SETUP.
-     Resolved HERE, before recordSpawnIntent below, so the signed record and
-     the app-local record both carry the real folder instead of cwd:null —
-     and so the confinement the host binds at spawn anchors on the chosen
-     folder rather than on <userData>\workspace, which stays only as the
-     fallback for a machine where nobody was ever asked (chosenWorkspaceCwd
-     answers null there, and the host's defaultCwd takes over exactly as it
-     always has). A profile pick above still wins: it is the more specific
-     answer, given per-session rather than once at setup. */
-  if (request.cwd === undefined) {
-    const chosen = chosenWorkspaceCwd()
-    if (chosen) request.cwd = chosen
-  }
-  if (agentSessions.has(request.sessionId)) {
-    agentIpcError('MC_AGENT_SESSION_EXISTS', 'Session already exists: ' + request.sessionId)
-  }
-  if (agentSessions.size >= MAX_AGENT_SESSIONS) {
-    agentIpcError('MC_AGENT_SESSION_LIMIT', 'At most ' + MAX_AGENT_SESSIONS + ' agent sessions may be open')
-  }
-
-  /* Before anything is spawned. If this throws, no process was created and
-     nothing needs unwinding -- which is why it comes first. */
-  const record = recordSpawnIntent(request)
-
-  /* `turnsCompleted` starts at ZERO, not undefined, because zero is the true
-     count for a session that is stopped before it ever answered, and the end
-     record must be able to say so rather than "unknown". */
-  const session = { owner: event.sender, state: 'starting', turnsCompleted: 0, lastTurnStatus: null, ended: false }
-  agentSessions.set(request.sessionId, session)
-  bindAgentOwner(event.sender)
-  try {
-    const result = await getAgentHost().startSession(request)
-    session.state = 'ready'
-    /* WHAT THIS SESSION IS RUNNING AS, kept so every usage record it writes can
-       say which model row and which of the person's own sign-ins it belongs to.
-     *
-     * `request.tier`, NOT `result.tier`, AND THAT WAS MEASURED THE WRONG WAY
-     * ROUND FIRST. The two fields share a name and mean different things:
-     * `request.tier` is the MODEL ROW a person chose (`luna`, `claude-sonnet` --
-     * the START_TIERS table in shell/agent-host.cjs), while the result's `tier`
-     * is the CONFINEMENT level the session was planned at. A real luna turn on
-     * 2026-08-18 wrote `tier: "unrestricted"` into its usage record, so the
-     * metrics page grouped a Codex session under "Not recorded" -- a true
-     * statement about a sandbox level, filed as an answer to "which assistant".
-     *
-     * Null when the person named no row, which is the honest "this record does
-     * not say" every reader downstream already handles. The account comes from
-     * the result because the result is the only place that says which of the
-     * person's sign-ins actually served. */
-    session.tier = typeof request.tier === 'string' ? request.tier : null
-    session.account = typeof result.account === 'string' ? result.account : null
-    recordSpawnOutcome(request, record, 'started', null)
-    /* THE START THIS SESSION'S ENDING WILL RESOLVE. Kept on the session object
-       so recordSessionEnd() can name it from any of the places a session ends,
-       and set only now -- after `started` is written -- because a refused start
-       has no run to end. If the child was already reported gone (see the
-       onSessionExit hook in getAgentHost), that ending is written here. */
-    session.started = { sequence: record.sequence }
-    if (session.exitedBeforeStarted === true) recordSessionEnd(session, request.sessionId, 'exited')
-    /* The receipt travels back with the session so the surface can show that
-       the start was recorded, rather than asserting it. */
-    return { ...result, record: { sequence: record.sequence, eventHash: record.eventHash } }
-  } catch (error) {
-    if (error && error.code === 'AGENT_SESSION_CLEANUP_FAILED') {
-      session.state = 'close-failed'
-    } else if (agentSessions.get(request.sessionId) === session) {
-      agentSessions.delete(request.sessionId)
-    }
-    /* Recorded BEFORE the throw, because the throw leaves this process and the
-       reason is only in scope here. `error.code` is the engine's or the host's
-       own bounded identifier -- the same value the renderer is about to be
-       given -- so the ledger and the screen name the failure identically. */
-    recordSpawnOutcome(request, record, 'refused', typeof error?.code === 'string' ? error.code : null)
-    throw rendererSafeAgentError(error)
-  }
+  return getAgentCommandSurface().run('agent:start', value, windowPrincipal(event))
 })
 
-/* The same boundary discipline as mc-agent:start, and it was missing here:
-   without the wrap, a send to a session this run does not hold arrived in the
-   renderer as raw prose ("Unknown sessionId: chat-…"), the code stayed behind
-   as a stripped own-property, and the surface fell back to AGENT_SESSION_FAILED
-   -- which tells the person to try again, the one thing that cannot work. */
-ipcMain.handle('mc-agent:send', async (event, value) => {
+/* THE SEND, and with it the image fence: only a path this session's own
+   native picker issued may ride, refused by name otherwise. That fence is
+   'agent:send' in agent-command-surface.cjs, beside the picker that issues
+   into it; the renderer-safe rethrow (the code IS the message, because own
+   properties do not survive the IPC boundary) lives there with it. */
+ipcMain.handle('mc-agent:send', (event, value) => {
   assertTrustedAgentSender(event)
-  try {
-    const request = parseAgentSend(value)
-    const session = ownedAgentSession(event.sender, request.sessionId)
-    /* THE SECURITY LINE FOR IMAGES: the renderer can never name an arbitrary
-       disk path for the engine to read into model context. Only paths a
-       person picked in this session's own native dialog ride — anything else
-       refuses by name, whether typed, guessed or replayed from another
-       session. */
-    if (request.images && request.images.length) {
-      const issued = session.attachments instanceof Set ? session.attachments : new Set()
-      for (const image of request.images) {
-        if (!issued.has(image.path)) {
-          agentIpcError('MC_AGENT_ATTACHMENT_UNKNOWN', 'An attached file was not picked in this session, so nothing was sent')
-        }
-      }
-    }
-    return await agentHost.sendTurn({
-      sessionId: request.sessionId,
-      text: request.text,
-      ...(request.images ? { images: request.images } : {}),
-      ...(request.model ? { options: { model: request.model } } : {}),
-    })
-  } catch (error) {
-    throw rendererSafeAgentError(error)
-  }
+  return getAgentCommandSurface().run('agent:send', value, windowPrincipal(event))
 })
 
 /* FILE ONE STANDING REQUEST -- the /Request family typed into the chat box.
@@ -1868,19 +1817,9 @@ ipcMain.handle('mc-agent:send', async (event, value) => {
    this goes through getAgentHost() like a start does. Bounds: the words cap
    matches the module's own MAX_WORDS_BYTES (16KB); scope and key are bounded
    identifiers, never paths, and the reply carries no path either. */
-ipcMain.handle('mc-agent:request', async (event, value) => {
+ipcMain.handle('mc-agent:request', (event, value) => {
   assertTrustedAgentSender(event)
-  try {
-    const payload = agentPayload(value, ['scope', 'key', 'words'])
-    const scope = boundedAgentString(payload.scope, 'scope', 16)
-    const words = boundedAgentString(payload.words, 'words', 16 * 1024)
-    const key = payload.key === undefined || payload.key === null
-      ? null
-      : boundedAgentString(payload.key, 'key', 128)
-    return await getAgentHost().fileStandingRequest({ scope, key, words })
-  } catch (error) {
-    throw rendererSafeAgentError(error)
-  }
+  return getAgentCommandSurface().run('agent:request', value, windowPrincipal(event))
 })
 
 /* READ BACK THE STANDING REQUESTS ONE SCOPE CARRIES -- the other half of the
@@ -1902,206 +1841,94 @@ ipcMain.handle('mc-agent:request', async (event, value) => {
    construct. */
 ipcMain.handle('mc-agent:requests', (event, value) => {
   assertTrustedAgentSender(event)
-  try {
-    const payload = agentPayload(value === undefined || value === null ? {} : value, ['scope', 'key'])
-    const scope = boundedAgentString(payload.scope, 'scope', 16)
-    const key = payload.key === undefined || payload.key === null
-      ? null
-      : boundedAgentString(payload.key, 'key', 128)
-    return readStandingRequests({ scope, key })
-  } catch (error) {
-    throw rendererSafeAgentError(error)
-  }
+  return getAgentCommandSurface().run('agent:requests', value, windowPrincipal(event))
 })
 
-/* THE ATTACHMENT PICKER — the only way a file path enters a session's image
-   allowlist. A native dialog the person drives; the chosen path is issued to
-   exactly this session and refused everywhere else. */
 /* SESSION PROFILES over IPC. list/remove are plain store calls; create runs
    the OS folder dialog IN THIS PROCESS, so the only way a folder enters the
    store is the person choosing it in a native picker -- that dialog is the
-   consent boundary the whole design rests on. */
-ipcMain.handle('mc-agent:profiles', (event) => {
+   consent boundary the whole design rests on. The dialog reaches the surface
+   through its deps, and the surface refuses the command to any principal that
+   is not the window, so the boundary cannot be crossed by a caller nobody can
+   show a dialog to. */
+ipcMain.handle('mc-agent:profiles', (event, value) => {
   assertTrustedAgentSender(event)
-  return { ok: true, profiles: sessionProfiles.list() }
+  return getAgentCommandSurface().run('agent:profiles', value, windowPrincipal(event))
 })
 
-ipcMain.handle('mc-agent:profile-create', async (event, value) => {
+ipcMain.handle('mc-agent:profile-create', (event, value) => {
   assertTrustedAgentSender(event)
-  try {
-    const payload = agentPayload(value, ['name'])
-    const name = boundedAgentString(payload.name, 'name', 64)
-    const picked = await dialog.showOpenDialog({
-      title: 'Choose the folder agents in this profile work in',
-      properties: ['openDirectory'],
-    })
-    if (picked.canceled || !picked.filePaths.length) return { ok: true, profile: null }
-    const profile = sessionProfiles.create({ name, cwd: picked.filePaths[0] })
-    return { ok: true, profile }
-  } catch (error) {
-    throw rendererSafeAgentError(error)
-  }
+  return getAgentCommandSurface().run('agent:profile-create', value, windowPrincipal(event))
 })
 
 ipcMain.handle('mc-agent:profile-remove', (event, value) => {
   assertTrustedAgentSender(event)
-  try {
-    const payload = agentPayload(value, ['profileId'])
-    const removed = sessionProfiles.remove(boundedAgentString(payload.profileId, 'profileId', 128))
-    return { ok: true, removed }
-  } catch (error) {
-    throw rendererSafeAgentError(error)
-  }
+  return getAgentCommandSurface().run('agent:profile-remove', value, windowPrincipal(event))
 })
 
-ipcMain.handle('mc-agent:pick-attachment', async (event, value) => {
+/* THE ATTACHMENT PICKER -- the only way a file path enters a session's image
+   allowlist. A native dialog the person drives; the chosen path is issued to
+   exactly this session and refused everywhere else. The issue into
+   session.attachments, and the fence at send that reads it, are both in
+   agent-command-surface.cjs ('agent:pick-attachment' / 'agent:send'). */
+ipcMain.handle('mc-agent:pick-attachment', (event, value) => {
   assertTrustedAgentSender(event)
-  try {
-    const request = parseAgentSessionCommand(value)
-    const session = ownedAgentSession(event.sender, request.sessionId)
-    const picked = await dialog.showOpenDialog({
-      title: 'Attach an image to this message',
-      properties: ['openFile'],
-      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }],
-    })
-    if (picked.canceled || !picked.filePaths.length) return { ok: true, path: null }
-    const chosen = picked.filePaths[0]
-    if (!(session.attachments instanceof Set)) session.attachments = new Set()
-    session.attachments.add(chosen)
-    return { ok: true, path: chosen }
-  } catch (error) {
-    throw rendererSafeAgentError(error)
-  }
+  return getAgentCommandSurface().run('agent:pick-attachment', value, windowPrincipal(event))
 })
 
-/* THE MENTION PICKER — returns a path for the renderer to insert as TEXT.
+/* THE MENTION PICKER -- returns a path for the renderer to insert as TEXT.
    No allowlist: it becomes words in the message, and the agent's own
    confined tools do (or refuse) the reading. */
-ipcMain.handle('mc-agent:pick-mention', async (event, value) => {
+ipcMain.handle('mc-agent:pick-mention', (event, value) => {
   assertTrustedAgentSender(event)
-  try {
-    const request = parseAgentSessionCommand(value)
-    ownedAgentSession(event.sender, request.sessionId)
-    const picked = await dialog.showOpenDialog({
-      title: 'Mention a file in this message',
-      defaultPath: WORKSPACE_ROOT,
-      properties: ['openFile'],
-    })
-    if (picked.canceled || !picked.filePaths.length) return { ok: true, path: null }
-    return { ok: true, path: picked.filePaths[0] }
-  } catch (error) {
-    throw rendererSafeAgentError(error)
-  }
+  return getAgentCommandSurface().run('agent:pick-mention', value, windowPrincipal(event))
 })
 
-ipcMain.handle('mc-agent:interrupt', async (event, value) => {
+ipcMain.handle('mc-agent:interrupt', (event, value) => {
   assertTrustedAgentSender(event)
-  try {
-    const request = parseAgentSessionCommand(value)
-    ownedAgentSession(event.sender, request.sessionId)
-    return await agentHost.interrupt(request)
-  } catch (error) {
-    throw rendererSafeAgentError(error)
-  }
+  return getAgentCommandSurface().run('agent:interrupt', value, windowPrincipal(event))
 })
 
-/* THE APPROVAL ANSWER — the reply half of approval_request. approvalPolicy is
+/* THE APPROVAL ANSWER -- the reply half of approval_request. approvalPolicy is
    'never' at every tier, so nothing fires this today; the path exists FIRST,
    which is the ordering the confinement module's own comment demands before
    'on-request' may ever be offered. */
-ipcMain.handle('mc-agent:approval-answer', async (event, value) => {
+ipcMain.handle('mc-agent:approval-answer', (event, value) => {
   assertTrustedAgentSender(event)
-  try {
-    const payload = agentPayload(value, ['sessionId', 'approvalId', 'decision'])
-    const request = {
-      sessionId: boundedAgentString(payload.sessionId, 'sessionId', MAX_SESSION_ID_LENGTH),
-      approvalId: boundedAgentString(payload.approvalId, 'approvalId', 1024),
-      decision: boundedAgentString(payload.decision, 'decision', 64),
-    }
-    ownedAgentSession(event.sender, request.sessionId)
-    return await agentHost.answerApproval(request)
-  } catch (error) {
-    throw rendererSafeAgentError(error)
-  }
+  return getAgentCommandSurface().run('agent:approval-answer', value, windowPrincipal(event))
 })
 
-/* REWIND — fork the session's thread at one of the person's own turns. The
+/* REWIND -- fork the session's thread at one of the person's own turns. The
    turnId must be one this session really returned; the host refuses a busy
    session so a rewind can never race the turn it erases. */
-ipcMain.handle('mc-agent:rewind', async (event, value) => {
+ipcMain.handle('mc-agent:rewind', (event, value) => {
   assertTrustedAgentSender(event)
-  try {
-    const payload = agentPayload(value, ['sessionId', 'turnId'])
-    const request = {
-      sessionId: boundedAgentString(payload.sessionId, 'sessionId', MAX_SESSION_ID_LENGTH),
-      turnId: boundedAgentString(payload.turnId, 'turnId', 512),
-    }
-    ownedAgentSession(event.sender, request.sessionId)
-    return await agentHost.rewindSession(request)
-  } catch (error) {
-    throw rendererSafeAgentError(error)
-  }
+  return getAgentCommandSurface().run('agent:rewind', value, windowPrincipal(event))
 })
 
 /* HOW HARD A RUNNING AGENT THINKS. The engine's own knob, so this changes a
-   live thread rather than restarting it — the restart the product used to
+   live thread rather than restarting it -- the restart the product used to
    perform, and charge for, on a premise that was wrong. */
-ipcMain.handle('mc-agent:effort', async (event, value) => {
+ipcMain.handle('mc-agent:effort', (event, value) => {
   assertTrustedAgentSender(event)
-  try {
-    const payload = agentPayload(value, ['sessionId', 'effort'])
-    const effort = boundedAgentString(payload.effort, 'effort', 8)
-    if (!AGENT_EFFORT_VALUES.includes(effort)) {
-      agentIpcError('MC_AGENT_EFFORT_UNKNOWN', `effort must be one of: ${AGENT_EFFORT_VALUES.join(', ')}`)
-    }
-    const request = {
-      sessionId: boundedAgentString(payload.sessionId, 'sessionId', MAX_SESSION_ID_LENGTH),
-      effort,
-    }
-    ownedAgentSession(event.sender, request.sessionId)
-    return await agentHost.setSessionEffort(request)
-  } catch (error) {
-    throw rendererSafeAgentError(error)
-  }
+  return getAgentCommandSurface().run('agent:effort', value, windowPrincipal(event))
 })
 
 /* WHAT THIS ENGINE ACTUALLY OFFERS: the provider's model catalog, each
    model's real reasoning efforts in the provider's own words, and its
    default. The menus are built from this instead of from a table in the
    renderer that quietly disagrees with the engine. */
-ipcMain.handle('mc-agent:models', async (event, value) => {
+ipcMain.handle('mc-agent:models', (event, value) => {
   assertTrustedAgentSender(event)
-  try {
-    const payload = agentPayload(value || {}, ['sessionId'])
-    const request = {}
-    if (Object.prototype.hasOwnProperty.call(payload, 'sessionId')) {
-      request.sessionId = boundedAgentString(payload.sessionId, 'sessionId', MAX_SESSION_ID_LENGTH)
-      ownedAgentSession(event.sender, request.sessionId)
-    }
-    return await agentHost.listEngineModels(request)
-  } catch (error) {
-    throw rendererSafeAgentError(error)
-  }
+  return getAgentCommandSurface().run('agent:models', value, windowPrincipal(event))
 })
 
-ipcMain.handle('mc-agent:close', async (event, value) => {
+/* THE CLOSE. 'closed' is recorded in the body AFTER the host's close resolves
+   and BEFORE the session leaves the map -- see 'agent:close' in
+   agent-command-surface.cjs and the recordSessionEnd() note above. */
+ipcMain.handle('mc-agent:close', (event, value) => {
   assertTrustedAgentSender(event)
-  try {
-    const request = parseAgentSessionCommand(value)
-    const session = ownedAgentSession(event.sender, request.sessionId)
-    const result = await agentHost.closeSession(request)
-    /* THE PERSON STOPPED IT -- the first genuine ending. Recorded once the
-       close has actually resolved (a close that rejects throws past this line
-       and leaves the session, and its record, exactly as they were), and
-       before the session leaves the map. */
-    recordSessionEnd(session, request.sessionId, 'closed')
-    if (agentSessions.get(request.sessionId) === session) {
-      agentSessions.delete(request.sessionId)
-    }
-    return result
-  } catch (error) {
-    throw rendererSafeAgentError(error)
-  }
+  return getAgentCommandSurface().run('agent:close', value, windowPrincipal(event))
 })
 
 /* Boot theme for the first frame: the renderer reports live colours the
@@ -3272,44 +3099,36 @@ ipcMain.handle('mc-settings:set', (event, request) =>
  * authority, never a route around it. */
 const agentOrgRecord = createAgentOrgRecord()
 
-ipcMain.handle('mc-org:read', (event) =>
-  withFleetProfileSender(event, () => agentOrgRecord.read()))
+/* THE SAME THIN-WRAPPER SHAPE AS THE mc-agent:* CHANNELS, with the one
+   difference this family always had: the sender check is withFleetProfileSender,
+   which RETURNS its refusal ({ok:false, error:{code}}) and turns a throw into
+   MC_FLEET_PROFILE_ACTION_FAILED, rather than assertTrustedAgentSender, which
+   throws. That envelope is part of what the org page expects and it stays
+   here, at the boundary; the argument shaping and the record calls are
+   'org:*' in agent-command-surface.cjs. */
+ipcMain.handle('mc-org:read', (event, request) =>
+  withFleetProfileSender(event, () => getAgentCommandSurface().run('org:read', request, windowPrincipal(event))))
 
 ipcMain.handle('mc-org:reparent', (event, request) =>
-  withFleetProfileSender(event, () => agentOrgRecord.reparent({
-    agentId: String(request?.agentId ?? ''),
-    parentId: request?.parentId === null || request?.parentId === undefined ? null : String(request.parentId),
-    expectedRevision: request?.expectedRevision,
-  })))
+  withFleetProfileSender(event, () => getAgentCommandSurface().run('org:reparent', request, windowPrincipal(event))))
 
 ipcMain.handle('mc-org:assign-role', (event, request) =>
-  withFleetProfileSender(event, () => agentOrgRecord.assignRole({
-    agentId: String(request?.agentId ?? ''),
-    role: String(request?.role ?? ''),
-    expectedRevision: request?.expectedRevision,
-  })))
+  withFleetProfileSender(event, () => getAgentCommandSurface().run('org:assign-role', request, windowPrincipal(event))))
 
 ipcMain.handle('mc-org:create-role', (event, request) =>
-  withFleetProfileSender(event, () => agentOrgRecord.createRole({
-    id: String(request?.id ?? ''),
-    baseDefaultRole: request?.baseDefaultRole ? String(request.baseDefaultRole) : null,
-    rules: request?.rules,
-  })))
+  withFleetProfileSender(event, () => getAgentCommandSurface().run('org:create-role', request, windowPrincipal(event))))
 
 ipcMain.handle('mc-org:edit-role', (event, request) =>
-  withFleetProfileSender(event, () => agentOrgRecord.editRole({
-    id: String(request?.id ?? ''),
-    rules: request?.rules,
-  })))
+  withFleetProfileSender(event, () => getAgentCommandSurface().run('org:edit-role', request, windowPrincipal(event))))
 
 ipcMain.handle('mc-org:reset-role', (event, request) =>
-  withFleetProfileSender(event, () => agentOrgRecord.resetRole({ id: String(request?.id ?? '') })))
+  withFleetProfileSender(event, () => getAgentCommandSurface().run('org:reset-role', request, windowPrincipal(event))))
 
-ipcMain.handle('mc-org:reset', (event) =>
-  withFleetProfileSender(event, () => agentOrgRecord.resetOrg()))
+ipcMain.handle('mc-org:reset', (event, request) =>
+  withFleetProfileSender(event, () => getAgentCommandSurface().run('org:reset', request, windowPrincipal(event))))
 
-ipcMain.handle('mc-org:export', (event) =>
-  withFleetProfileSender(event, () => agentOrgRecord.exportOrg()))
+ipcMain.handle('mc-org:export', (event, request) =>
+  withFleetProfileSender(event, () => getAgentCommandSurface().run('org:export', request, windowPrincipal(event))))
 
 /* ---------- first run: the workspace ----------
  *

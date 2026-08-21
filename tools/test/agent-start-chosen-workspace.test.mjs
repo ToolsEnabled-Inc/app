@@ -48,8 +48,15 @@ function makeResolver({ state, mkdirs = [] }) {
 test('an unaddressed start is anchored on the chosen workspace BEFORE the spawn record is written', () => {
   const at = MAIN.indexOf("ipcMain.handle('mc-agent:start'")
   assert.ok(at >= 0)
-  const next = MAIN.indexOf("ipcMain.handle('mc-agent:", at + 10)
-  const handler = MAIN.slice(at, next > at ? next : at + 6000)
+  assert.match(MAIN.slice(at, MAIN.indexOf('\n})', at)), /run\('agent:start'/, 'the start channel no longer dispatches to the shared surface')
+  /* Re-pointed at shell/agent-command-surface.cjs after the command-surface
+     extraction moved the start body there (chosenWorkspaceCwd() itself stays
+     in main.cjs and is handed in as a dependency); the ordering fact is unchanged. */
+  const SURFACE = readFileSync(new URL('../../shell/agent-command-surface.cjs', import.meta.url), 'utf8')
+  const bodyAt = SURFACE.indexOf("'agent:start': async")
+  assert.ok(bodyAt >= 0, 'the surface has no start body')
+  const bodyEnd = SURFACE.indexOf("'agent:send': async", bodyAt)
+  const handler = SURFACE.slice(bodyAt, bodyEnd > bodyAt ? bodyEnd : bodyAt + 6000)
   /* Call sites, not mentions — the comments beside both calls name the other
      one, so a bare-name search reads the explanation as the code. */
   const resolvedAt = handler.indexOf('chosenWorkspaceCwd()')

@@ -145,12 +145,22 @@ test('a send to a session from an earlier run refuses truthfully, not with a ret
      the shell must throw its CODE as the message (own properties are stripped
      at the IPC boundary), and the tree copy must own a sentence for it. */
   const shell = readFileSync(resolve(ROOT, 'shell/main.cjs'), 'utf8')
+  /* The handler bodies -- and the renderer-safe rethrow inside them -- moved to
+     shell/agent-command-surface.cjs in the command-surface extraction. The
+     wrapper in main.cjs returns the surface's promise untouched, so what the
+     surface throws is what crosses the boundary; the pin reads the surface. */
+  const surface = readFileSync(resolve(ROOT, 'shell/agent-command-surface.cjs'), 'utf8')
   for (const channel of ['mc-agent:send', 'mc-agent:interrupt', 'mc-agent:close']) {
-    const handler = shell.slice(shell.indexOf(`ipcMain.handle('${channel}'`))
-    /* The handler ends at the first close that returns to column zero — a
-       slice to the first bare `})` cut mid-handler the day the send handler
-       grew an inner callback. */
-    const body = handler.slice(0, handler.indexOf('\n})') + 3)
+    const command = channel.replace('mc-', '')
+    const wrapper = shell.slice(shell.indexOf(`ipcMain.handle('${channel}'`))
+    assert.match(wrapper.slice(0, wrapper.indexOf('\n})') + 3), new RegExp(`return getAgentCommandSurface\\(\\)\\.run\\('${command}'`),
+      `${channel} does not return the shared surface's answer untouched`)
+    const at = surface.indexOf(`'${command}': async`)
+    assert.ok(at >= 0, `${command} left the surface`)
+    /* The body ends at the next command key. */
+    const rest = surface.slice(at + 1)
+    const next = rest.search(/\n    '(agent|org):[a-z-]+': async/)
+    const body = next === -1 ? surface.slice(at) : surface.slice(at, at + 1 + next)
     assert.match(body, /rendererSafeAgentError/,
       `${channel} throws raw errors across the IPC boundary -- the code is stripped and the message may name paths`)
   }

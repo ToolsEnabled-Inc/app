@@ -18,6 +18,20 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
+/* WHERE THE BODIES LIVE NOW. The mc-agent:* handlers in shell/main.cjs became
+   thin wrappers when their bodies were extracted to
+   shell/agent-command-surface.cjs (the shared surface the relay facade design
+   names, so IPC and web cannot drift). The frame check is still main.cjs's
+   fact; the parse, the record and the spawn are the surface's. The pins below
+   were re-pointed accordingly -- same facts, new home. */
+const SURFACE = readFileSync(new URL('../../shell/agent-command-surface.cjs', import.meta.url), 'utf8')
+function surfaceBody(command) {
+  const start = SURFACE.indexOf(`'${command}': async`)
+  assert.ok(start >= 0, `the surface has no body for ${command}`)
+  const next = SURFACE.slice(start + 1).search(/\n    '(agent|org):[a-z-]+': async/)
+  return next === -1 ? SURFACE.slice(start) : SURFACE.slice(start, start + 1 + next)
+}
+
 test('the read channel is exposed on the preload the application actually loads', () => {
   const preload = readFileSync(new URL('../../shell/fleet-profile-preload.cjs', import.meta.url), 'utf8')
   assert.match(
@@ -37,8 +51,11 @@ test('the read channel carries the same sender check as every other agent channe
     body, /assertTrustedAgentSender\(event\)/,
     'a record of what ran on this machine is not readable by any frame that happens to be loaded',
   )
-  assert.match(body, /agentPayload\(/, 'and the request shape is validated like every other agent channel')
-  assert.match(body, /spawnRecordHistory\(/, 'and it answers from the recorder rather than reading the file itself')
+  assert.match(body, /run\('agent:history'/, 'and the wrapper dispatches to the shared surface by its own name')
+  /* Re-pointed at the surface body after the command-surface extraction; the facts are unchanged. */
+  const surfaceBodyText = surfaceBody('agent:history')
+  assert.match(surfaceBodyText, /agentPayload\(/, 'and the request shape is validated like every other agent channel')
+  assert.match(surfaceBodyText, /spawnRecordHistory\(/, 'and it answers from the recorder rather than reading the file itself')
 })
 
 /* THE ONE ABSOLUTE CLAIM THE HOME SCREEN MAKES, PINNED TO THE CODE THAT MAKES
@@ -66,7 +83,9 @@ test('a session is recorded BEFORE it is spawned, which is what home tells the r
   const main = readFileSync(new URL('../../shell/main.cjs', import.meta.url), 'utf8')
   const start = main.indexOf("ipcMain.handle('mc-agent:start'")
   assert.ok(start >= 0, 'the start channel is handled in the main process')
-  const body = main.slice(start, main.indexOf('\n})', start))
+  assert.match(main.slice(start, main.indexOf('\n})', start)), /run\('agent:start'/, 'and it dispatches to the shared surface')
+  /* Re-pointed at the surface body after the command-surface extraction: the ordering claim is the same, its home moved. */
+  const body = surfaceBody('agent:start')
 
   const recordedAt = body.indexOf('recordSpawnIntent(')
   const spawnedAt = body.indexOf('startSession(')
@@ -96,7 +115,10 @@ test('the channel starts nothing', () => {
      can see it. */
   assert.ok(start >= 0, 'the channel is handled in the main process')
   const body = main.slice(start, main.indexOf('\n})', start))
-  for (const forbidden of [/startSession/, /sendTurn/, /getAgentHost/, /recordSpawnIntent/, /\.record\(/]) {
-    assert.doesNotMatch(body, forbidden, 'a read channel must not be able to create or record anything')
+  /* Both homes after the command-surface extraction: the wrapper in main.cjs AND the body in the surface. */
+  for (const text of [body, surfaceBody('agent:history')]) {
+    for (const forbidden of [/startSession/, /sendTurn/, /getAgentHost/, /recordSpawnIntent/, /\.record\(/]) {
+      assert.doesNotMatch(text, forbidden, 'a read channel must not be able to create or record anything')
+    }
   }
 })

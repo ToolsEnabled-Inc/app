@@ -24,6 +24,20 @@ import { START_REFUSAL, startRefusalSentence } from '../../src/fleet-tree-copy.j
 const ROOT = resolve(import.meta.dirname, '..', '..')
 const read = (path) => readFileSync(resolve(ROOT, path), 'utf8')
 
+/* WHERE THE HANDLER BODIES LIVE NOW. The command-surface extraction moved the
+   bodies of every mc-agent:* / mc-org:* handler out of shell/main.cjs into
+   shell/agent-command-surface.cjs (one shared surface, so the IPC path and the
+   relay facade the design names cannot drift). main.cjs keeps the Electron
+   frame check and a thin wrapper per channel. Pins about the BODY below read
+   the surface; pins about the BOUNDARY still read main.cjs. */
+const surfaceBody = (command) => {
+  const source = read('shell/agent-command-surface.cjs')
+  const start = source.indexOf(`'${command}': async`)
+  assert.ok(start >= 0, `shell/agent-command-surface.cjs has no body for ${command}`)
+  const next = source.slice(start + 1).search(/\n    '(agent|org):[a-z-]+': async/)
+  return next === -1 ? source.slice(start) : source.slice(start, start + 1 + next)
+}
+
 test('availability reports a bounded code and never a path', () => {
   // The engine-less answer must stay {ok, code}: the resolver's real message
   // lists every path it tried, and rendering that is how a private checkout
@@ -203,12 +217,14 @@ test('a spawn is refused when it cannot be recorded', () => {
   // The whole point of the gate: no receipt, no process. The record call must
   // come before any spawn, and a failure must refuse rather than continue.
   const main = read('shell/main.cjs')
-  assert.match(main, /const record = recordSpawnIntent\(request\)/, 'the spawn must be recorded first')
-  const start = main.slice(main.indexOf("ipcMain.handle('mc-agent:start'"))
+  /* Re-pointed at the surface's start body after the command-surface extraction; the ordering fact is unchanged. */
+  const start = surfaceBody('agent:start')
+  assert.match(start, /const record = recordSpawnIntent\(request\)/, 'the spawn must be recorded first')
   assert.ok(
     start.indexOf('recordSpawnIntent(request)') < start.indexOf('startSession(request)'),
     'the record must be written before the session is started, not after',
   )
+  /* recordSpawnIntent() itself -- the gate that refuses -- is still main.cjs's own. */
   assert.match(
     main,
     /agentIpcError\(\s*'MC_AGENT_RECORD_UNAVAILABLE'/,
@@ -229,7 +245,9 @@ test('availability requires an engine, a usable recorder, and the workspace the 
   const main = read('shell/main.cjs')
   const start = main.indexOf("ipcMain.handle('mc-agent:availability'")
   assert.ok(start > 0, 'main.cjs must register the availability channel')
-  const handler = main.slice(start, main.indexOf('\n})', start))
+  assert.match(main.slice(start, main.indexOf('\n})', start)), /run\('agent:availability'/, 'and dispatch it to the shared surface')
+  /* Re-pointed at the surface's availability body after the command-surface extraction; the probe facts are unchanged. */
+  const handler = surfaceBody('agent:availability')
   assert.match(handler, /engineAvailability\(\{[^)]*defaultCwd:/, 'the probe must be asked about the working directory the session will use')
   assert.match(handler, /spawnRecordAvailability\(\)/)
 
@@ -245,7 +263,8 @@ test('availability requires an engine, a usable recorder, and the workspace the 
     executable.indexOf('spawnRecordAvailability()') < executable.indexOf('engineAvailability('),
     'availability must ask about the record before the engine, because the start does',
   )
-  const startHandler = main.slice(main.indexOf("ipcMain.handle('mc-agent:start'"))
+  /* The start body is the surface's too, after the command-surface extraction. */
+  const startHandler = surfaceBody('agent:start')
   assert.ok(
     startHandler.indexOf('recordSpawnIntent(request)') < startHandler.indexOf('getAgentHost()'),
     'this test\'s premise: the start really does record before it resolves a host',
@@ -858,12 +877,33 @@ test('every refusal the start CHANNEL raises reaches the person as a reason, not
    * the no-reason sentence. The profile family is read the same way: the start
    * path rethrows sessionProfiles.resolveCwd's code with an MC_AGENT_ prefix,
    * so the codes come from shell/session-profiles.cjs. */
-  const main = read('shell/main.cjs')
+  /* Read from BOTH homes after the command-surface extraction: the parsers and
+     the record gate still raise in main.cjs, the session/limit/attachment
+     refusals raise in shell/agent-command-surface.cjs. */
+  const main = read('shell/main.cjs') + '\n' + read('shell/agent-command-surface.cjs')
   const channelCodes = new Set([...main.matchAll(/'(MC_AGENT_[A-Z_]+)'/g)].map(match => match[1]))
   /* `'MC_AGENT_' + error.code` -- the prefix is a literal on its own and is not
      a code. Dropping it here rather than loosening the pattern keeps the
      pattern honest about what a code looks like. */
   channelCodes.delete('MC_AGENT_')
+  /* THE SURFACE'S OWN GATES, WHICH THE WINDOW CANNOT REACH. The shared surface
+     refuses a caller that is not the documented principal shape, a read-only
+     principal's writes, a dialog to a principal not at the keyboard, and a
+     command it does not hold. main.cjs's wrappers construct only the window
+     principal (valid, mayWrite:true, kind 'window') and name only commands the
+     surface holds, so none of the four can cross the IPC boundary today. The
+     relay facade that will reach them needs its own copy in its own binding
+     (design §3: the binding re-throws the code and refusalCode() reads it) --
+     that is that pass's obligation, not a sentence missing here. Each is
+     listed by name so a NEW surface-only code is still caught. */
+  for (const unreachableFromWindow of [
+    'MC_AGENT_PRINCIPAL_READ_ONLY',
+    'MC_AGENT_DIALOG_REQUIRES_WINDOW',
+    'MC_AGENT_PRINCIPAL_INVALID',
+    'MC_AGENT_UNKNOWN_COMMAND',
+  ]) {
+    assert.ok(channelCodes.delete(unreachableFromWindow), `${unreachableFromWindow} is no longer raised by the surface; drop it from this list`)
+  }
   const profiles = read('shell/session-profiles.cjs')
   for (const [, code] of profiles.matchAll(/refusal\('(PROFILE_[A-Z_]+)'/g)) {
     /* Only the ones a START can reach: resolveCwd is what mc-agent:start calls,

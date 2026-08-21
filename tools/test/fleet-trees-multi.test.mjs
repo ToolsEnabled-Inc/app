@@ -247,8 +247,14 @@ test('section 8 tells the truth about profiles: ids cross the boundary, paths ne
     'parseAgentStart\'s allowlist moved again. Re-measure section 8 rather than editing this assertion.')
   assert.ok(/MC_AGENT_CWD_NOT_YOURS/.test(parse.slice(0, 2600)),
     'a renderer-sent working folder must be refused by name at the boundary — profiles are the one route to a folder')
-  assert.ok(/sessionProfiles\.resolveCwd\(request\.profileId\)/.test(shell),
+  /* The resolve moved with the start body into shell/agent-command-surface.cjs
+     in the command-surface extraction; it is still the MAIN process (the
+     surface runs there, with sessionProfiles handed in), so the consent
+     boundary is the same -- only the file changed. */
+  assert.ok(/sessionProfiles\.resolveCwd\(request\.profileId\)/.test(read('shell/agent-command-surface.cjs')),
     'the main process no longer resolves profileId itself — the consent boundary section 8 describes is gone')
+  assert.ok(/sessionProfiles,/.test(shell.slice(shell.indexOf('function getAgentCommandSurface'))),
+    'main.cjs no longer hands its session-profile store to the shared surface')
 
   const callers = ['src/agent-session.js', 'src/views/agent.js', 'src/views/computers.js']
   let starts = 0
