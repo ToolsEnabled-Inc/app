@@ -463,7 +463,7 @@ async function observePath(scratch, executable) {
        already measured the walkthrough; this scenario is about the AGENT PAGE
        such an answer leads to. */
     await evaluate(`(() => {
-      localStorage.removeItem('mc.example');
+      localStorage.setItem('mc.live.agent', 'live');
       localStorage.setItem('mc.write.agent-session', 'disabled');
       localStorage.setItem('mc.setup.profile', JSON.stringify({
         schemaVersion: 1, status: 'complete', step: 'review',
@@ -512,7 +512,7 @@ async function steeringPath(scratch, executable) {
   }, async ({ evaluate, until, shot }) => {
     await until('the application origin', `location.protocol === 'http:' && Boolean(document.querySelector('#stage'))`)
     await evaluate(`(() => {
-      localStorage.removeItem('mc.example');
+      localStorage.setItem('mc.live.agent', 'live');
       localStorage.setItem('mc.write.agent-session', 'enabled');
       localStorage.setItem('mc.theme', 'tan');
       location.hash = '#/agent/c1/terra-01';

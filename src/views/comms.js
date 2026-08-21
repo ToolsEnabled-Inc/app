@@ -2,41 +2,35 @@
 // view. The discord.send integration is dormant — bot-token auth, no token in
 // the vault, zero sends — and is shown honestly as a footer row, never as live.
 //
-// ONE RENDER PATH, THREE DATA SOURCES. This page used to carry a second,
-// simulated render — its own seeded histories, a packet composer, an arrival
-// scheduler, conversation boxes fed from the fleet profile — selected by a
-// per-view live flag. The owner's ruling collapsed that: "all simulated pages
-// ARE the UI pages, just mock data." So the live projection below is the only
-// code that draws the page, and src/data-source.js answers the one question
-// left: where the envelope it renders comes from. 'local' and 'relay' read
-// this machine (or the tunnelled one) exactly as the live face always did;
-// 'mock' feeds src/sample-comms.js's example envelope through the SAME
-// applyLiveProjection, so the render cannot drift between the demonstration
-// and the product — a mock-only render bug is impossible because there is no
-// mock-only render. The mock face is badged (sourceIsBadged), because the
-// badge follows the SOURCE, never the look of the data.
+// CHANNELS, THE BOARD HISTORY, THE CONVERSATIONS AND THE TRANSPORTS ARE
+// PROFILE DATA (src/fleet-profile.js), not constants of this view. They used
+// to be literals here, and this comment used to call them "the real stable
+// keys" — because they were: the durable-memory addresses of one working
+// fleet, its two named machines, its two transport ports, and fifty-six hours
+// of its curated traffic. A stranger's first run showed all of it. The byte
+// gate could not object; none of it is a name or a path.
 //
-// Any address rendered from the fleet profile — the channel-rail footer below
-// is the one surface left that reads it — is RFC 5737 documentation-reserved
-// (192.0.2.0/24) ON PURPOSE — it can never be a real host. Do NOT "improve"
-// them into a realistic-looking private range like 192.168.x: that ships
-// something reading as a real machine roster while still passing a grep for
-// the owner's own address, which is the bug this replaced. The footer is
-// user-visible chrome, not a fixture.
+// Any address rendered from a profile, including the ones in the channel-rail
+// footer below, is RFC 5737 documentation-reserved (192.0.2.0/24) ON PURPOSE —
+// it can never be a real host. Do NOT "improve" them into a realistic-looking
+// private range like 192.168.x: that ships something reading as a real machine
+// roster while still passing a grep for the owner's own address, which is the
+// bug this replaced. The footer is user-visible chrome, not a fixture.
 //
-// C7 added the WATCH BOARD as the page default: a board of conversation
+// C7 adds the WATCH BOARD as the page default: a board of live conversation
 // context boxes built from the shared chip component (.chip / .chip-preview /
 // .as-chat + buildChat from components.js) — the graph's boxes, laid out as a
-// scrollable stack that drag-splits into nested tiles. The projection's
-// records — services on record, channels seen running, their status details —
-// are those boxes now.
+// scrollable stack that drag-splits into nested tiles.
+//
+// Everything here is a self-contained simulation: no credentials, no personal
+// data, values-as-JSON conventions only ever described, never transported.
 
-import { el, buildChat, attachSeg } from '../components.js'
+import { sim } from '../sim.js'
+import { el, countUp, buildChat, attachSeg } from '../components.js'
 import { onNextFrame } from '../page-frames.js'
-import { ROLES } from '../vocab.js'
+import { pick, ROLES } from '../vocab.js'
 import { FLEET } from '../fleet-profile.js'
-import { resolveDataSource, currentDataSource, sourceIsBadged, DATA_SOURCE_EVENT } from '../data-source.js'
-import { sampleOpsEnvelope } from '../sample-comms.js'
+import { isLiveView } from '../live-flags.js'
 import { fetchOps } from '../live-status.js'
 /* The shared empty-state notice — see projectionUnavailableEl below for why this
    board does not write its own. src/guide.css carries the two placements this
@@ -44,29 +38,179 @@ import { fetchOps } from '../live-status.js'
 import { commsQuietMarkup, hostAbsentMarkup } from '../first-run-needs.js'
 import '../comms.css'
 
+const H = 3600e3
+const DAY = 86400e3
 const pad2 = (n) => String(n).padStart(2, '0')
+const ri = (a, b) => a + Math.floor(Math.random() * (b - a + 1))
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const fmtTime = (at) => { const d = new Date(at); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}` }
+const midnight = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime() }
+const dayKeyOf = (at) => { const d = new Date(at); d.setHours(0, 0, 0, 0); return d.getTime() }
+const dayLabel = (dk) => {
+  const diff = Math.round((midnight() - dk) / DAY)
+  if (diff === 0) return 'Today'
+  if (diff === 1) return 'Yesterday'
+  return new Date(dk).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
 
-/* ---------- sender convention: the projection's record kinds ----------
-   These are not agents; they are the KINDS of record the ops projection
-   renders as conversation boxes — a service on record, a channel seen
-   running, and the projection's own status voice. The roles exist so the
-   boxes can reuse the graph's role hues (ROLES) and so RANK below can decide
-   which side of a pairing reads as dominant. Messages themselves carry their
-   sender's name in `sender` and render under the 'observed' kind. */
+/* ---------- sender convention: [agent/role], role hues = the graph's ----------
+   `mach` is which host a sender speaks from, and it is READ FROM THE PROFILE
+   rather than written here. The literals it replaced were "A" and "B" — one
+   fleet's own two-machine naming, restated on every message in the log. A
+   profile with one host collapses every sender onto it; a profile with more
+   than two spreads them round-robin, which is honest for a simulation and
+   never invents a host that the profile does not declare. */
+const HOSTS = FLEET.machines.map((m, i) => m.short || m.name || String(i + 1))
+const host = (i) => HOSTS[i % HOSTS.length] || '—'
+
 const SENDERS = {
-  declared:   { tag: 'on record',    role: 'default', mach: '—' },
-  service:    { tag: 'service',      role: 'default', mach: '—' },
-  observed:   { tag: 'seen running', role: 'helper',  mach: '—' },
-  channel:    { tag: 'channel',      role: 'helper',  mach: '—' },
-  projection: { tag: 'status',       role: 'shadow',  mach: '—' },
+  controller: { tag: 'claude/controller', role: 'coordinator', mach: host(0) },
+  codexb:     { tag: 'codex/coordinator', role: 'coordinator', mach: host(1) },
+  helperb:    { tag: 'claude-b/helper',   role: 'helper',      mach: host(1) },
+  terra:      { tag: 'terra/reviewer',    role: 'shadow',      mach: host(0) },
+  luna:       { tag: 'luna/builder',      role: 'manager',     mach: host(1) },
+  gem2:       { tag: 'gem-lane-2/builder', role: 'default',    mach: host(1) },
+  gem4:       { tag: 'gem-lane-4/builder', role: 'default',    mach: host(0) },
+  sandbox:    { tag: 'sandbox-w1/builder', role: 'default',    mach: host(1) },
+  assistant:  { tag: 'assistant',          role: 'spawned',    mach: host(0) },
+  declared:   { tag: 'on record',          role: 'default',    mach: '—' },
+  service:    { tag: 'service',            role: 'default',    mach: '—' },
+  observed:   { tag: 'seen running',       role: 'helper',     mach: '—' },
+  channel:    { tag: 'channel',            role: 'helper',     mach: '—' },
+  projection: { tag: 'status',             role: 'shadow',     mach: '—' },
+}
+
+/* "role hues = the graph's" was a promise the literals above quietly broke:
+   claude is a helper on the graph and metrics table but wore coordinator cyan
+   here, terra likewise. One agent, two colours, three pages — the exact tell
+   that these views don't share a world. So the sim roster is the authority:
+   each sender adopts the role of its sim twin (exact name first, then the
+   numbered-lane prefix, e.g. terra → terra-01), and the literal survives only
+   as the fallback for senders with no twin (the [assistant] system voice). */
+{
+  const roster = sim.computers.flatMap(c => c.agents)
+  for (const s of Object.values(SENDERS)) {
+    const name = s.tag.split('/')[0]
+    const twin = roster.find(a => a.name === name)
+      || roster.find(a => a.name.startsWith(name + '-'))
+    if (twin) s.role = twin.role
+  }
+}
+const BUILDERS = ['luna', 'gem2', 'gem4', 'sandbox']
+
+/* ---------- channels, history and live traffic all come from the profile ---------- */
+const CHANNELS = FLEET.channels
+
+/* Hours-ago offsets keep every stamp in the past, so a log opens with real
+   scrollback and day dividers however long after the build it is first run. */
+const seededAt = (agoH) => Date.now() - (Number(agoH) || 0) * H - ri(0, 50) * 1000
+
+function seedHistory() {
+  const out = {}
+  for (const def of CHANNELS) {
+    const seeded = Array.isArray(FLEET.board?.[def.id]) ? FLEET.board[def.id] : []
+    out[def.id] = seeded
+      .map(({ agoH, ...m }) => ({ ...m, at: seededAt(agoH) }))
+      .sort((a, b) => a.at - b.at)
+  }
+  return out
+}
+
+/* ---------- live arrivals: packet composer, no channel goes stale ----------
+   The generators are keyed by CHANNEL ID, and a profile is free to declare
+   channels these do not cover — a channel with no generator simply stays at
+   its seeded history rather than receiving another channel's traffic. */
+function makeComposer() {
+  let reviewN = 5
+  let questionOpen = false
+  const evid = () => `sample/evidence/${pick(['gate-check', 'territory-sweep', 'repro', 'frame-budget', 'board-morph'])}-${ri(11, 61)}.md`
+
+  return {
+    assignments: () => ({
+      s: pick(['controller', 'controller', 'codexb']),
+      t: `sample assignment: ${pick([
+        'route review evidence through the artifacts tree, not through chat.',
+        'hold new lanes until the open fix round lands.',
+        'the consistency pass stays blocking — any two pages must read as one product.',
+        'name your files in the claim; an unnamed territory is how two lanes collide.',
+      ])}`,
+    }),
+    status: () => {
+      const kind = Math.random()
+      if (kind < 0.45) {
+        const n = ri(9, 47)
+        return { s: pick(BUILDERS), t: `phase ${ri(2, 5)} complete — ${n} of ${n} checks pass in ${ri(0, 3)}m${pad2(ri(4, 59))}s. Evidence: ${evid()}` }
+      }
+      if (kind < 0.65) return { s: pick(BUILDERS), t: `claim: ${pick(['the checks lane', 'the layout pass', 'the board polish', 'the pointer-math check'])} — no colliding claim, territory named file by file.` }
+      if (kind < 0.85) return { s: pick(BUILDERS), t: `checkpoint at phase ${ri(2, 4)} of ${ri(4, 6)}; resume state written and the plan re-read before continuing.` }
+      return { s: pick(BUILDERS), t: `lease heartbeat fresh; phase ${ri(1, 3)} of ${ri(3, 5)} underway.` }
+    },
+    blockers: () => ({
+      s: pick(['luna', 'gem4', 'assistant']),
+      t: pick([
+        'BLOCKER: a stale lease is holding the queue — it reads as live and the heartbeat is 40 minutes old. Sweeping it before the claim.',
+        'BLOCKER: one lane probe timed out at the ceiling; the other stayed clean. Retrying with backoff before calling it an outage.',
+        `collision warning: two lanes named ${pick(['the same view file', 'the same config file', 'the same shared stylesheet'])}. The later claim yields and re-claims after the first checkpoint.`,
+        'cleared — lease swept, queue clean, lock released. Nothing else shows a stale heartbeat.',
+      ]),
+    }),
+    reviews: () => {
+      const accept = Math.random() < 0.78
+      const n = ri(9, 21)
+      return {
+        s: 'terra',
+        t: accept
+          ? `sample/reviews/${reviewN++}: ACCEPT — ${n} of ${n} criteria pass, ${ri(28, 190)}s. Every path in the evidence tree resolves.`
+          : `sample/reviews/${reviewN++}: REJECT — criterion ${ri(2, 6)} fails (${pick(['clipped legend at the smaller size', 'focus ring missing', 'frame budget over', 'layout jump on rollover'])}). One fix round, that criterion only.`,
+      }
+    },
+    questions: () => {
+      if (questionOpen) {
+        questionOpen = false
+        return {
+          s: pick(['controller', 'helperb']),
+          t: `answered at the reply key: ${pick([
+            'take host identity from the checks, not from a note — the note is last week\'s.',
+            'that file belongs to another lane this round; request the change from its owner.',
+            'yes, under the size ceiling and with no credentials in any shape.',
+          ])}`,
+        }
+      }
+      questionOpen = true
+      return {
+        s: pick(BUILDERS),
+        t: `question: ${pick([
+          'which host owns the write path while both are up?',
+          'is the shared reports directory safe for checkpoint writes this round?',
+          'who owns the shared stylesheet? I need one token added.',
+          'does the audit want counts per key or per write?',
+        ])}`,
+      }
+    },
+  }
+}
+
+/* Weights name channel ids, so a profile that renames its channels loses live
+   traffic on the ones it dropped rather than pushing another channel's packets
+   into them. A profile whose channels are all unweighted simply has no live
+   arrivals, and the board stays at its seeded history. */
+const LIVE_WEIGHT_TABLE = [
+  ['status', 34], ['reviews', 16], ['assignments', 14],
+  ['questions', 14], ['blockers', 11],
+]
+const LIVE_WEIGHTS = LIVE_WEIGHT_TABLE.filter(([id]) => CHANNELS.some(c => c.id === id))
+function pickChannelWeighted() {
+  const total = LIVE_WEIGHTS.reduce((n, [, w]) => n + w, 0)
+  if (!total) return null
+  let r = Math.random() * total
+  for (const [id, w] of LIVE_WEIGHTS) { r -= w; if (r < 0) return id }
+  return LIVE_WEIGHTS[0][0]
 }
 
 /* ============================================================
-   C7 — WATCH BOARD helpers. A card names two SENDERS keys
-   (a/b); rank decides which side a pairing reads as dominant
-   and how important a box is when the layout weighs it.
+   C7 — WATCH BOARD data. Conversation pairs reuse the sender
+   convention above; parent/child links give the branch chains
+   (coord-sync → ctl-build → lane-brief is two levels deep).
    ============================================================ */
 
 const RANK = { coordinator: 4, helper: 3, shadow: 3, manager: 2, default: 1, spawned: 0 }
@@ -74,10 +218,104 @@ const shortName = (k) => SENDERS[k].tag.split('/')[0]
 const domOf = (d) => RANK[SENDERS[d.a].role] >= RANK[SENDERS[d.b].role] ? d.a : d.b
 const impOf = (d) => Math.max(RANK[SENDERS[d.a].role], RANK[SENDERS[d.b].role])
 
+/* Conversations are profile data for the same reason the channels are: the set
+   that was here was one fleet's own cross-machine traffic, down to the test it
+   used to decide which of its two checkouts was canonical. A conversation
+   names two SENDERS keys and, optionally, a child conversation it can branch
+   into; anything naming a sender this view does not know is dropped rather
+   than rendered against an undefined role. */
+const CONV_DEFS = (FLEET.conversations || []).filter(d =>
+  d && SENDERS[d.a] && SENDERS[d.b] && Array.isArray(d.lines?.a) && Array.isArray(d.lines?.b)
+    && d.lines.a.length > 0 && d.lines.b.length > 0)
+
+/* Draw a conversation's next line WITHOUT replacement.
+
+   Each side of a conversation has about six lines and the board shows eleven
+   at a time, so drawing independently did not merely risk a repeat — it
+   guaranteed several. One measured pane carried one line three times and three
+   more twice each, out of eleven. Nothing reads as broken faster than a
+   participant saying the same sentence verbatim two lines apart. (The measured
+   examples that used to be quoted here were four of that fleet's own board
+   messages, so the finding is kept and the transcript is not.)
+
+   A shuffled bag per side spends the whole vocabulary before any line can come
+   round again, and refilling re-shuffles while refusing to open with the line
+   that just closed the previous bag — otherwise the one repeat this is meant
+   to prevent reappears exactly at the seam. */
+function bagDraw(bags, side, lines) {
+  let bag = bags[side]
+  if (!bag || !bag.length) {
+    /* Refill as a PARTITION, not a shuffle-and-patch: everything said
+       recently goes to the draw-last end wholesale, so a recent line cannot
+       come round again until the whole non-recent half has been spoken —
+       spacing of (pool − recent) side-draws by construction. The previous
+       repair swept the shuffled tail and swapped offenders toward the front,
+       which was best-effort: with small pools the sweep ran out of clean
+       lines to swap with and quietly degenerated (measured: repeats-within-4
+       jumped 0 -> 30 at depth 6). A partition cannot degenerate — its worst
+       case IS its guarantee. Recent depth stays 4: deep enough that the two
+       halves stay real halves on the smallest (10-line) pools. */
+    const recent = bags.recent[side]
+    const shuffle = (arr) => {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1))
+        ;[arr[i], arr[j]] = [arr[j], arr[i]]
+      }
+      return arr
+    }
+    const hot = shuffle(lines.filter(l => recent.includes(l)))
+    const cold = shuffle(lines.filter(l => !recent.includes(l)))
+    bag = hot.concat(cold)          // pop() draws from the end: cold first
+    bags[side] = bag
+  }
+  const t = bag.pop()
+  const rec = bags.recent[side]
+  rec.push(t)
+  if (rec.length > 4) rec.shift()
+  return t
+}
+
+function seedConv(d, bags) {
+  const n = 15 + ri(0, 7)
+  const hist = []
+  let ago = 20 + Math.random() * 16
+  let side = Math.random() < 0.5 ? 'a' : 'b'
+  for (let i = 0; i < n; i++) {
+    hist.push({ at: Date.now() - ago * H, s: side === 'a' ? d.a : d.b, t: bagDraw(bags, side, d.lines[side]) })
+    ago = Math.max(0.03, ago - (0.1 + Math.random() * (2 * ago / (n - i))))
+    if (Math.random() < 0.8) side = side === 'a' ? 'b' : 'a'
+  }
+  return hist
+}
+
 /* Board layout tree: { t:'leaf', c:convId } | { t:'split', dir, branch?, ch:[a,b] }.
-   Module-level so the whole board — tiling, sizes, open chats — persists
-   across in-session navigation (C7 layout model). */
+   Module-level so the whole board — histories, tiling, sizes, open chats —
+   persists across in-session navigation (C7 layout model). */
 const wbLeaf = (c) => ({ t: 'leaf', c })
+let WATCH = null
+function watchInit() {
+  if (WATCH) return WATCH
+  WATCH = {
+    convs: new Map(CONV_DEFS.map(d => {
+      // one bag pair per conversation, carried from the seed into the live
+      // stream — a fresh bag at hand-over would let the newest line repeat
+      // one the seeded history had only just used
+      const bags = { a: null, b: null, recent: { a: [], b: [] } }
+      return [d.id, { ...d, hist: seedConv(d, bags), side: 'a', bags }]
+    })),
+    /* The base stack is every conversation nothing else branches into. It was
+       a hand-written list of five ids, which silently dropped a conversation
+       whenever the set changed and could name one that no longer existed;
+       derived, it is correct for any profile. */
+    stack: CONV_DEFS
+      .filter(d => !CONV_DEFS.some(other => other.child === d.id))
+      .map(d => wbLeaf(d.id)),
+    size: 'm',
+    mode: 'watch',
+    open: new Set(),
+  }
+  return WATCH
+}
 
 /* Live cards deliberately keep declared services and observed channels as
    separate records. A matching port, name, or transport is not evidence that
@@ -90,6 +328,8 @@ const liveCard = (id, kind, key, desc, unavailable = null) => ({
   key,
   desc,
   hist: [],
+  side: 'a',
+  bags: { a: null, b: null, recent: { a: [], b: [] } },
   unavailable,
   child: null,
 })
@@ -108,6 +348,26 @@ function liveWatchInit() {
 }
 
 /* ---------- DOM builders ---------- */
+function msgEl(m, fresh = false) {
+  const sender = SENDERS[m.s]
+  return el(`
+    <div class="cmsg${fresh ? ' fresh' : ''}">
+      <i class="cmsg-bar role-${sender.role}"></i>
+      <div class="cmsg-main">
+        <div class="cmsg-top">
+          <span class="cmsg-au"><span class="br">[</span>${esc(sender.tag)}<span class="br">]</span></span>
+          <span class="cmsg-mach">${sender.mach}</span>
+          ${m.pinned ? '<span class="cmsg-pin">pinned</span>' : ''}
+          <span class="cmsg-time">${fmtTime(m.at)}</span>
+        </div>
+        <div class="cmsg-text">${esc(m.t)}</div>
+      </div>
+    </div>
+  `)
+}
+
+const dividerEl = (dk) => el(`<div class="day-div"><span>${dayLabel(dk)}</span></div>`)
+
 /* The sentence this board shows while the read is still IN FLIGHT. It is named
    because two places set it and one place below has to recognise it: a read
    that has not answered yet is not a machine with no agent host, and the two
@@ -159,6 +419,8 @@ function liveMsgEl(m) {
   `)
 }
 
+const PIN_SVG = `<svg viewBox="0 0 24 24"><path d="M15 3.5 20.5 9 14 12l-1.5 5.5-4-4L4 18l4.5-4.5-4-4L10 8l5-4.5Z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></svg>`
+
 /* The rail footer names the fleet's transports and hosts, and both belong to
    the operator rather than to the product. It used to be four literals: two
    named ports each carrying a green dot and the word "up", and a two-host
@@ -183,15 +445,10 @@ function railFootMarkup() {
 }
 
 export function commsView() {
-  /* data-live-mode / data-projection-state keep their old vocabulary — other
-     surfaces and the QA drivers read these attributes — but the value is now
-     DERIVED from the data source once it resolves (markDataSource below):
-     'simulated' is what a badged mock source wears, 'live' is real data. The
-     mount stamps the loading state; nothing claims a source before one is
-     resolved. */
-  const W = liveWatchInit()
+  const liveMode = isLiveView('comms')
+  const W = liveMode ? liveWatchInit() : watchInit()
   const root = el(`
-    <div class="comms" data-mode="${W.mode}" data-live-mode="live" data-projection-state="loading">
+    <div class="comms" data-mode="${W.mode}" data-live-mode="${liveMode ? 'live' : 'simulated'}" data-projection-state="${liveMode ? 'loading' : 'simulated'}">
       <header class="comms-head">
         <span class="head-hash">#</span><span class="head-name"></span>
         <span class="head-meta">message board · cross-machine</span>
@@ -217,7 +474,7 @@ export function commsView() {
           </div>
           <section class="comms-sheet">
             <aside class="ch-rail">
-              <div class="ch-rail-label">Ops projection</div>
+              <div class="ch-rail-label">${liveMode ? 'Ops projection' : 'Channels'}</div>
               <div class="ch-list"></div>
               <div class="ch-rail-foot" data-projection-foot="true">${railFootMarkup()}</div>
             </aside>
@@ -245,19 +502,25 @@ export function commsView() {
   `)
 
   /* ---- state ---- */
-  /* The projection fills these on every application: history keyed by channel
-     id, channelDefs describing the rail. Until the first read answers, the
-     one channel is the loading card, whose `unavailable` sentence keeps the
-     pane honest about a read that has not answered yet. */
-  const history = {}
-  let channelDefs = [{ id: 'ops-projection', name: 'live comms', key: 'ops', mach: 'live', topic: 'Reading this computer’s live comms data.', unavailable: LIVE_COMMS_LOADING }]
-  let liveMessagesReason = LIVE_COMMS_LOADING
+  const history = liveMode ? {} : seedHistory()
+  const compose = liveMode ? null : makeComposer()
+  let channelDefs = liveMode
+    ? [{ id: 'ops-projection', name: 'live comms', key: 'ops', mach: 'live', topic: 'Reading this computer’s live comms data.', unavailable: LIVE_COMMS_LOADING }]
+    : CHANNELS
+  let liveMessagesReason = liveMode ? LIVE_COMMS_LOADING : null
   let destroyed = false
+  /* The opening channel used to be the id 'directive', which only existed
+     because the channel list was a literal in this file. A profile names its
+     own channels, so the board opens on the pinned one — the pinned channel is
+     the one a board points a first-time reader at — and falls back to the
+     first declared channel when nothing is pinned. */
+  const openingChannel = channelDefs.find(def => def.pinned) || channelDefs[0]
   const state = {
-    active: channelDefs[0].id,
+    active: openingChannel?.id ?? null,
     unread: new Set(),
     pinnedToBottom: true,
     newCount: 0,
+    lastDayKey: null,
   }
   const timers = []
 
@@ -274,25 +537,50 @@ export function commsView() {
   const chipLabel = chip.querySelector('.jl')
   const reduced = () => document.body.classList.contains('reduce-motion')
 
-  /* ---- channel rail (the projection's records, with their separator) ---- */
+  /* ---- one-shot event animations ----
+     Nothing on this page animates at rest. Anything that moves is reporting
+     that something just happened, so every animation is a class added at the
+     moment of the event and cleared when it ends — restartable if the event
+     repeats mid-flight, and leaving no state behind that could keep moving. */
+  function oneShot(node, cls) {
+    if (!node) return
+    node.classList.remove(cls)
+    void node.offsetWidth              // force restart when it fires again
+    node.classList.add(cls)
+  }
+  const liveDot = root.querySelector('.head-live i')
+  liveDot.addEventListener('animationend', () => liveDot.classList.remove('beat'))
+  let lastBeat = 0
+  function beatLive(forMode) {
+    if (W.mode !== forMode) return      // the indicator reports the feed being read
+    const now = performance.now()
+    if (now - lastBeat < 1600) return   // a burst coalesces into one beat, never a strobe
+    lastBeat = now
+    oneShot(liveDot, 'beat')
+  }
+
+  /* ---- channel rail (pinned entry on top, then the working channels) ---- */
   const railItems = new Map()
   function renderRail() {
     listEl.textContent = ''
     railItems.clear()
-    channelDefs.forEach((def) => {
-      /* The separator marks the seam the projection declares — between the
-         services on record and the channels seen running (dividerBefore is
-         set where that second block starts). */
-      if (def.dividerBefore) listEl.appendChild(el(`<div class="ch-rail-sep"></div>`))
+    channelDefs.forEach((def, i) => {
+      /* The separator marks the end of the pinned block. It used to fire at
+         index 1 unconditionally, which was right only while the first channel
+         was always the pinned one; a profile decides that now. */
+      const afterPinned = !liveMode && i > 0 && Boolean(channelDefs[i - 1].pinned) && !def.pinned
+      if (def.dividerBefore || afterPinned) listEl.appendChild(el(`<div class="ch-rail-sep"></div>`))
       const item = el(`
-        <button class="ch" data-id="${esc(def.id)}" title="${esc(def.key)}">
-          <span class="ch-hash">#</span>
+        <button class="ch${def.pinned ? ' pin' : ''}" data-id="${esc(def.id)}" title="${esc(def.key)}">
+          <span class="ch-hash">${def.pinned ? PIN_SVG : '#'}</span>
           <span class="ch-name">${esc(def.name)}</span>
           <span class="ch-mach">${esc(def.mach)}</span>
           <i class="ch-dot"></i>
         </button>
       `)
       item.addEventListener('click', () => switchChannel(def.id))
+      const dot = item.querySelector('.ch-dot')
+      dot.addEventListener('animationend', () => dot.classList.remove('ping'))
       listEl.appendChild(item)
       railItems.set(def.id, item)
     })
@@ -305,19 +593,40 @@ export function commsView() {
   function renderLog(id) {
     const def = defOf(id)
     if (!def) return
+    if (liveMode) {
+      topicEl.innerHTML = `key <b>${esc(def.key)}</b> — ${esc(def.topic)}`
+      logEl.innerHTML = ''
+      if (def.unavailable || liveMessagesReason) logEl.appendChild(projectionUnavailableEl(def.unavailable || liveMessagesReason))
+      else if (!history[id]?.length) logEl.appendChild(projectionNoticeEl('No messages have been seen for this exact channel.'))
+      else for (const m of history[id]) logEl.appendChild(liveMsgEl(m))
+      state.pinnedToBottom = true
+      state.newCount = 0
+      updateChip()
+      /* PIN AFTER LAYOUT, NOT AFTER A FRAME THAT MAY NEVER COME. A covered
+         window gets no frames, so this callback -- and the log it closed
+         over -- stayed in the browser's queue for ever (measured: +2 per lap
+         of the ring at this site). onNextFrame flushes layout and pins now on
+         such a page, and is the ordinary requestAnimationFrame otherwise. */
+      onNextFrame(() => { logEl.scrollTop = logEl.scrollHeight })
+      return
+    }
     topicEl.innerHTML = `key <b>${esc(def.key)}</b> — ${esc(def.topic)}`
     logEl.innerHTML = ''
-    if (def.unavailable || liveMessagesReason) logEl.appendChild(projectionUnavailableEl(def.unavailable || liveMessagesReason))
-    else if (!history[id]?.length) logEl.appendChild(projectionNoticeEl('No messages have been seen for this exact channel.'))
-    else for (const m of history[id]) logEl.appendChild(liveMsgEl(m))
+    state.lastDayKey = null
+    const seeded = history[id] || []
+    /* A declared channel with no seeded history is a real state now that the
+       channel list is profile data — say what the empty log is, because an
+       empty pane under a topic bar reads as a failed load, not as a quiet
+       channel. */
+    if (!seeded.length) logEl.appendChild(projectionNoticeEl('No messages on this channel yet.'))
+    for (const m of seeded) {
+      const dk = dayKeyOf(m.at)
+      if (dk !== state.lastDayKey) { logEl.appendChild(dividerEl(dk)); state.lastDayKey = dk }
+      logEl.appendChild(msgEl(m))
+    }
     state.pinnedToBottom = true
     state.newCount = 0
     updateChip()
-    /* PIN AFTER LAYOUT, NOT AFTER A FRAME THAT MAY NEVER COME. A covered
-       window gets no frames, so this callback -- and the log it closed
-       over -- stayed in the browser's queue for ever (measured: +2 per lap
-       of the ring at this site). onNextFrame flushes layout and pins now on
-       such a page, and is the ordinary requestAnimationFrame otherwise. */
     onNextFrame(() => { logEl.scrollTop = logEl.scrollHeight })
   }
 
@@ -353,6 +662,46 @@ export function commsView() {
     timers.push(switching)
   }
 
+  /* ---- live arrivals ---- */
+  function arrive() {
+    /* Both guards exist because the channel set is profile data: a profile can
+       declare channels no generator covers, and one can declare none that any
+       generator covers. Either used to be an unhandled undefined call. */
+    const id = pickChannelWeighted()
+    const packet = id && compose[id] ? compose[id]() : null
+    if (!packet || !history[id]) return
+    const m = { at: Date.now(), s: packet.s, t: packet.t }
+    history[id].push(m)
+    if (history[id].length > 80) history[id].splice(0, history[id].length - 80)
+
+    beatLive('channels')
+
+    if (id === state.active) {
+      const dk = dayKeyOf(m.at)
+      if (dk !== state.lastDayKey) { logEl.appendChild(dividerEl(dk)); state.lastDayKey = dk }
+      logEl.appendChild(msgEl(m, true))
+      if (state.pinnedToBottom) {
+        onNextFrame(() => { logEl.scrollTop = logEl.scrollHeight })
+      } else {
+        state.newCount += 1
+        updateChip()
+      }
+    } else {
+      state.unread.add(id)
+      const item = railItems.get(id)
+      item.classList.add('has-unread')
+      // the arrival gets the light; the unread dot itself rests flat
+      oneShot(item.querySelector('.ch-dot'), 'ping')
+    }
+  }
+
+  let liveT = 0
+  const schedule = () => {
+    liveT = setTimeout(() => { arrive(); schedule() }, 5200 + Math.random() * 8800)
+    timers.push(liveT)
+  }
+  if (!liveMode) schedule()
+
   /* ---- pinned auto-scroll + jump chip ---- */
   logEl.addEventListener('scroll', () => {
     const nearBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 48
@@ -366,11 +715,19 @@ export function commsView() {
     logEl.scrollTo({ top: logEl.scrollHeight, behavior: reduced() ? 'auto' : 'smooth' })
   })
 
-  /* The header count is written by the projection (services on record); until
-     the first application it keeps the mount value. Everything that needs
-     undoing at teardown — event listeners, the seg helpers, the poll — goes
-     through this one list, the same way destroy() has always drained it. */
-  const unsubs = []
+  /* ---- live agent count from the fleet sim ---- */
+  let shownCount = 0
+  const agentTotal = () => sim.computers.reduce((n, c) => n + c.agents.length, 0)
+  const renderCount = () => {
+    const next = agentTotal()
+    if (next !== shownCount) { countUp(countEl, shownCount, next, 500); shownCount = next }
+  }
+  if (!liveMode) countEl.textContent = String(shownCount = agentTotal())
+  const unsubs = liveMode ? [] : [
+    sim.on('spawn', renderCount),
+    sim.on('reap', renderCount),
+    sim.on('computers', renderCount),
+  ]
 
   /* ==========================================================
      C7 — WATCH BOARD. Every box is the shared context-box chip
@@ -509,7 +866,7 @@ export function commsView() {
     const pv = box.querySelector('.chip-preview')
     if (d.unavailable) pv.appendChild(projectionUnavailableEl(d.unavailable))
     else if (d.hist.length) for (const m of d.hist.slice(-14)) pv.appendChild(previewLineEl(d, m))
-    else pv.appendChild(projectionNoticeEl('No messages have been seen for this exact channel.'))
+    else if (liveMode) pv.appendChild(projectionNoticeEl('No messages have been seen for this exact channel.'))
     onNextFrame(() => { pv.scrollTop = pv.scrollHeight })
 
     box._pvFollow = true
@@ -525,6 +882,10 @@ export function commsView() {
       const log = box.querySelector('.chat-log')
       if (log && box._chatFollow) log.scrollTop = log.scrollHeight
     })
+    box.addEventListener('animationend', (e) => {
+      if (e.animationName === 'wbPulse') box.classList.remove('pulse')
+    })
+
     box.querySelector('.wb-branch').addEventListener('click', (e) => {
       e.stopPropagation()
       toggleBranch(cid)
@@ -570,23 +931,12 @@ export function commsView() {
       roleKey: SENDERS[domOf(d)].role,
       seed: 2,
       onClose: () => closeChatBox(cid),
-      /* THE MOCK FLEET NEVER CLAIMS TO REACH A PROCESS. On a badged source the
-         composer is switched off with the reason said in words (buildChat's
-         composerReason: the input disables, the sentence renders above it) —
-         never hidden, because a silently missing composer reads as a broken
-         page, and never left live, because without a real sender buildChat
-         answers itself and an example that talks back claims a process that
-         does not exist. Real data — local and relay alike — keeps the
-         composer exactly as the live face always had it. */
-      composerReason: sourceIsBadged(currentDataSource())
-        ? 'An example conversation, not a live one. There is no agent behind it, so nothing can be sent from here.'
-        : null,
     })
     box.appendChild(chat)
     const log = chat.querySelector('.chat-log')
     if (d.unavailable) log.appendChild(projectionUnavailableEl(d.unavailable))
     else if (d.hist.length) for (const m of d.hist.slice(-6)) log.appendChild(chatMsgEl(d, m))
-    else log.appendChild(projectionNoticeEl('No messages have been seen for this exact channel.'))
+    else if (liveMode) log.appendChild(projectionNoticeEl('No messages have been seen for this exact channel.'))
     log.scrollTop = log.scrollHeight
     box._chatFollow = true
     log.addEventListener('scroll', () => {
@@ -736,12 +1086,10 @@ export function commsView() {
   function renderBoard() {
     const saved = saveScrolls()
     stackEl.textContent = ''
-    /* An empty board says it is empty: the drop target alone is invisible, so
-       a bare pane would read as a rendering failure rather than as a
-       projection with no records. The projection always supplies at least one
-       card today (even "nothing on record" is a card); this is the honest
-       floor under that assumption, not a state anything currently produces. */
-    if (!W.stack.length) stackEl.appendChild(projectionNoticeEl('No conversation records to show.'))
+    /* An empty board is reachable now that conversations are profile data, and
+       the drop target alone is invisible — the pane would read as a rendering
+       failure rather than as a profile that declares no conversations. */
+    if (!W.stack.length) stackEl.appendChild(projectionNoticeEl('No conversations in this profile.'))
     for (const entry of W.stack) stackEl.appendChild(renderNode(entry, true))
     stackEl.appendChild(stackDrop)
     applyMarks()
@@ -975,7 +1323,7 @@ export function commsView() {
   function beginDrag(cid, node, box, ev) {
     const ghost = box.cloneNode(true)
     ghost.querySelector('.chat')?.remove()
-    ghost.classList.remove('as-chat', 'dominant', 'lead', 'stack-leaf', 'in-split', 'branch-child', 'can-restack')
+    ghost.classList.remove('as-chat', 'pulse', 'dominant', 'lead', 'stack-leaf', 'in-split', 'branch-child', 'can-restack')
     ghost.classList.add('wb-ghost')
     const r = box.getBoundingClientRect()
     ghost.style.width = Math.min(r.width, 320) + 'px'
@@ -1053,6 +1401,52 @@ export function commsView() {
       .finished.then(() => ghost.remove()).catch(() => ghost.remove())
   }
 
+  /* ----- live conversation stream: pulse + auto-follow ----- */
+  function genLine(d) {
+    if (Math.random() < 0.8) d.side = d.side === 'a' ? 'b' : 'a'
+    const s = d.side === 'a' ? d.a : d.b
+    return { at: Date.now(), s, t: bagDraw(d.bags, d.side, d.lines[d.side]) }
+  }
+  function pickConv() {
+    const pool = []
+    for (const d of W.convs.values()) {
+      const visible = boxEls.get(d.id)?.isConnected
+      pool.push([d, visible ? 3 + impOf(d) : 1])
+    }
+    const total = pool.reduce((n, [, w]) => n + w, 0)
+    let r = Math.random() * total
+    for (const [d, w] of pool) { r -= w; if (r < 0) return d }
+    return pool[0][0]
+  }
+  function watchArrive() {
+    const d = pickConv()
+    const line = genLine(d)
+    d.hist.push(line)
+    if (d.hist.length > 80) d.hist.splice(0, d.hist.length - 80)
+    const box = boxEls.get(d.id)
+    if (!box?.isConnected) return
+    const pv = box.querySelector('.chip-preview')
+    pv.appendChild(previewLineEl(d, line))
+    while (pv.children.length > 34) pv.firstElementChild.remove()
+    if (!box._hover && box._pvFollow) pv.scrollTop = pv.scrollHeight
+    if (box.classList.contains('as-chat')) {
+      const log = box.querySelector('.chat-log')
+      if (log) {
+        log.appendChild(chatMsgEl(d, line))
+        while (log.children.length > 40) log.firstElementChild.remove()
+        if (!box._hover && box._chatFollow) log.scrollTop = log.scrollHeight
+      }
+    }
+    oneShot(box, 'pulse')
+    beatLive('watch')
+  }
+  let watchT = 0
+  const watchSchedule = () => {
+    watchT = setTimeout(() => { watchArrive(); watchSchedule() }, 3600 + Math.random() * 5200)
+    timers.push(watchT)
+  }
+  if (!liveMode) watchSchedule()
+
   /* ----- mode + size controls ----- */
   const modeBtns = [...root.querySelectorAll('.mode-seg button')]
   const sizeBtns = [...root.querySelectorAll('.size-seg button')]
@@ -1071,8 +1465,7 @@ export function commsView() {
     /* The sheet is display:none in watch mode, so the log has no height and
        renderLog's anchor scroll is a no-op — the view would open at the OLDEST
        message with the chip suppressed, then yank to the bottom on the next
-       projection application. Re-anchor on the frame the sheet actually has a
-       box. */
+       packet. Re-anchor on the frame the sheet actually has a box. */
     if (m === 'channels') {
       requestAnimationFrame(() => {
         if (state.pinnedToBottom) logEl.scrollTop = logEl.scrollHeight
@@ -1090,10 +1483,10 @@ export function commsView() {
     })
     /* A size step changes every pane's height, and a followed pane that was
        pinned to its newest line ended up showing a hard mid-line cut at its
-       BOTTOM until the next re-render happened to re-pin it (final-wave
+       BOTTOM until the next arrival happened to re-pin it (final-wave
        finding). Re-pin followed panes the frame after the new heights land —
-       the same _pvFollow/_chatFollow contract restoreScrolls honours, invoked
-       from the one mutation that was skipping it. A reader-scrolled pane
+       the same _pvFollow/_chatFollow contract arrivals honour, invoked from
+       the one mutation that was skipping it. A reader-scrolled pane
        (follow=false) is left exactly where they put it. */
     const repin = () => {
       pane.querySelectorAll('.wb-box').forEach((box) => {
@@ -1123,38 +1516,7 @@ export function commsView() {
   railItems.get(state.active)?.classList.add('active')
   headName.textContent = defOf(state.active)?.name || ''
   renderLog(state.active)
-
-  /* ---- the example marking, derived from the SOURCE, never from the data ----
-     A badged source (mock — signed out, or the example toggle) must be
-     unmistakable on the glass, and real data — local and relay alike — must
-     carry no marking at all. The pass runs after EVERY projection application:
-     applyLiveProjection writes the live face's words ("live comms · …", the
-     word beside the dot), and on a badged source this corrects them in the
-     same breath, so no application leaves example data wearing live words.
-     data-live-mode / data-projection-state keep the vocabulary the simulated
-     face used ('simulated') so the attribute means the same thing it always
-     meant — this page is showing example data — while being derived from the
-     one source axis instead of a per-view flag. The visible badge borrows the
-     .integ-tag boxed-tag treatment (the page's one machine-token box style;
-     this view's stylesheet is out of scope here) and says the same words
-     home's example badge says, because one product labelling one state two
-     ways teaches people to read neither. */
-  const markDataSource = () => {
-    const badged = sourceIsBadged(currentDataSource())
-    root.dataset.liveMode = badged ? 'simulated' : 'live'
-    const badge = root.querySelector('[data-example-badge]')
-    if (!badged) { badge?.remove(); return }
-    root.dataset.projectionState = 'simulated'
-    root.querySelector('.head-live').lastChild.textContent = 'example'
-    headMeta.textContent = headMeta.textContent.replace(/^live comms/, 'example comms')
-    wtMeta.textContent = wtMeta.textContent.replace(/^live comms/, 'example comms')
-    if (!badge) {
-      root.querySelector('.comms-head .spacer').before(
-        el(`<span class="integ-tag" data-example-badge="true">Example, not your data</span>`))
-    }
-  }
-
-  {
+  if (liveMode) {
     /* THE MESSAGE PANE, READ AT RUN TIME INSTEAD OF FROZEN AT BUILD TIME.
      *
      * THE OWNER'S FINDING: "i couldnt verify if the comms page is wired because
@@ -1259,76 +1621,19 @@ export function commsView() {
       return { ok: true, data: { ...carrier, ok: true, data } }
     }
 
-    /* Every application goes through this pair, so the example marking can
-       never lag the data it marks. */
-    const paintProjection = (result) => {
-      applyLiveProjection(result)
-      markDataSource()
-    }
-
     const loadLive = () => Promise.all([fetchOps(), readLiveMessages()])
-      .then(([ops, live]) => { if (!destroyed) paintProjection(withLiveMessages(ops, live)) })
+      .then(([ops, live]) => { if (!destroyed) applyLiveProjection(withLiveMessages(ops, live)) })
       .catch((err) => {
-        if (!destroyed) paintProjection({ ok: false, reason: `ops projection request failed: ${err?.message || err}` })
+        if (!destroyed) applyLiveProjection({ ok: false, reason: `ops projection request failed: ${err?.message || err}` })
       })
 
-    /* WHERE THE ENVELOPE COMES FROM is resolved in the load path, not at
-       mount: on a public origin the relay-versus-mock answer needs the host
-       asked for its transport, which is async (src/data-source.js). Real
-       sources take the live loader above, exactly as before. A mock source
-       wraps the example fleet's envelope (src/sample-comms.js) in the same
-       one-sentence carrier withLiveMessages synthesizes for a machine with no
-       ops.json, and feeds it through the SAME applyLiveProjection — the
-       render cannot tell, which is the owner's ruling made structural: the
-       example pages ARE the product pages, only the data is mock.
-
-       THE MOCK PATH NEVER TOUCHES THE BRIDGE AND NEVER POLLS. There is no
-       process behind the example fleet, so asking mcAgent for its messages
-       would be a claim that one exists; and the envelope is a pure function
-       of its clock, so a 4-second poll would only rebuild the same board —
-       the deterministic demonstration reads still, the way a screenshot of it
-       would. A source change (sign-in, sign-out, the example toggle)
-       re-resolves below instead. */
-    let liveTimer = 0
-    const stopLivePoll = () => { if (liveTimer) { clearInterval(liveTimer); liveTimer = 0 } }
-    const loadForSource = async ({ reask = false } = {}) => {
-      let source
-      try {
-        source = await resolveDataSource({ reask })
-      } catch (err) {
-        /* A resolution that failed is not a machine with no host and not the
-           example: the pane says the read failed, with the reason, through
-           the same unavailable branch every other failed read uses. */
-        if (!destroyed) paintProjection({ ok: false, reason: `the data source could not be resolved (${err?.message || err})` })
-        return
-      }
-      if (destroyed) return
-      if (source === 'mock') {
-        stopLivePoll()
-        paintProjection({
-          ok: true,
-          data: { domain: 'ops', ok: true, reason: null, generatedAt: new Date().toISOString(), data: sampleOpsEnvelope(Date.now()) },
-        })
-        return
-      }
-      /* A CONVERSATION IS NOT A SNAPSHOT. The page was fetch-once, which is
-         correct for a file that never changes and wrong for the thing the
-         owner wanted to watch. The interval is cleared by destroy() through
-         the same unsubscribe list every other subscription on this page uses,
-         and by the mock branch above when the source flips mid-session. */
-      if (!liveTimer) liveTimer = setInterval(loadLive, 4000)
-      loadLive()
-    }
-
-    loadForSource()
-    /* The host says "the world changed" (sign-in, sign-out, the example
-       toggle); the event deliberately carries no verdict, so this re-asks —
-       reask because a transport may have just appeared — and re-renders from
-       whatever source resolves now. */
-    const onSourceChanged = () => { void loadForSource({ reask: true }) }
-    window.addEventListener(DATA_SOURCE_EVENT, onSourceChanged)
-    unsubs.push(() => window.removeEventListener(DATA_SOURCE_EVENT, onSourceChanged))
-    unsubs.push(stopLivePoll)
+    loadLive()
+    /* A CONVERSATION IS NOT A SNAPSHOT. The page was fetch-once, which is
+       correct for a file that never changes and wrong for the thing the owner
+       wanted to watch. The interval is cleared by destroy() through the same
+       unsubscribe list every other subscription on this page uses. */
+    const liveTimer = setInterval(loadLive, 4000)
+    unsubs.push(() => clearInterval(liveTimer))
   }
 
   return {

@@ -12,51 +12,35 @@
  * real decisions.
  *
  * WHICH FACE, AND WHY IT IS DERIVED RATHER THAN A NEW FLAG. Approvals has no
- * switch of its own because its data is the audited queue: there is nothing
- * per-view to toggle, and inventing a flag would put a switch in Settings
- * that pretends the queue has a twin. The one state in which this screen is
- * part of a demonstration is when the whole product is showing its built-in
- * example -- which is exactly what src/data-source.js answers 'mock' for: the
- * example toggle is on, or this is a signed-out browser with no machine
- * behind it. Any real source, this computer's own or the person's machine
- * over the relay, means this screen polls the live queue exactly as it
- * always has.
+ * entry in src/live-flags.js because its data is the audited queue: there is
+ * no per-view source to switch, and inventing a flag would put a switch in
+ * Settings that pretends the queue has a simulated twin. The one state in
+ * which this screen is part of a demonstration is when the WHOLE product's
+ * screens are -- which is what setup's "screens" answer records (every live
+ * flag off together) and what the simulation build's demo-mode.js writes
+ * (every flag simulated). So: every declared view simulated means
+ * demonstration; any single view live means this screen polls the live queue
+ * exactly as it always has. A person who flipped one page to the demonstration
+ * in Settings kept their own approvals on purpose.
  *
  * THIS MODULE IS PURE. It reads no DOM and opens no connection, so the suite
  * (tools/test/approvals-example-marking.test.mjs) exercises the face decision
  * and the example queue's shape for real. The view does the painting.
  */
 
-import { currentDataSource, isExampleMode, onDesktop } from './data-source.js'
+import { LIVE_VIEW_FLAGS, isLiveView } from './live-flags.js'
 
 export const APPROVALS_FACES = Object.freeze(['demonstration', 'this-computer'])
-
-/* The synchronous best answer to "where is this screen's data from". The view
- * decides its face once at mount, before anything has awaited, so this uses
- * only what can be known without asking: the example toggle, the desktop
- * shell's presence, and whatever verdict resolveDataSource() has already
- * cached. It can return null -- a public page before the first resolution --
- * and null is passed through as "not yet known" rather than rounded. */
-function knownSource() {
-  if (isExampleMode()) return 'mock'
-  if (onDesktop()) return 'local'
-  return currentDataSource()
-}
 
 /**
  * Which face the approvals screen wears right now.
  *
- * A KNOWN mock source is the only thing that puts the demonstration face on:
- * real data -- local or relayed -- and the not-yet-known null both wear
- * 'this-computer', because badging a person's real queue as an example is the
- * one direction this marking must never miss in, and a live poll that cannot
- * reach a queue reports that failure in its own words rather than dressing
- * it as an example.
- *
- * The source reader stays injectable so the suite can hold each answer still.
+ * Asks about EVERY declared view, so a view added to the product later is part
+ * of this decision automatically rather than silently ignored.
  */
-export function approvalsFace({ source = knownSource } = {}) {
-  return source() === 'mock' ? 'demonstration' : 'this-computer'
+export function approvalsFace({ isLive = isLiveView } = {}) {
+  const allSimulated = LIVE_VIEW_FLAGS.every(flag => !isLive(flag.id))
+  return allSimulated ? 'demonstration' : 'this-computer'
 }
 
 /* THE WORDS, shared with the screens that already say them. The badge is
@@ -65,7 +49,7 @@ export function approvalsFace({ source = knownSource } = {}) {
  * read neither. */
 export const APPROVALS_EXAMPLE_MARKING = Object.freeze({
   badge: 'Example, not your data',
-  source: 'example data — switch off the example fleet in settings to see your own approvals',
+  source: 'example data — turn on Live data in settings to see your own approvals',
   queueNote: 'An example queue, so you can see how requests read. Nothing here is waiting on anyone.',
   cardStatus: 'An example request, not yours. Its controls stay off, and nothing can be approved from it.',
   deadlineNote: '· an example deadline, from the example requests above',

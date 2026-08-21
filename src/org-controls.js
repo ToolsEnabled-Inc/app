@@ -420,7 +420,7 @@ export function buildRoleLibraryBox({ availability, onCreate, onEdit, onReset })
 
 /* WHAT A PERSON HAD OPEN AND TYPED IN A ROLE LIBRARY BOX, AS DATA.
  *
- * src/write-flags.js and src/data-source.js announce every change, and
+ * src/write-flags.js and src/live-flags.js announce every change, and
  * src/main.js re-renders the whole route when it hears one. That remount
  * rebuilt this box from the stored roles -- so wording a person had typed but
  * not yet saved was silently destroyed by pressing an UNRELATED switch:

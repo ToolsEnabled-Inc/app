@@ -213,11 +213,5 @@ test('the settings page bulk control for the acting switches is off-only', () =>
   assert.ok(source.includes('data-bulk-write-off'), 'the one-press off control is gone')
   assert.ok(!source.includes('data-bulk-write-on') && !/data-bulk-write="on"/.test(source),
     'a one-press bulk GRANT of the acting switches exists; that press is refused by design')
-  /* The screen-source pair (`data-bulk-live`) this used to require is GONE ON
-     PURPOSE, and its absence is now the pin: the seven per-view switches it
-     bulk-set collapsed into the one example toggle, which reaches every
-     screen by construction -- a bulk press over one switch would be a second
-     button doing what the switch already does. */
-  assert.ok(!source.includes('data-bulk-live'),
-    'a bulk pair exists over the one example toggle; one switch needs no second button')
+  assert.ok(source.includes('data-bulk-live'), 'the screen-source section lost its one-press pair')
 })

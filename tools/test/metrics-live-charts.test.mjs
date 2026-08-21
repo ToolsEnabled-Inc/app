@@ -33,8 +33,6 @@
 
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -70,7 +68,7 @@ const DAY = 24 * HOUR
    demonstration's series; vocab.js and fleet-profile.js are the declared fleet it
    builds them out of; metrics-charts.js is the demonstration's own option
    builders. A path to any of them is a path a series could travel. */
-const FORBIDDEN = ['vocab.js','sim.js',  'fleet-profile.js', 'metrics-charts.js']
+const FORBIDDEN = ['sim.js', 'vocab.js', 'fleet-profile.js', 'metrics-charts.js']
 
 /* Relative imports only -- a bare specifier is a package, and no package in this
    tree is one of the four. The regular expression covers `import x from`,
@@ -121,36 +119,16 @@ test('the measured chart module cannot reach the simulation, at any depth', () =
 
 test('the fence would catch a path to the simulation if one appeared', () => {
   /* THE RED PROOF, RUN EVERY TIME rather than remembered from the day it was
-     written. This used to start the walk from metrics-charts.js -- the
-     demonstration's own chart module -- whose import of vocab.js proved the
-     walker could see a forbidden edge. That module was DELETED with the second
-     render, and a positive control that dies of ENOENT proves nothing: the
-     fence above would then be green whether or not the walk still detects
-     anything. So the offending module is synthesised on the spot -- a temp file
-     importing vocab.js by the same relative shape a real regression would use
-     -- and the walk MUST find the forbidden edge through it. If this assertion
-     ever fails, the walk has stopped detecting anything and the test above is
-     green for the wrong reason. */
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fence-positive-control-'))
-  const offender = path.join(dir, 'offender.js')
-  try {
-    /* The walker follows only relative specifiers and only ones that resolve
-       into SOURCE_ROOT (walkImports above) -- exactly the shape a real
-       regression inside src/ would take. So the offender imports vocab.js by
-       the relative chain from the temp dir: a `../..` path is a relative
-       specifier to the extractor, and it resolves inside SOURCE_ROOT for the
-       boundary check. An absolute path would be invisible to both. */
-    const vocab = path.relative(dir, path.join(SOURCE_ROOT, 'vocab.js')).split(path.sep).join('/')
-    fs.writeFileSync(offender, `import { ROLES } from '${vocab}'\nexport const leak = ROLES\n`)
-    const reached = walkImports(offender)
-    const names = [...reached.keys()].map(file => path.basename(file))
-    assert.ok(
-      names.some(name => FORBIDDEN.includes(name)),
-      'the walk found no forbidden module from a file that imports one directly, so it cannot be detecting them',
-    )
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true })
-  }
+     written. The same walk, from the demonstration's own chart module, MUST
+     find the simulation -- through its import of vocab.js. If this assertion
+     ever passes silently, the walk has stopped detecting anything and the test
+     above is green for the wrong reason. */
+  const reached = walkImports(path.join(SOURCE_ROOT, 'metrics-charts.js'))
+  const names = [...reached.keys()].map(file => path.basename(file))
+  assert.ok(
+    names.some(name => FORBIDDEN.includes(name)),
+    'the walk found no forbidden module from the demonstration chart module, so it cannot be detecting them',
+  )
 })
 
 /* ================= 2. the mint ================= */

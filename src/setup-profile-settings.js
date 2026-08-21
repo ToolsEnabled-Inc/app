@@ -44,9 +44,7 @@ import { TIER_CHOICES, TIER_IDS, noteTierRecorded, SETUP_RESOLUTION } from './se
    person arrives at LATER, rather than only on the walkthrough they may have
    taken weeks ago (owner, R1529). */
 import { withheldMarkup } from './guided-step.js'
-/* The screens answer lands on ONE switch now: the example toggle owned by
-   src/data-source.js, which replaced the seven per-view live flags. */
-import { setExampleMode } from './data-source.js'
+import { LIVE_VIEW_FLAGS, setLiveView } from './live-flags.js'
 import { WRITE_ACTION_FLAGS, isWriteEnabled, setWriteEnabled } from './write-flags.js'
 /* THE MOMENT OF CHOOSING FULL ACCESS (owner, X4, 2026-08-15). The widest level
    is not written on the press: the risk is stated in the Terms' own words, on
@@ -129,6 +127,7 @@ export function setupRefusalDetail(result, fallback = 'The application did not s
 }
 
 const WRITE_FLAG_IDS = WRITE_ACTION_FLAGS.map(flag => flag.id)
+const LIVE_FLAG_IDS = LIVE_VIEW_FLAGS.map(flag => flag.id)
 
 const esc = value => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -163,6 +162,7 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
     return deriveProfile(answers, {
       tier: tier(),
       writeFlagIds: WRITE_FLAG_IDS,
+      liveFlagIds: LIVE_FLAG_IDS,
     })
   }
 
@@ -173,7 +173,7 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
   function persist(next) {
     answers = next
     status = status === 'complete' ? 'complete' : status || 'skipped'
-    applyProfile(derived(), { setWriteFlag: setWriteEnabled, setExampleMode })
+    applyProfile(derived(), { setWriteFlag: setWriteEnabled, setLiveFlag: setLiveView })
     writeStoredProfile({ status, step: 'review', answers })
   }
 

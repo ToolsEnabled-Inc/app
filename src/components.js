@@ -1,6 +1,6 @@
 // Shared UI pieces: uptime ring, chat window, sparkline, tooltip.
 
-import { uptimeParts } from './runtime-clock.js'
+import { sim, uptimeParts } from './sim.js'
 import { crescentSpec } from './crescent-field.js'
 import { mountCrescent } from './crescent-mount.js'
 import { onNextFrame } from './page-frames.js'
@@ -265,12 +265,9 @@ export function formatInlineText(value, { agents = [], roleKey = 'default' } = {
     seen.add(key)
     roster.push(agent)
   }
-  /* The roster comes from the CALLER's agents, full stop. This used to also
-     walk sim.computers, which meant every live chat's @-mention highlighting
-     was built partly from the demonstration engine's invented fleet -- live
-     text lit up for agents that never existed on this machine. The literal
-     fallback patterns below still cover the example world's names, so the
-     example loses nothing. */
+  for (const computer of sim.computers || []) {
+    for (const agent of computer.agents || []) addAgent(agent)
+  }
   for (const agent of agents || []) addAgent(agent)
 
   const literalNames = roster
@@ -355,21 +352,7 @@ const escapeMarkup = value => String(value ?? '').replace(/[&<>"']/g, character 
                the seeded simulator below structurally unreachable for such a
                caller: `send` is refused before it can reach the fake path,
                so an honest read-only chat can never answer itself. */
-export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed = 3, onClose = null, tall = false, context = null, onSend = null, history = null, onAttach = null, onMention = null, status = null, queue = null, actions = null, actionsNote = null, onStop = null, composerReason = null, onReady = null, sampleConversation = false }) {
-  /* SELF-ANSWERING IS OPT-IN NOW. Without `onSend` this composer used to push
-     the turn onto replyQueue and stream a canned reply back -- right for the
-     one labelled demonstration surface that exists to show what a conversation
-     looks like, and a lie everywhere else: the comms watch-boards reached it on
-     LIVE sources, and the agent page's box answered itself under a caption
-     reading "typing in it still reaches nothing". Found independently by two
-     lanes during the one-render cutover. A caller that wants the demonstration
-     says `sampleConversation: true`; a caller with a real sender passes
-     `onSend`; anyone with neither gets a switched-off composer that says why,
-     through the same composerReason mechanism refusals already use. */
-  if (typeof onSend !== 'function' && sampleConversation !== true
-      && !(typeof composerReason === 'string' && composerReason.trim().length > 0)) {
-    composerReason = 'Nothing is connected to this box, so nothing typed here is sent.'
-  }
+export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed = 3, onClose = null, tall = false, context = null, onSend = null, history = null, onAttach = null, onMention = null, status = null, queue = null, actions = null, actionsNote = null, onStop = null, composerReason = null, onReady = null }) {
   const cannotSend = typeof composerReason === 'string' && composerReason.trim().length > 0
   const role = ROLES[roleKey] || ROLES.coordinator
   const root = el(`

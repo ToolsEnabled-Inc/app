@@ -389,39 +389,13 @@ test('the metrics page reads this computer’s record, not the build-time projec
   assert.match(view, /UNMEASURED\.gates/)
 })
 
-test('the demonstration engine is gone from the page: one render, fed by the source axis', () => {
+test('the live branch still never initialises a chart engine for a reading it does not have', () => {
   const view = read('src/views/metrics.js')
-  /* This clause used to slice the live boot branch and assert the
-     demonstration's chart engine stayed out of it. There is no branch left to
-     slice: the owner's ruling -- "all simulated pages ARE the UI pages, just
-     mock data" -- removed the second render, so what is pinned now is
-     stronger than the old guard. The demonstration's option builders and the
-     simulation itself are not imported AT ALL; the only engine on the page is
-     the measured one, whose import graph tools/test/metrics-live-charts.test.mjs
-     walks on every run. */
-  assert.doesNotMatch(view, /metrics-charts\.js/)
-  assert.doesNotMatch(view, /createCharts\b/)
-  assert.doesNotMatch(view, /from '\.\.\/sim\.js'/)
-  assert.doesNotMatch(view, /\bsim\.on\(/)
-  /* dataset.liveMode stays -- the packaged drives read that attribute and the
-     one render IS the live render -- but the per-view FLAG and its switch are
-     what selected a second page, and those may not return. */
-  assert.doesNotMatch(view, /isLiveView|setLiveView|live-flags/,
-    'the per-view flag machinery is back; which world shows is the source axis’s decision now')
-
-  /* And the example is the SAME render over the product's own example
-     ledgers: the raw sample replies go through the same parsers a bridge
-     reply does, so the page downstream cannot tell -- which is why the badge
-     is keyed to the resolved source and never to the look of the data. */
-  assert.match(view, /resolveDataSource\(/)
-  assert.match(view, /sourceIsBadged\(/)
-  assert.match(view, /DATA_SOURCE_EVENT/)
-  assert.match(view, /sampleSessionsRaw\(/)
-  assert.match(view, /sampleUsageRaw\(/)
-  assert.match(view, /readLocalRuns\(\{ agent: sample \}\)/,
-    'the example record must go through the same run parser as a real reply')
-  assert.match(view, /readLocalUsage\(\{ agent: sample \}\)/,
-    'the example record must go through the same usage parser as a real reply')
-  assert.match(view, /dataset\.face = .*'demonstration' : 'this-computer'/,
-    'the face attribute must be stamped from the source axis')
+  /* createCharts stays inside the simulated boot branch; the only engine the
+     live face may build is the measured-usage sankey, which draws only when a
+     genuine measured reading exists. A live branch that reached for the chart
+     engine would be one refactor away from handing it a simulated series. */
+  const liveBranch = view.slice(view.indexOf('if (liveMode) {\n    applyLiveProjection()'))
+  const guard = liveBranch.slice(0, liveBranch.indexOf('} else {'))
+  assert.doesNotMatch(guard, /createCharts/)
 })

@@ -28,7 +28,7 @@ import { RESEARCH_EXPERIMENTS_EVENT, RESEARCH_EXPERIMENTS_ROW_KEY, buildExperime
 import { localTiersStatus, postBridgeAction } from '../mission-bridge.js'
 import { TIER_CHOICES, DEFAULT_TIER } from '../fleet-tree-copy.js'
 import { startAgentForNode } from './computers.js'
-import { DATA_SOURCE_EVENT, resolveDataSource, sourceIsBadged } from '../data-source.js'
+import { isLiveView } from '../live-flags.js'
 import { PROJECT_ALL, PROJECT_UNFILED, filesUnder, readProjectSelection, readResearchSnapshot, saveProject, writeProjectSelection } from '../research-projects.js'
 import { createAssignmentStore } from '../research-assignments.js'
 import { axisRowsToObject, columnRowsToSchema, gridRunPreview, parseAxes, parseResultSchema, parseRunner } from '../research-grid.js'
@@ -263,13 +263,9 @@ function observationMarkup(observation, { label, emptyLabel, itemMarkup }) {
 }
 
 /* ---------- the sample face ----------
-   Rendered when the one source axis (src/data-source.js) answers 'mock': a
-   signed-out visitor on the website, or the example toggle on any host. It is
-   NOT a second render — the owner's ruling is "all simulated pages ARE the UI
-   pages, just mock data" — so every constant below feeds the same renderers
-   the live loaders feed. Every value is invented for the demonstration and
-   the mast says so: no file on this computer is read for it, and nothing a
-   person does against it is ever written anywhere. */
+   Shown only when the page's Live data flag is off (quick settings / settings
+   page). Every value below is invented for the demonstration and the mast
+   says so — no file on this computer is read for it. */
 
 const SAMPLE_QUEUE = Object.freeze({
   ok: true,
@@ -320,23 +316,6 @@ const SAMPLE_PROJECTION = Object.freeze({
   openQuestions: { ok: true, value: [{ question: 'Does temperature zero flatten judge disagreement in this example set?', methodToClose: 'Re-run the borderline set at temperature zero and compare.' }] },
 })
 
-/* The project-findings block used to vanish from the example face, which made
-   the mock page poorer than the live one — a visitor never learned the module
-   existed. These feed the SAME observation renderer the projection's own
-   findings register uses ({ok, reason, value}); the live block's per-project
-   read (readFindings) is deliberately not imitated, because the example world
-   has no service to read and pretending one answered is the lie this page
-   exists to avoid. */
-const SAMPLE_PROJECT_FINDINGS = Object.freeze({
-  ok: true,
-  reason: null,
-  value: [
-    { status: 'confirmed', claim: 'Pinning the judge model per lane removed the cross-lane drift in this example sweep — scores now move only when the model under test changes.' },
-    { status: 'open', claim: 'The retry gate may double-count judge timeouts; this example question waits on a sweep run with that gate held open.' },
-    { status: 'refuted', claim: 'Warming the strong tier before a sweep changed nothing here — the first-run lag was the loader, not the model.' },
-  ],
-})
-
 const SAMPLE_EXPERIMENT = Object.freeze({
   id: 'sample-experiment',
   name: 'Example sweep — two tiers, two repeats',
@@ -349,16 +328,11 @@ const SAMPLE_EXPERIMENT = Object.freeze({
   serviceExperimentId: null,
   createdAtMs: 0,
   treeId: null,
-  /* One cell in each state a person will actually meet — finished, running,
-     failed, queued — so the run board, the results table, AND the status pulse
-     all have something honest to show on the example face. The pulse in
-     particular reads "1 running · 1 queued · 1 finished" from exactly these
-     rows; an all-finished example left it saying almost nothing. */
   cells: [
     { params: { tier: 'luna', replicate: 1 }, status: 'finished', sessionId: null, nodeId: null, runId: null, startedAtMs: 0, endedAtMs: 41000, replyExcerpt: 'The example dataset holds 200 rows of paired prompts and answers.' },
-    { params: { tier: 'luna', replicate: 2 }, status: 'running', sessionId: null, nodeId: null, runId: null, startedAtMs: 0, endedAtMs: null, replyExcerpt: '' },
+    { params: { tier: 'luna', replicate: 2 }, status: 'finished', sessionId: null, nodeId: null, runId: null, startedAtMs: 0, endedAtMs: 38000, replyExcerpt: 'A second pass reads the same 200 rows and agrees with the first.' },
     { params: { tier: 'terra', replicate: 1 }, status: 'failed', sessionId: null, nodeId: null, runId: null, startedAtMs: 0, endedAtMs: 12000, replyExcerpt: 'This example cell shows what a refused start looks like.' },
-    { params: { tier: 'terra', replicate: 2 }, status: 'queued', sessionId: null, nodeId: null, runId: null, startedAtMs: null, endedAtMs: null, replyExcerpt: '' },
+    { params: { tier: 'terra', replicate: 2 }, status: 'running', sessionId: null, nodeId: null, runId: null, startedAtMs: 0, endedAtMs: null, replyExcerpt: '' },
   ],
 })
 
@@ -435,33 +409,17 @@ const DESIGNER_TEMPLATES = Object.freeze({
 /* ---------- the workbench ---------- */
 
 export function researchView() {
-  /* WHERE THE DATA COMES FROM — one axis, three answers ('local', 'relay',
-     'mock'), resolved asynchronously in the boot below and re-resolved when
-     the host announces a change (sign-in, sign-out, the example toggle). This
-     replaced the per-view isLiveView('research') flag, whose off state used to
-     select a second, poorer render; the owner's ruling — "all simulated pages
-     ARE the UI pages, just mock data" — collapsed that to ONE render whose
-     inputs differ. Null means "not yet resolved": the template below is
-     therefore neutral (busy, unbadged, empty mast) until the first verdict
-     lands, because defaulting to 'mock' would badge real data and defaulting
-     to anything else would unbadge the example. */
-  let source = null
-
-  /* The mock mast names the example itself — the same fact home's badge states
-     as "Example, not your data" — rather than pointing at a switch. On the
-     website this face is simply what a signed-out visitor gets; there is no
-     per-view "Live data" toggle any more for a sentence to send anyone to. */
-  const EXAMPLE_MAST = 'example data — the product’s example, not your research'
+  const liveMode = isLiveView('research')
 
   const root = el(`
-    <main class="view-pad research-page" aria-busy="true" data-live-mode="">
+    <main class="view-pad research-page" aria-busy="true" data-live-mode="${liveMode ? 'live' : 'simulated'}">
       <div class="research-shell">
         <header class="research-mast">
           <div>
             <p class="research-eyebrow">your private research workbench</p>
             <h1>Research</h1>
           </div>
-          <p class="research-source" data-research-source></p>
+          <p class="research-source" data-research-source>${liveMode ? 'reading your research…' : 'example data — turn on Live data in settings to read your own'}</p>
         </header>
 
         <div class="research-modules" data-research-modules>
@@ -706,7 +664,7 @@ export function researchView() {
     host.innerHTML = researchQueueMarkup(result)
   }
 
-  /* ---------- the writable queue (real data only — mock renders read-only) ----------
+  /* ---------- the writable queue (live mode) ----------
      The shipped catalog renders read-only; the researcher's own notes and the
      status overrides for shipped items live in ONE account row
      (research_queue, src/research-queue-store.js). The two halves fail
@@ -868,10 +826,8 @@ export function researchView() {
         <div>${observationMarkup(data.openQuestions, { label: 'The open-question list', emptyLabel: 'open questions', itemMarkup: questionMarkup })}</div>
       </div>`
     /* The project-findings block survives this rewrite: it is one element,
-       re-appended with whatever the findings read last said. It rides along on
-       every source now — the example face fills it from SAMPLE_PROJECT_FINDINGS
-       instead of hiding the module (renderFindingsList owns that fork). */
-    host.appendChild(findingsBlock)
+       re-appended with whatever the findings read last said. */
+    if (liveMode) host.appendChild(findingsBlock)
   }
 
   /* WHAT THE THREE CATALOG MODULES SAY ON A COPY THAT HAS NO CATALOG.
@@ -937,10 +893,7 @@ export function researchView() {
     const data = envelope.data
     root.setAttribute('aria-busy', 'false')
     root.dataset.projectionState = 'ready'
-    /* The badge rule lives in one place (sourceIsBadged): a badged source keeps
-       the example sentence in the mast; real data — local and relay alike —
-       gets the catalog's own date and no marking. */
-    if (!sourceIsBadged(source)) {
+    if (liveMode) {
       root.querySelector('[data-research-source]').textContent = `catalog generated ${formatDate(envelope.generatedAt)}`
     }
     renderLibrary(data.corpusCatalog)
@@ -1534,23 +1487,11 @@ export function researchView() {
     }
   }
 
-  /* THE EXAMPLE NEVER WRITES. The mock face renders the real designer — the
-     form, the preview, the templates all run locally and demonstrate the
-     surface — but the three presses that would persist or start something
-     (Save, the run control, Remove) refuse with this sentence instead. The
-     example toggle can be on while a real account and a real engine sit right
-     behind the page, so "the save would fail anyway" is not a guard at all:
-     without this gate a press against example data would write example data
-     into a person's own account row, or start real workers from an invented
-     spec. */
-  const EXAMPLE_WRITE_REFUSAL = 'This is the example — it never saves, starts, or removes anything.'
-
   moduleEl('designer').addEventListener('submit', async event => {
     if (!event.target?.hasAttribute?.('data-exp-form')) return
     event.preventDefault()
     const form = event.target
     const status = form.querySelector('[data-exp-form-status]')
-    if (source === 'mock') { if (status) status.textContent = EXAMPLE_WRITE_REFUSAL; return }
     const parsed = parseDesignerForm(form)
     if (!parsed.ok) { if (status) status.textContent = parsed.sentence; return }
     const built = buildExperiment({
@@ -1572,13 +1513,6 @@ export function researchView() {
   moduleEl('designer').addEventListener('click', async event => {
     const runId = event.target?.dataset?.expRun
     const removeId = event.target?.dataset?.expRemove
-    /* See EXAMPLE_WRITE_REFUSAL above: the refusal rides on the pressed button
-       the same way every other refusal on this board does. Open, Duplicate and
-       the templates stay live — they only read and prefill. */
-    if (source === 'mock' && (runId || removeId)) {
-      event.target.textContent = EXAMPLE_WRITE_REFUSAL
-      return
-    }
     if (runId) {
       const experiment = experimentsSnapshot().experiments.find(candidate => candidate.id === runId)
       if (!experiment) return
@@ -1942,19 +1876,6 @@ export function researchView() {
   function renderSessionsModule() {
     const host = moduleEl('sessions').querySelector('[data-research-sessions]')
     if (!host) return
-    /* THE ONE MODULE THAT KEEPS A SENTENCE ON THE EXAMPLE FACE, and the call
-       was made by reading what the surface needs: every row here is a claim
-       about the person's machine — the service's project names, the assignment
-       store's rows, the live-session registry. Inventing an example assignment
-       would put "Every session on this computer" (the assign-all rule's own
-       words) on screen as sample data, which reads as an operational claim no
-       matter how the mast is badged. So the module settles honestly instead of
-       sitting on "Reading…" for ever, and the sentence says what would appear
-       here rather than pointing at a dead settings toggle. */
-    if (source === 'mock') {
-      host.innerHTML = '<p class="research-observed-empty">In the example, no sessions are filed yet. With your own data, sessions you assign to a project from the computers page appear here.</p>'
-      return
-    }
     if (!service) return
     if (!service.ok) {
       host.innerHTML = unavailableMarkup('The session assignments', service.reason)
@@ -2003,9 +1924,6 @@ export function researchView() {
     for (const experiment of experiments) {
       runsByExperiment.set(experiment.experimentId, await readRuns(experiment.experimentId))
     }
-    /* Same in-flight rule as refreshServiceSnapshot: a verdict flip to 'mock'
-       mid-read means these repaints belong to a world that no longer exists. */
-    if (destroyed || source === 'mock') return
     /* The bench run board reads this same cache for its cells' live state, so
        it must repaint when the cache fills. Without this it painted once with
        a cold cache and stayed there: every cell read "queued", including a
@@ -2035,9 +1953,7 @@ export function researchView() {
 
   function scheduleRunPoll() {
     if (runPollTimer) { clearTimeout(runPollTimer); runPollTimer = null }
-    /* Mock never polls: there is no service behind the example, and a timer
-       left running would drag the live loaders back over the sample face. */
-    if (destroyed || source === 'mock') return
+    if (destroyed) return
     /* The poll refreshes runs; the LIFECYCLE comes from the snapshot, and
        without re-reading it the worker control keeps its old word. Measured
        on installed 1.0.11: seven minutes after the worker process died the
@@ -2439,16 +2355,6 @@ export function researchView() {
     const host = moduleEl('worklists').querySelector('[data-research-worklists]')
     if (host && !findingsBlock.isConnected) host.appendChild(findingsBlock)
     const list = findingsBlock.querySelector('[data-research-findings-list]')
-    /* The example face fills this block from the sample world through the same
-       observation renderer the register lists use — it never asks the findings
-       service, because in the example there is no service to ask and a
-       "Reading the findings." line that can never settle is a small lie. This
-       fork sits above the pick-a-project sentence on purpose: the example
-       world has no projects to pick. */
-    if (source === 'mock') {
-      list.innerHTML = observationMarkup(SAMPLE_PROJECT_FINDINGS, { label: 'The findings list', emptyLabel: 'findings', itemMarkup: findingMarkup })
-      return
-    }
     if (selection === PROJECT_ALL || selection === PROJECT_UNFILED) {
       list.innerHTML = '<p class="research-observed-empty">Findings are filed under one project. Pick a project above to read its list.</p>'
       return
@@ -2495,13 +2401,7 @@ export function researchView() {
 
   function renderStatusPulse() {
     const pulse = bar.querySelector('[data-research-pulse]')
-    if (!pulse) return
-    /* The pulse runs on the example face too — it used to bail when simulated,
-       so the one line that shows what the workbench feels like mid-run was
-       exactly the line a visitor never saw. Under mock it counts the sample
-       experiment's own cells (one running, one queued, one finished) through
-       this same arithmetic; there is no service under mock, so the unread
-       branch below simply never fires there. */
+    if (!pulse || !liveMode) return
     let running = 0
     let queued = 0
     let finished = 0
@@ -2563,14 +2463,8 @@ export function researchView() {
   }
 
   async function refreshServiceSnapshot() {
-    /* The verdict can flip to 'mock' while this read is in flight (sign-out,
-       the example toggle). Landing the snapshot anyway would hand the example
-       face a real service object — and the pulse would then report the run
-       service unreadable over sample data. Read into a local, land it only in
-       a world that still wants it. */
-    const read = await readResearchSnapshot()
-    if (destroyed || source === 'mock') return
-    service = read
+    service = await readResearchSnapshot()
+    if (destroyed) return
     if (service.ok) {
       assignmentStore.adoptServiceRows(service.assignments)
       assignmentStore.flushPending()
@@ -2580,48 +2474,45 @@ export function researchView() {
     refreshRuns()
   }
 
-  /* ---------- boot ----------
-     ONE render path. The fork below chooses INPUTS, never renderers: 'local'
-     and 'relay' run the live loaders against this machine or the tunnel to
-     it, 'mock' hands the sample world to the very same functions. The verdict
-     is re-resolved whenever the host announces DATA_SOURCE_EVENT (sign-in,
-     sign-out, the example toggle), and every asynchronous continuation checks
-     the epoch it was born under, so a slow answer from the old world can
-     never paint over the new one. */
+  /* ---------- boot ---------- */
 
   mountLayout()
 
-  let bootEpoch = 0
+  if (liveMode) {
+    Promise.all([
+      fetchResearchQueue().catch(error => ({ ok: false, reason: error?.message || String(error) })),
+      readQueueRow(),
+    ]).then(([authored]) => {
+      if (destroyed) return
+      authoredQueue = authored
+      renderQueueModuleLive()
+    })
 
-  function renderMockWorld() {
-    /* The example world behaves as "All projects": the select is disabled on
-       this face, and pinning the in-memory selection to match keeps every
-       project filter (bench cards, pulse arithmetic, findings) showing the
-       whole sample. The STORED preference is deliberately untouched — mock
-       never writes — and renderLiveWorld reads it back on the way out. */
-    selection = PROJECT_ALL
-    service = null
-    runsByExperiment.clear()
-    resultsByRun.clear()
-    lastKnownPulse = null
-    /* Leftovers a source flip would otherwise strand: the service board and
-       service results are siblings the bench renderers are forbidden to
-       delete, so the one face with no service behind it removes them here,
-       charts first. */
-    for (const chart of serviceCharts.values()) chart.destroy()
-    serviceCharts.clear()
-    for (const chart of gatheredCharts.values()) chart.destroy()
-    gatheredCharts.clear()
-    moduleEl('runboard').querySelector('[data-service-runboard]')?.remove()
-    moduleEl('results').querySelector('[data-service-results]')?.remove()
-    projectSelect.innerHTML = `<option value="${PROJECT_ALL}">All projects</option>`
-    projectSelect.disabled = true
-    projectNewBtn.hidden = true
-    projectStatus.textContent = ''
-    root.querySelector('[data-research-source]').textContent = EXAMPLE_MAST
+    readExperimentsRow().then(() => {
+      if (!destroyed) renderExperimentModules()
+    })
+
+    refreshServiceSnapshot()
+
+    localTiersStatus().then(result => {
+      if (!destroyed) renderTiers(result)
+    }, error => {
+      if (!destroyed) renderTiers({ ok: false, reason: error?.message || String(error) })
+    })
+
+    fetchResearch().then(result => {
+      if (destroyed) return
+      if (!result.ok) { renderUnavailable(result.reason); return }
+      renderProjection(result.data)
+    }, error => {
+      if (!destroyed) renderUnavailable(error?.message || String(error))
+    })
+  } else {
     renderResearchQueue(SAMPLE_QUEUE)
     renderProjection({ data: SAMPLE_PROJECTION })
-    renderFindingsList()
+    seedExperiments({ experiments: [SAMPLE_EXPERIMENT], damaged: false })
+    renderRunBoard()
+    renderResults()
     renderTiers({
       ok: true,
       receipt: {
@@ -2630,91 +2521,13 @@ export function researchView() {
         strong: { model: 'gpt-oss:20b', enabled: true, ready: false, reason: 'fresh_load_free_vram_below_6.5GiB' },
       },
     })
-    /* The REAL designer renders on the example face — form, preview, starter
-       templates and the sample experiment's card all work, because they are
-       the page's own renderers over local, pure helpers; only the presses
-       that would persist or start something are refused (EXAMPLE_WRITE_
-       REFUSAL, at the handlers). The old face replaced this module with one
-       sentence, which left the product's largest surface invisible to exactly
-       the visitor the example exists for. */
-    /* A signed-out LIVE visit leaves experimentsSignedOut raised, and
-       renderDesigner honours that flag before anything else — so without this
-       reset a flip into the example would show "Sign in to design
-       experiments" over sample data. The example is not signed anything; it
-       is the example. */
-    experimentsSignedOut = false
-    seedExperiments({ experiments: [SAMPLE_EXPERIMENT], damaged: false })
-    renderExperimentModules()
-    renderSessionsModule()
+    const designerHost = moduleEl('designer').querySelector('[data-research-designer]')
+    if (designerHost) designerHost.innerHTML = '<p class="research-observed-empty">This is the example face. Turn on Live data in settings to design experiments of your own.</p>'
+    const sessionsHost = moduleEl('sessions').querySelector('[data-research-sessions]')
+    if (sessionsHost) sessionsHost.innerHTML = '<p class="research-observed-empty">This is the example face. Turn on Live data in settings to file sessions under your projects.</p>'
     root.dataset.projectionState = 'simulated'
     root.setAttribute('aria-busy', 'false')
   }
-
-  function renderLiveWorld() {
-    const epoch = bootEpoch
-    const alive = () => !destroyed && epoch === bootEpoch
-    /* The stored project choice belongs to the person's own data; re-read it
-       on every entry so a trip through the example (which pins 'all' in
-       memory) hands back exactly the selection they left. */
-    selection = readProjectSelection(typeof window === 'undefined' ? null : window.localStorage)
-    root.setAttribute('aria-busy', 'true')
-    root.querySelector('[data-research-source]').textContent = 'reading your research…'
-
-    Promise.all([
-      fetchResearchQueue().catch(error => ({ ok: false, reason: error?.message || String(error) })),
-      readQueueRow(),
-    ]).then(([authored]) => {
-      if (!alive()) return
-      authoredQueue = authored
-      renderQueueModuleLive()
-    })
-
-    readExperimentsRow().then(() => {
-      if (alive()) renderExperimentModules()
-    })
-
-    refreshServiceSnapshot()
-
-    localTiersStatus().then(result => {
-      if (alive()) renderTiers(result)
-    }, error => {
-      if (alive()) renderTiers({ ok: false, reason: error?.message || String(error) })
-    })
-
-    fetchResearch().then(result => {
-      if (!alive()) return
-      if (!result.ok) { renderUnavailable(result.reason); return }
-      renderProjection(result.data)
-    }, error => {
-      if (alive()) renderUnavailable(error?.message || String(error))
-    })
-  }
-
-  async function applyDataSource() {
-    const epoch = ++bootEpoch
-    const verdict = await resolveDataSource()
-    if (destroyed || epoch !== bootEpoch) return
-    source = verdict
-    /* The badge follows the SOURCE and never the look of the data: mock is
-       marked, real data — local and relay alike — never is. The attribute
-       keeps its two established values because styles and drives key on
-       them. */
-    root.dataset.liveMode = sourceIsBadged(verdict) ? 'simulated' : 'live'
-    /* renderUnavailable inserts its banner after the mast on every call; a
-       re-boot must clear the old one or a flip out of an unavailable live
-       state would leave "no report library" standing over the example. */
-    root.querySelector('[data-research-unavailable]')?.remove()
-    if (verdict === 'mock') renderMockWorld()
-    else renderLiveWorld()
-  }
-
-  /* The event deliberately carries no verdict (see src/data-source.js), so
-     the answer is re-resolved from scratch — even an unchanged verdict
-     re-runs its loaders, which is exactly right after a sign-in that kept the
-     source 'local' but made the account rows readable. */
-  const onDataSourceChanged = () => { applyDataSource() }
-  window.addEventListener(DATA_SOURCE_EVENT, onDataSourceChanged)
-  applyDataSource()
 
   return {
     el: root,
@@ -2728,7 +2541,6 @@ export function researchView() {
       document.removeEventListener('pointerdown', onDocPointer)
       document.removeEventListener('keydown', onDocKey)
       window.removeEventListener(RESEARCH_EXPERIMENTS_EVENT, onExperimentsChanged)
-      window.removeEventListener(DATA_SOURCE_EVENT, onDataSourceChanged)
       layout?.destroy()
     },
   }

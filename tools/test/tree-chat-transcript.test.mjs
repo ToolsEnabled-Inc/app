@@ -216,10 +216,6 @@ test('every rail rebuild disposes the mounted chat first', () => {
     )
     from = at + 1
   }
-  /* Four sites: showTreeNodeControls, showExampleAgentControls (the example
-     seat's rail, in the tree rail's shape), showProjectionControls, and
-     showProjectionUnavailable's wipe. The simulated-only 'Agent Controls'
-     rail's rebuild died with the second render. */
   assert.ok(sites >= 4, `expected every rail rebuild to be checked; found ${sites}`)
 })
 

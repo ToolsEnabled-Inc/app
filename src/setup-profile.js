@@ -29,10 +29,9 @@
  *      gates a real control: the dispatch form, the ledger's decision buttons,
  *      the queue claim/close pair, the coordinator composer, the report reader,
  *      and starting a live agent session.
- *   4. The example toggle (`mc.example`, src/data-source.js). One switch that
- *      decides whether every screen reads this computer's own records or the
- *      labelled built-in example. It replaced seven per-view flags; the
- *      screens question maps to it directly.
+ *   4. The six live-view flags (`mc.live.*`, src/live-flags.js). Each decides
+ *      whether a screen reads this computer's own records or the labelled sample
+ *      demonstration.
  *
  * And four settings that other lanes are building the ENFORCEMENT for right now,
  * which this profile sets coherently so that their work lands on a value the user
@@ -152,10 +151,7 @@ export const SCREENS_CHOICES = Object.freeze([
     value: 'demonstration',
     label: 'A labelled demonstration',
     note: '',
-    /* One-world phrasing: the example is not a separate demonstration render
-       any more, it is the product's built-in example shown through the same
-       screens -- so the detail names what the screens SHOW, not a mode. */
-    detail: 'Every screen shows the product’s built-in example so you can see what each one does. None of it is your data and each screen says so. Switch back at any time.',
+    detail: 'Every screen shows the labelled sample fleet so you can see what each one does. None of it is your data and each screen says so. Switch back at any time.',
   }),
 ])
 
@@ -172,9 +168,8 @@ export const SCREENS_VALUES = Object.freeze(SCREENS_CHOICES.map(choice => choice
 /* The safe end of every axis, used for a skipped walkthrough and for any answer
  * this build does not recognise. Deliberately identical to what a machine that
  * never ran setup already does, so "skip" cannot leave anyone half-configured:
- * write actions ship off, the example toggle ships off (every screen reads this
- * computer's own records), and the workspace keeps whatever the record already
- * names. */
+ * write actions ship off, live views ship live, and the workspace keeps whatever
+ * the record already names. */
 export const SAFE_ANSWERS = Object.freeze({
   autonomy: 'observe',
   screens: 'live',
@@ -466,8 +461,9 @@ export function answersForAutonomy(autonomy, answers = {}) {
  * @param options.tier          the recorded permission level (the ceiling).
  * @param options.writeFlagIds  the ids src/write-flags.js knows, injected so the
  *                              derivation cannot drift from the real flag list.
+ * @param options.liveFlagIds   the ids src/live-flags.js knows, same reason.
  */
-export function deriveProfile(answers, { tier, writeFlagIds = [] } = {}) {
+export function deriveProfile(answers, { tier, writeFlagIds = [], liveFlagIds = [] } = {}) {
   const chosen = normalizeAnswers(answers)
   const ceiling = ceilingForTier(tier)
   const requestedWrite = new Set(AUTONOMY_WRITE_FLAGS[chosen.autonomy] || AUTONOMY_WRITE_FLAGS.observe)
@@ -482,11 +478,9 @@ export function deriveProfile(answers, { tier, writeFlagIds = [] } = {}) {
     if (wanted && !allowed) refused.push(id)
   }
 
-  /* ONE BOOLEAN WHERE A MAP OF SEVEN WAS. The demonstration answer used to
-     switch every per-view flag off together; those flags are gone and the one
-     example toggle (src/data-source.js) is what the answer reaches now. The
-     polarity is the toggle's own: true means "show the example". */
-  const exampleMode = chosen.screens === 'demonstration'
+  const live = chosen.screens === 'live'
+  const liveFlags = {}
+  for (const id of liveFlagIds) liveFlags[id] = live
 
   const intent = {}
   const intentClamped = []
@@ -501,7 +495,7 @@ export function deriveProfile(answers, { tier, writeFlagIds = [] } = {}) {
     tier: typeof tier === 'string' ? tier : null,
     answers: chosen,
     writeFlags,
-    exampleMode,
+    liveFlags,
     intent,
     /* What the level refused. Carried out of the derivation rather than dropped,
        so the review screen states the refusal instead of showing an answer the
@@ -543,23 +537,18 @@ export function profileCanStartAnAgent(derived) {
  *
  * The setters are INJECTED rather than imported, for two reasons that are the
  * same reason: `node --test` has no localStorage, and a test that stubs storage
- * proves the storage stub works. Passing setWriteEnabled and setExampleMode in
- * means the real path and the tested path are one call graph.
- *
- * The example toggle is applied in BOTH directions, exactly as every write
- * flag is: choosing "my own activity" turns the example off, so a profile
- * finished on a machine where somebody had switched the example on lands on
- * the state the review screen showed, not on a leftover.
+ * proves the storage stub works. Passing setWriteEnabled and setLiveView in means
+ * the real path and the tested path are one call graph.
  *
  * Nothing here writes `mc.set.*`. See the header: nothing reads it.
  */
-export function applyProfile(derived, { setWriteFlag, setExampleMode } = {}) {
-  const applied = { writeFlags: {} }
+export function applyProfile(derived, { setWriteFlag, setLiveFlag } = {}) {
+  const applied = { writeFlags: {}, liveFlags: {} }
   for (const [id, enabled] of Object.entries(derived?.writeFlags || {})) {
     applied.writeFlags[id] = Boolean(setWriteFlag?.(id, enabled))
   }
-  if (derived && typeof derived === 'object') {
-    applied.exampleMode = Boolean(setExampleMode?.(derived.exampleMode === true))
+  for (const [id, live] of Object.entries(derived?.liveFlags || {})) {
+    applied.liveFlags[id] = Boolean(setLiveFlag?.(id, live))
   }
   return applied
 }

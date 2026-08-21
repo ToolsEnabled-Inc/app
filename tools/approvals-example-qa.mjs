@@ -12,19 +12,17 @@
  *   NO example marking of any kind is on it -- a marking that leaks onto real
  *   data would be the same defect pointed the other way.
  *
- *   DEMONSTRATION: with the example switch on -- the one mc.example key,
- *   which src/data-source.js resolves every screen's source from, written
- *   into the app origin's storage before the app boots on it -- the screen
- *   wears the demonstration face: badge in home's words, source line in
- *   research's shape, example cards whose every control is disabled, and NOT
- *   the "service unavailable"
+ *   DEMONSTRATION: with every view flag simulated -- written the same way the
+ *   simulation build's own demo-mode.js writes them, into the app origin's
+ *   storage before the app boots on it -- the screen wears the demonstration
+ *   face: badge in home's words, source line in research's shape, example
+ *   cards whose every control is disabled, and NOT the "service unavailable"
  *   state the walk found.
  *
  * NAVIGATION IS BY CLICKING (the ring arrow, via walkRing), never by assigning
- * location.hash. The switch write goes through the page's own storage and a
- * real reload, so the app boots on the same stored choice the Settings row's
- * setExampleMode leaves behind -- stated here rather than dressed up as
- * something else.
+ * location.hash. The flag writes go through the page's own storage and a real
+ * reload; that is the mechanism demo-mode.js itself uses, stated here rather
+ * than dressed up as something else.
  *
  * RUN IT:
  *   node tools/approvals-example-qa.mjs
@@ -165,15 +163,16 @@ async function main() {
     }
 
     /* ---- state 2: demonstration ---- */
-    console.log('\n[demonstration] the example switch on -- one key, every screen')
+    console.log('\n[demonstration] every view flag simulated, the way demo-mode.js writes them')
     window = await openWindow(executable, profile)
     try {
       await delay(2500)
       /* Written into the app origin's own storage, then a real reload so the
-         app boots on it -- the same one stored key the Settings row's
-         setExampleMode leaves behind (src/data-source.js). */
+         app boots on it -- the simulation build's exact mechanism. */
       await window.evaluate(`(() => {
-        localStorage.setItem('mc.example', 'on')
+        for (const id of ['home', 'computers', 'agent', 'metrics', 'comms', 'ledger', 'research']) {
+          localStorage.setItem('mc.live.' + id, 'simulated')
+        }
         return true
       })()`)
       await window.evaluate('location.reload(); true')
@@ -184,7 +183,7 @@ async function main() {
       const demo = await window.evaluate(READ_APPROVALS)
       ledger.check('D2 the demonstration face is stamped', demo.face === 'demonstration', `face=${demo.face}`)
       ledger.check('D3 the badge is visible, in home’s exact words', demo.badgeShown === true && demo.badgeText === 'Example, not your data', `${demo.badgeShown} "${demo.badgeText}"`)
-      ledger.check('D4 the source line is visible and names the way back to your own data', demo.sourceShown === true && /example data — switch off the example fleet in settings/.test(demo.sourceText), demo.sourceText)
+      ledger.check('D4 the source line is visible and names the way back to live data', demo.sourceShown === true && /example data — turn on Live data in settings/.test(demo.sourceText), demo.sourceText)
       ledger.check('D5 the queue note says it is an example queue', /example/i.test(demo.queueNote), demo.queueNote)
       ledger.check('D6 example cards are on the glass', demo.cards.length >= 2 && demo.cards.every(card => card.example), `${demo.cards.length} card(s)`)
       ledger.check('D7 every control on every example card is disabled', demo.cards.every(card => card.buttons.length > 0 && card.buttons.every(button => button.disabled)),

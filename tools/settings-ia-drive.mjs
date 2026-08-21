@@ -11,15 +11,10 @@
  *              page tonight.
  *   GROUPS     the six groups open by pressing, the open state survives a
  *              restart, and a category press always lands somewhere.
- *   ONE-CLICKS "Turn everything off" (off ONLY), "Use recommended answers"
- *              (which must leave the permission level untouched -- read before
- *              and after), and a row's jump link actually landing on the page
- *              it names.
- *   EXAMPLE    the one "Show the example fleet" row (Data & Sim) that stands
- *              where the seven per-view rows and their "All examples" /
- *              "All live" bulk pair stood: pressed both ways, and the one
- *              stored key (mc.example, src/data-source.js) read back after
- *              each press.
+ *   ONE-CLICKS "All examples" / "All live", "Turn everything off" (off ONLY),
+ *              "Use recommended answers" (which must leave the permission
+ *              level untouched -- read before and after), and a row's jump
+ *              link actually landing on the page it names.
  *   ONBOARDING the first screen offers "Skip the rest for now"; the choice
  *              cards select; the review carries the standing-requests brief;
  *              a skip from the first screen lands on home and STAYS there
@@ -282,7 +277,7 @@ const STORAGE_MAP = `(() => {
   const out = {}
   for (let i = 0; i < localStorage.length; i += 1) {
     const key = localStorage.key(i)
-    if (/^mc\\.(set|example|write|chat|theme|text|setup)\\b/.test(key) || key === 'mc.settings.open-groups') {
+    if (/^mc\\.(set|live|write|chat|theme|text|setup)\\b/.test(key) || key === 'mc.settings.open-groups') {
       out[key] = localStorage.getItem(key)
     }
   }
@@ -325,9 +320,7 @@ async function main() {
 
     console.log('\nEVERY ROW, PRESSED AND WITNESSED')
     const rows = await window.evaluate(ENUMERATE)
-    /* >= 84: the pin was 90 when seven live_<view> rows stood where the one
-       example_mode row is now -- six fewer rows, everything else unchanged. */
-    check('the sweep found the page’s rows', Array.isArray(rows) && rows.length >= 84, `${rows?.length} rows`)
+    check('the sweep found the page’s rows', Array.isArray(rows) && rows.length >= 90, `${rows?.length} rows`)
     const skipped = []
     const dead = []
     let exercised = 0
@@ -364,27 +357,19 @@ async function main() {
       && await window.evaluate(`document.querySelector('[data-setup-profile-set="autonomy"][data-setup-profile-value="assisted"]')?.getAttribute('aria-pressed') === 'true'`))
     check('and the permission level did not move', tierBefore !== null && tierBefore === tierAfter, `${tierBefore} -> ${tierAfter}`)
 
-    /* THE EXAMPLE SWITCH, BOTH DIRECTIONS. One row -- Data & Sim's "Show the
-       example fleet" -- stands where the seven per-view rows and their
-       "All examples"/"All live" bulk pair stood, and one stored key stands
-       where seven flags did: mc.example, present-as-'on' or absent
-       (src/data-source.js). The row sweep above already pressed this toggle
-       once, so the walk reads which side it is on and presses BOTH ways
-       rather than assuming a starting state. */
-    const exampleKey = () => window.evaluate(`localStorage.getItem('mc.example')`)
-    const exampleBefore = await exampleKey()
-    const exampleFirst = await window.clickVisible('[data-setting-id="example_mode"] label.settings-toggle')
+    const allExamples = await window.clickVisible('button[data-bulk-live="off"]')
     await delay(900)
-    const exampleMid = await exampleKey()
-    check('the example toggle flips the one stored key', exampleFirst === 'clicked'
-      && (exampleBefore === 'on' ? exampleMid === null : exampleMid === 'on'),
-      `${exampleBefore} -> ${exampleMid}`)
-    const exampleSecond = await window.clickVisible('[data-setting-id="example_mode"] label.settings-toggle')
+    const simulated = await window.evaluate(`(() => {
+      const flags = ['home','computers','agent','metrics','comms','ledger','research']
+      return flags.every(id => localStorage.getItem('mc.live.' + id) === 'simulated')
+    })()`)
+    check('All examples turns every screen source in one press', allExamples === 'clicked' && simulated)
+    const allLive = await window.clickVisible('button[data-bulk-live="on"]')
     await delay(900)
-    const exampleAfter = await exampleKey()
-    check('and flips it back the other way', exampleSecond === 'clicked'
-      && (exampleMid === 'on' ? exampleAfter === null : exampleAfter === 'on'),
-      `${exampleMid} -> ${exampleAfter}`)
+    check('All live turns them all back', allLive === 'clicked' && await window.evaluate(`(() => {
+      const flags = ['home','computers','agent','metrics','comms','ledger','research']
+      return flags.every(id => localStorage.getItem('mc.live.' + id) === null)
+    })()`))
 
     const bulkOff = await window.clickVisible('button[data-bulk-write-off]')
     await delay(900)
@@ -393,14 +378,11 @@ async function main() {
     check('and no bulk ON exists for the acting switches',
       await window.evaluate(`document.querySelector('[data-bulk-write-on], [data-bulk-write="on"]') === null`))
 
-    /* The live_metrics row this pressed went with the seven-flag world; of
-       the surviving jump rows (JUMP_TARGETS in src/views/settings.js),
-       write_dispatch is the one whose link names the page its switch gates. */
-    const jumpHref = await window.evaluate(`document.querySelector('[data-setting-id="write_dispatch"] .settings-jump')?.getAttribute('href') || null`)
-    const jump = await window.clickVisible('[data-setting-id="write_dispatch"] .settings-jump')
+    const jumpHref = await window.evaluate(`document.querySelector('[data-setting-id="live_metrics"] .settings-jump')?.getAttribute('href') || null`)
+    const jump = await window.clickVisible('[data-setting-id="live_metrics"] .settings-jump')
     await delay(1500)
-    check('a jump link lands on the page its row gates', jumpHref === '#/computers' && jump === 'clicked'
-      && await window.evaluate(`document.body.dataset.route || ''`) === 'computers',
+    check('a jump link lands on the page its row gates', jumpHref === '#/metrics' && jump === 'clicked'
+      && await window.evaluate(`document.body.dataset.route || ''`) === 'metrics',
       `href=${jumpHref} landed=${await window.evaluate(`document.body.dataset.route || ''`)}`)
 
     console.log('\nTHE RESTART: every choice read back')

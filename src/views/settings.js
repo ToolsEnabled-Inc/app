@@ -4,6 +4,7 @@
 
 import { el, attachSeg } from '../components.js'
 import { rangeFill } from './computers.js'
+import { sim } from '../sim.js'
 import { QUICK_SETTING_EVENT } from '../quick-settings.js'
 import {
   FONT_CHOICES,
@@ -13,13 +14,7 @@ import {
   fontStack,
   normalizeFontId,
 } from '../font-choice.js'
-/* ONE AXIS WHERE SEVEN SWITCHES WERE. The per-view `mc.live.<view>` flags were
-   Phase-2 rollback machinery -- seven independent ways for a screen to disagree
-   with its neighbour about what world it was in. src/data-source.js replaced
-   them with one question ("where does the data on every screen come from") and
-   one preference: the example toggle. This page's Data & Sim row is that
-   toggle's control; data-source.js is its registry and its enforcement. */
-import { isExampleMode, setExampleMode } from '../data-source.js'
+import { LIVE_VIEW_FLAGS, isLiveView, setLiveView } from '../live-flags.js'
 import { WRITE_ACTION_FLAGS, isWriteEnabled, setWriteEnabled } from '../write-flags.js'
 /* THE TWO ROWS ON THIS PAGE THAT HAD NOWHERE TO BE WRITTEN DOWN. Glow and
    reduce motion were read back off the DOM alone, so both were thrown away
@@ -220,6 +215,7 @@ export const SETTINGS = [
 
   { id: 'ledger_archive', section: 'Ledger', name: 'Clean up old R', desc: 'The first click only shows which completed or superseded requests would be archived. A second click moves exactly that list into the archive — nothing is moved without the preview.', depth: 1, type: 'action', def: null },
 
+  { id: 'scenario_tick_rate', section: 'Data & Sim', name: 'Demonstration speed', desc: 'How fast the demonstration fleet generates new activity (its scenario tick rate).', depth: 1, type: 'range', min: 30, max: 300, step: 5, unit: '%', def: 100 },
   /* 'offline_fallback' was removed 2026-08-13 rather than left as a row: it was
      declared here and read by NOTHING in the tree, so the toggle moved and
      changed no behavior — a control that looks real and is not, the exact
@@ -227,35 +223,17 @@ export const SETTINGS = [
      enforcement, and a control, or it's a lie"). If a demonstration fallback
      for unreadable live data is ever wanted, it gets built first and its row
      returns with a reader. */
-  /* ONE ROW WHERE SEVEN WERE, AND THE SWITCH POINTS THE OTHER WAY.
-   *
-   * The seven `live_<view>` rows this replaces each read ON for "this screen
-   * shows your own records" and OFF for "this screen shows the demonstration".
-   * This row is the INVERSE: ON means every screen shows the example, OFF
-   * means every screen shows your own activity. The old polarity made sense
-   * for seven per-screen source switches that shipped on; for one preference
-   * whose shipped state is "your own data", the switch has to name the thing
-   * turning it on GETS you -- the example -- or the off state reads as a
-   * defect. `scenario_tick_rate` ("Demonstration speed") went in the same
-   * edit: it drove the retired simulation engine's clock, and the example
-   * this row shows is data fed through the ordinary screens, with no clock of
-   * its own to pace.
-   *
-   * The doctrine above (`offline_fallback`) applies to this row and is met:
-   * the REGISTRY and the ENFORCEMENT are src/data-source.js -- isExampleMode()
-   * owns the stored choice and resolveDataSource() answers 'mock' for every
-   * screen while it is on -- and the CONTROL is this row plus the drawer's
-   * copy of it. tools/test/settings-rows-do-something.test.mjs walks the
-   * wiring rather than trusting this comment. */
-  {
-    id: 'example_mode',
+  ...LIVE_VIEW_FLAGS.map(flag => ({
+    id: `live_${flag.id}`,
     section: 'Data & Sim',
-    name: 'Show the example fleet',
-    desc: 'Every screen shows the product’s built-in example instead of your own activity, and each screen showing it is labelled as an example. It is what a signed-out visitor to the website sees. Turn it off to see your own records again.',
+    name: `${flag.label} live data`,
+    desc: `Show your computer’s own records on this page (read from ${flag.domain}.json). Turn off to see the labelled demonstration instead.`,
     depth: 1,
     type: 'toggle',
-    def: false,
-  },
+    def: true,
+  })),
+  /* "Synthetic failure rate" was a name written from inside the code. Nothing a
+     person owns is synthetic, and the row is about the built-in example. */
 
   /* The shipped-default sentence moved off the description and into the row's
      STATE line (toggleStateSentence), because here it contradicted the switch:
@@ -275,6 +253,7 @@ export const SETTINGS = [
 ]
 
 const byId = new Map(SETTINGS.map(setting => [setting.id, setting]))
+const liveSettingViews = new Map(LIVE_VIEW_FLAGS.map(flag => [`live_${flag.id}`, flag.id]))
 const writeSettingActions = new Map(WRITE_ACTION_FLAGS.map(flag => [`write_${flag.id}`, flag.id]))
 const storageKey = id => `mc.set.${id}`
 const escapeHtml = value => String(value)
@@ -308,10 +287,8 @@ function readStored(setting) {
 }
 
 function readValue(setting) {
-  /* The applied state lives in src/data-source.js, not under this page's own
-     `mc.set.*` key -- same rule as theme and font: the module that enforces a
-     value is the one asked for it, never a stored copy that could drift. */
-  if (setting.id === 'example_mode') return isExampleMode()
+  const liveView = liveSettingViews.get(setting.id)
+  if (liveView) return isLiveView(liveView)
   const writeAction = writeSettingActions.get(setting.id)
   if (writeAction) return isWriteEnabled(writeAction)
   if (setting.id === 'theme') {
@@ -420,16 +397,12 @@ function searchHaystack(setting) {
  * One press instead of "read the name, work out which page, walk the ring".
  * Only rows whose gated surface has a stable address get a link; the agent
  * drill-ins have no fixed page to name, so their rows carry none rather than
- * a link that lands somewhere the control is not.
- *
- * The example row's link is a CHOICE OF ONE ADDRESS OVER ALL OF THEM. The
- * seven per-view rows each linked to the one screen they gated; this switch
- * gates every screen at once, so no single link can show its whole effect.
- * The home screen is where a person lands first and where the example's badge
- * is most prominent, so that is where the link goes -- one honest sample of
- * the effect, not a claim that the effect lives there. */
+ * a link that lands somewhere the control is not. */
 const JUMP_TARGETS = new Map([
-  ['example_mode', { href: '#/', label: 'Open the home screen, where this shows first' }],
+  ...LIVE_VIEW_FLAGS.filter(flag => flag.id !== 'agent').map(flag => [
+    `live_${flag.id}`,
+    { href: flag.id === 'home' ? '#/' : `#/${flag.id}`, label: `Open the ${flag.label.toLowerCase()}` },
+  ]),
   ['write_dispatch', { href: '#/computers', label: 'Open the page that shows this control' }],
   ['write_decision', { href: '#/ledger', label: 'Open the ledger this controls' }],
   ['write_queue', { href: '#/ledger', label: 'Open the ledger this controls' }],
@@ -500,7 +473,7 @@ function tierMarkup(section, depth, content, open) {
    than an empty one. */
 const SECTION_NOTES = Object.freeze({
   'Data & Sim': Object.freeze({
-    text: 'This switch chooses between your own records and the product’s built-in example, for every screen at once. It does not connect anything. On a fresh install your own readings are empty, because nothing has reported to this copy yet, and this switch does not change that.',
+    text: 'These switches choose between the live reading and a worked example, one screen at a time. They do not connect anything. On a fresh install the live readings are empty, because nothing has reported to this copy yet, and no switch on this page changes that.',
     link: Object.freeze({ label: 'What this copy needs', href: GUIDE_HREF }),
   }),
   Write: Object.freeze({
@@ -516,23 +489,28 @@ function sectionNoteMarkup(section) {
     <a class="host-absent-action" href="${escapeHtml(note.link.href)}">${escapeHtml(note.link.label)}</a></p>`
 }
 
-/* THE ONE SECTION-LEVEL ONE-PRESS CONTROL LEFT, AND THE ONE THAT DIED WITH
- * THE PER-VIEW FLAGS.
+/* THE TWO SECTION-LEVEL ONE-PRESS CONTROLS, AND THE ASYMMETRY BETWEEN THEM.
  *
- * Data & Sim used to carry an "every screen at once" pair, because its seven
- * switches were genuinely independent screen-source toggles and pressing
- * them one at a time was busywork. The section now holds ONE switch that
- * reaches every screen by construction, so a bulk press over it would be a
- * second button doing exactly what the switch already does -- it went with
- * the rows.
- *
- * Write keeps its press, and keeps its asymmetry: its switches each let the
- * program ACT, and the product deliberately asks for each grant one row at a
- * time -- the walkthrough's one-answer bulk grant is the sanctioned path,
- * with its consequences stated. So Write gets ONE press for the safe
- * direction only: off. There is deliberately no "turn everything on" press
- * here. */
+ * Data & Sim's switches are genuinely independent screen-source toggles: both
+ * directions are equally honest (the example is labelled as an example), so
+ * both directions get one press. Write's switches each let the program ACT,
+ * and the product deliberately asks for each grant one row at a time -- the
+ * walkthrough's one-answer bulk grant is the sanctioned path, with its
+ * consequences stated. So Write gets ONE press for the safe direction only:
+ * off. There is deliberately no "turn everything on" press here. */
 const BULK_ROWS = Object.freeze({
+  'Data & Sim': `<article class="settings-row settings-bulk-row">
+    <div class="settings-copy">
+      <div class="settings-name" id="settings-bulk-live-label">Every screen at once</div>
+      <div class="settings-desc">One press sets every switch in this section together. Each switch below stays its own afterwards.</div>
+    </div>
+    <div class="settings-control">
+      <div class="fleet-profile-actions" role="group" aria-labelledby="settings-bulk-live-label">
+        <button type="button" class="ctl-btn" data-bulk-live="on">All live</button>
+        <button type="button" class="ctl-btn" data-bulk-live="off">All examples</button>
+      </div>
+    </div>
+  </article>`,
   Write: `<article class="settings-row settings-bulk-row">
     <div class="settings-copy">
       <div class="settings-name" id="settings-bulk-write-label">Everything off, in one press</div>
@@ -883,11 +861,9 @@ export function settingsView({ query: routeQuery = null } = {}) {
   }
 
   function applyValue(setting, value) {
-    if (setting.id === 'example_mode') {
-      /* setExampleMode owns the storage and announces the change itself
-         (DATA_SOURCE_EVENT), which is what makes every open screen re-resolve
-         its source; this page only repaints its own row below. */
-      value = setExampleMode(Boolean(value))
+    const liveView = liveSettingViews.get(setting.id)
+    if (liveView) {
+      value = setLiveView(liveView, Boolean(value))
     } else if (writeSettingActions.has(setting.id)) {
       value = setWriteEnabled(writeSettingActions.get(setting.id), Boolean(value))
     } else if (setting.id === 'theme') {
@@ -922,6 +898,15 @@ export function settingsView({ query: routeQuery = null } = {}) {
       document.body.classList.toggle('reduce-motion', value)
       const drawerToggle = document.getElementById('set-motion')
       if (drawerToggle) drawerToggle.checked = value
+    } else if (setting.id === 'scenario_tick_rate') {
+      /* This row is live: it drives the sim clock the way the drawer's pace
+         slider used to (R1520 moved that slider out of the drawer and here),
+         and unlike that slider the choice persists — applyStoredSimPace()
+         re-applies it at launch. */
+      const number = clampNumber(setting, value)
+      sim.setPace(number / 100)
+      writeStored(setting, number)
+      value = number
     } else {
       writeStored(setting, value)
     }
@@ -970,11 +955,15 @@ export function settingsView({ query: routeQuery = null } = {}) {
       return
     }
 
-    /* The one one-press section control. It goes through applyValue, the
+    /* The two one-press section controls. Each goes through applyValue, the
        same door every individual switch uses, so the write, the store and the
-       row repaint are exactly what a row-by-row walk would have done. (Data &
-       Sim's bulk pair is gone: its one switch reaches every screen already --
-       see BULK_ROWS.) */
+       row repaint are exactly what a row-by-row walk would have done. */
+    const bulkLive = event.target.closest('button[data-bulk-live]')
+    if (bulkLive) {
+      const live = bulkLive.dataset.bulkLive === 'on'
+      for (const flag of LIVE_VIEW_FLAGS) applyValue(byId.get(`live_${flag.id}`), live)
+      return
+    }
     if (event.target.closest('button[data-bulk-write-off]')) {
       for (const flag of WRITE_ACTION_FLAGS) applyValue(byId.get(`write_${flag.id}`), false)
       return
@@ -1194,15 +1183,14 @@ export function settingsView({ query: routeQuery = null } = {}) {
   }
 }
 
-/* SIMULATION PACE IS GONE, AND THIS EXPORT IS ITS HEADSTONE, NOT ITS GHOST.
-   The `scenario_tick_rate` row this applied at launch drove the retired
-   simulation engine's clock (src/sim.js); the demo pace died with that engine
-   -- the example the product shows now is data fed through the ordinary
-   screens, with no clock of its own to pace. src/main.js still calls this at
-   boot, and main.js belongs to the core lane's cutover, so the export stays a
-   deliberate no-op until that call is removed -- at which point this function
-   is deleted with it, not kept. */
-export function applyStoredSimPace() {}
+/* SIMULATION PACE, THE BOOT HALF. The pace control lives in this page's
+   Data & Sim section (scenario_tick_rate) since R1520 retired the drawer's
+   per-session slider; the choice is stored like every other row here, and
+   main.js calls this at launch so the sim clock actually runs at it. */
+export function applyStoredSimPace() {
+  const setting = byId.get('scenario_tick_rate')
+  if (setting) sim.setPace(Number(readStored(setting)) / 100)
+}
 
 /* GLOW AND REDUCE MOTION, THE BOOT HALF AND THE DRAWER HALF.
  *

@@ -88,29 +88,14 @@ test('the workbench mounts the metrics layout engine with its own keys', () => {
   assert.match(engine, /closest\('\[data-mc\]'\)/, 'the engine hook moved; update the workbench sections with it')
 })
 
-/* RE-AIMED with the source-axis cutover. This clause used to anchor
-   isLiveView('research') and the per-view flag's register rows — the exact
-   machinery the owner's ruling ("all simulated pages ARE the UI pages, just
-   mock data") removed. What it guards now is the ruling itself: ONE render
-   path whose inputs come from the one source axis (src/data-source.js), a
-   mock verdict that is badged as the example, and a page that re-resolves
-   when the host says the world changed instead of trusting a stale verdict.
-   The old clauses that read live-flags.js and quick-settings.js are gone on
-   purpose: those files are the dying machinery, and a research suite pinning
-   their contents would turn red the moment the cutover finishes them. */
-test('the sample face is the one render fed mock data from the source axis', () => {
+test('the sample face renders only when the live flag is off, and says it is an example', () => {
   const view = read('src/views/research.js')
-  assert.match(view, /resolveDataSource\(/, 'the page no longer resolves the one source axis')
-  assert.match(view, /DATA_SOURCE_EVENT/, 'the page no longer re-resolves when the host announces a source change')
-  assert.match(view, /sourceIsBadged\(/, 'the badge rule stopped being read from its one home in data-source.js')
-  assert.match(view, /example data/, 'the mock mast no longer says it is an example')
-  assert.match(view, /never saves, starts, or removes/, 'the example lost its write refusal — mock must never write')
-  /* Comments stripped first, as the R198 guard below does: the view's own WHY
-     prose is allowed to NAME the machinery it replaced — that is how house
-     comments record history — but no surviving CODE may read it. */
-  const code = view.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
-  assert.doesNotMatch(code, /isLiveView|setLiveView|live-flags/,
-    'the per-view live flag is back in the research view; the source axis replaced it')
+  assert.match(view, /isLiveView\('research'\)/, 'the page no longer reads its live flag')
+  assert.match(view, /example data/, 'the simulated mast no longer says it is an example')
+  const flags = read('src/live-flags.js')
+  assert.match(flags, /id: 'research'/, 'the research live flag left the register')
+  const quick = read('src/quick-settings.js')
+  assert.match(quick, /research: 'research'/, 'the drawer lost the research page flag')
 })
 
 test('the R198 locked-report branch still reads only title and reason', () => {

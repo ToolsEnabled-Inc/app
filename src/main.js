@@ -19,7 +19,7 @@ import './styles.css'
    stylesheet import inside it would break. */
 import './guided-step.css'
 
-import { fmtRuntime } from './runtime-clock.js'
+import { fmtRuntime } from './sim.js'
 import { tickRuntimes, takeViewMorph } from './components.js'
 import { homeView } from './views/home.js'
 import { computersView } from './views/computers.js'
@@ -30,13 +30,13 @@ import { commsView } from './views/comms.js'
 import { ledgerView } from './views/ledger.js'
 import { approvalsView } from './views/approvals.js'
 import { checkoutView } from './views/checkout.js'
-import { settingsView, applyStoredAppearance } from './views/settings.js'
+import { settingsView, applyStoredAppearance, applyStoredSimPace } from './views/settings.js'
 import { renderQuickSettings } from './quick-settings.js'
 import { setupView } from './views/setup.js'
 import { accountView } from './views/account.js'
 import { guideView } from './views/guide.js'
 import { subscribeView } from './views/subscribe.js'
-import { DATA_SOURCE_EVENT } from './data-source.js'
+import { LIVE_FLAGS_EVENT } from './live-flags.js'
 import { WRITE_FLAGS_EVENT } from './write-flags.js'
 import { SETUP_RESOLUTION, firstRunPending, shouldOpenSetup } from './setup-state.js'
 import { mountSettingsRecoveryNotice } from './settings-recovery-notice.js'
@@ -111,8 +111,8 @@ function parse() {
   if (parts[0] === 'computers') return { name: 'computers', comp: parts[1] || null }
   /* `/example` is a fourth segment rather than a stored preference on purpose.
      The empty computers page offers a way to SEE this surface on a machine that
-     has no fleet yet, and the obvious implementation — flip the stored example
-     preference and navigate — pins that choice permanently: the day the
+     has no fleet yet, and the obvious implementation — flip `mc.live.agent` to
+     `simulated` and navigate — pins that preference permanently: the day the
      customer finally has real agents, their own drill-in would still be showing
      demonstration data because a button they pressed once, months earlier, is
      still in force. Encoding the intent in the route instead means it lasts
@@ -497,12 +497,11 @@ function swapView(route, morph, zoom, snapshotted) {
 }
 
 window.addEventListener('hashchange', render)
-// The data source can change under an open view: the example toggle, a
-// sign-in/out on the website, or a view's own first async resolution landing a
-// different verdict than its construction guess. Rebuild the active surface so
-// the whole page changes worlds at once, while the settings page keeps its
-// inline controls in place and updates them locally.
-window.addEventListener(DATA_SOURCE_EVENT, () => {
+// A source flag can also be flipped from a diagnostic harness or another
+// same-page control. Rebuild the active read surface so LIVE <-> SIMULATED is
+// an immediate rollback, while the settings page keeps its inline controls in
+// place and updates them locally.
+window.addEventListener(LIVE_FLAGS_EVENT, () => {
   if (current?.route?.name !== 'settings') queueMicrotask(render)
 })
 window.addEventListener(WRITE_FLAGS_EVENT, () => {
@@ -682,6 +681,11 @@ try {
   const v = parseFloat(localStorage.getItem('mc.text'))
   if (v === 0.9 || v === 1.12) document.body.style.zoom = String(v)
 } catch {}
+/* Simulation pace moved out of the drawer (owner R1520 — the upper-right
+   control kept showing simulation settings on every page) and into the
+   settings page's Data & Sim section, where it persists; this re-applies the
+   stored choice to the sim clock at launch. */
+applyStoredSimPace()
 /* Glow intensity and reduce motion, put back the way theme and text size are.
    They were the only two appearance choices with nowhere to be written down,
    so both were lost at every launch; see src/appearance-persistence.js. */

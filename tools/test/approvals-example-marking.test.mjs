@@ -9,18 +9,16 @@
  * page reads as a broken product, and on any screen leaves a visitor free to
  * read whatever it shows as somebody's real decision queue.
  *
- * WHAT "DEMONSTRATION" MEANS FOR THIS VIEW, precisely. Approvals has no
- * switch of its own, because its data is the audited queue and there is
- * nothing per-view to toggle. The one state in which this screen is part of a
- * demonstration is when the whole product is showing its built-in example --
- * which is exactly what src/data-source.js answers 'mock' for: the example
- * toggle is on, or a signed-out browser has no machine behind it. So the face
- * is derived from the source axis: a KNOWN mock source means demonstration;
- * any real source -- this computer's own, or the person's machine over the
- * relay -- means this screen reads the live queue as it always has, and a
- * source that is not yet known is never rounded to the example, because
- * badging a person's real queue is the one direction the marking must not
- * miss in.
+ * WHAT "DEMONSTRATION" MEANS FOR THIS VIEW, precisely. Approvals has no flag of
+ * its own in src/live-flags.js, because its data is the audited queue and there
+ * is nothing per-view to switch. The one state in which this screen is part of
+ * a demonstration is when the WHOLE product's screens are the demonstration --
+ * which is exactly what setup's "screens" answer records (every live flag off
+ * together) and exactly what the simulation build's demo-mode.js writes (every
+ * flag simulated). So the face is derived: every view flag simulated means
+ * demonstration; any view live means this screen reads the live queue as it
+ * always has. A person who flipped ONE page to the demonstration in Settings
+ * kept approvals live on purpose -- their queue is still their queue.
  *
  * The view module imports the DOM-bound component layer and cannot be executed
  * under node:test (the same limit tools/test/first-run-tier-screen.test.mjs
@@ -37,10 +35,10 @@ import { test } from 'node:test'
 
 import {
   APPROVALS_EXAMPLE_MARKING,
-  APPROVALS_FACES,
   approvalsFace,
   exampleOwnerPrompts,
 } from '../../src/approvals-example.js'
+import { LIVE_VIEW_FLAGS } from '../../src/live-flags.js'
 import { cartSummary } from '../../src/purchase-cart-view.js'
 import { sentencesOf, wordsOf } from '../lib/user-visible-strings.mjs'
 
@@ -49,35 +47,22 @@ const VIEW = readFileSync(path.join(REPO_ROOT, 'src', 'views', 'approvals.js'), 
 
 /* ---------- the face ---------- */
 
-/* The input axis moved from "are all seven view flags simulated" to "what is
-   the data source" when the per-view flags collapsed into the one example
-   toggle. The DERIVATION INVARIANTS these three tests hold are unchanged:
-   only the whole-product example state wears the demonstration face, any
-   real data keeps the live queue, and no ambiguity is ever rounded toward
-   an unmarked example or a badged real queue. */
-
-test('the mock source means the approvals screen is part of the demonstration', () => {
-  assert.equal(approvalsFace({ source: () => 'mock' }), 'demonstration')
+test('every screen on the demonstration means the approvals screen is too', () => {
+  assert.equal(approvalsFace({ isLive: () => false }), 'demonstration')
 })
 
-test('any real source keeps approvals on the live queue', () => {
-  for (const real of ['local', 'relay']) {
-    assert.equal(approvalsFace({ source: () => real }), 'this-computer',
-      `the ${real} source read as a demonstration, which would badge a person's real queue`)
+test('any screen reading live keeps approvals on the live queue', () => {
+  assert.equal(approvalsFace({ isLive: () => true }), 'this-computer')
+  for (const liveOne of LIVE_VIEW_FLAGS.map(flag => flag.id)) {
+    assert.equal(approvalsFace({ isLive: id => id === liveOne }), 'this-computer',
+      `one live view (${liveOne}) still read as a demonstration`)
   }
 })
 
-test('a source not yet known is never rounded to the demonstration, and the face is always a declared one', () => {
-  /* currentDataSource() is null before the first resolution completes. The
-     honest face for "not yet known" is the live one: the poll reports its own
-     failure in its own words, while a wrongly-badged real queue would tell a
-     person their actual decisions are invented. */
-  for (const unknown of [null, undefined, '']) {
-    const face = approvalsFace({ source: () => unknown })
-    assert.equal(face, 'this-computer', `${String(unknown)} was rounded to the demonstration`)
-    assert.ok(APPROVALS_FACES.includes(face))
-  }
-  assert.ok(APPROVALS_FACES.includes(approvalsFace({ source: () => 'mock' })))
+test('the face asks about every declared view, so a new view cannot silently widen the demonstration', () => {
+  const asked = []
+  approvalsFace({ isLive: id => { asked.push(id); return false } })
+  assert.deepEqual(asked.sort(), LIVE_VIEW_FLAGS.map(flag => flag.id).sort())
 })
 
 /* ---------- the words ---------- */
@@ -85,8 +70,8 @@ test('a source not yet known is never rounded to the demonstration, and the face
 test('the marking uses the words the other screens already use, and every sentence is plain', () => {
   assert.equal(APPROVALS_EXAMPLE_MARKING.badge, 'Example, not your data',
     'the badge does not carry the exact words home uses, so the product would label one thing two ways')
-  assert.match(APPROVALS_EXAMPLE_MARKING.source, /^example data — switch off the example fleet in settings/,
-    'the source line does not follow the research page’s shape, or still names the retired per-view Live data switch')
+  assert.match(APPROVALS_EXAMPLE_MARKING.source, /^example data — turn on Live data in settings/,
+    'the source line does not follow the research page’s shape')
   assert.match(APPROVALS_EXAMPLE_MARKING.queueNote, /example/i)
   assert.match(APPROVALS_EXAMPLE_MARKING.cardStatus, /example/i)
   assert.doesNotMatch(APPROVALS_EXAMPLE_MARKING.cardStatus, /unavailable|error|failed/i,

@@ -28,13 +28,9 @@
  *      shell/uninstall-retention.cjs) and two templated readers
  *      (src/appearance-persistence.js, for glow and reduce_motion).
  *
- * (`scenario_tick_rate` used to be licensed through a third path,
- * applyStoredSimPace() re-applying it to the simulation clock at launch. The
- * row and the clock are gone -- the example the product shows now is data fed
- * through the ordinary screens -- so the path is gone with them. The
- * `example_mode` row that replaced the per-view family acts through door 1,
- * and its ENFORCEMENT is asserted by name below: src/data-source.js owns the
- * stored choice and answers 'mock' for every screen while it is on.)
+ * plus `applyStoredSimPace()`, which reaches `scenario_tick_rate` through the
+ * page's own `readStored()` at launch -- a path a literal-key search MISSES,
+ * which is why it is named here explicitly rather than inferred.
  *
  * THIS IS A RATCHET, NOT A SNAPSHOT. It is derived from the source at run time,
  * so a row added tomorrow with no consumer fails it on the day it is added,
@@ -68,14 +64,14 @@ function declaredRows() {
   const literal = [...block.matchAll(/^\s*\{\s*id:\s*'([^']+)',\s*section:\s*'([^']+)'/gm)]
     .map(match => ({ id: match[1], section: match[2] }))
 
-  /* The one family still built by `.map()` over a flag table rather than
-     written out, which a regex over this block cannot see. (The live-view
-     family this used to add collapsed into the literal `example_mode` row,
-     which the regex above sees directly.) */
+  /* The two families built by `.map()` over a flag table rather than written
+     out, which a regex over this block cannot see. */
+  const live = [...read('src/live-flags.js').matchAll(/id:\s*'([^']+)'/g)]
+    .map(match => ({ id: `live_${match[1]}`, section: 'Data & Sim' }))
   const write = [...read('src/write-flags.js').matchAll(/id:\s*'([^']+)'/g)]
     .map(match => ({ id: `write_${match[1]}`, section: 'Write' }))
-  assert.ok(write.length > 0, 'the flag table was read')
-  return [...literal, ...write]
+  assert.ok(live.length > 0 && write.length > 0, 'the flag tables were read')
+  return [...literal, ...live, ...write]
 }
 
 /* DOOR 1: the rows `applyValue` treats specially. Read out of the function's
@@ -86,6 +82,9 @@ function rowsAppliedInPlace() {
   assert.ok(start >= 0 && end > start, 'applyValue is where this test expects it')
   const body = settingsSource.slice(start, end)
   const ids = new Set([...body.matchAll(/setting\.id === '([^']+)'/g)].map(match => match[1]))
+  if (/liveSettingViews\.get\(setting\.id\)/.test(body)) {
+    for (const match of read('src/live-flags.js').matchAll(/id:\s*'([^']+)'/g)) ids.add(`live_${match[1]}`)
+  }
   if (/writeSettingActions\.has\(setting\.id\)/.test(body)) {
     for (const match of read('src/write-flags.js').matchAll(/id:\s*'([^']+)'/g)) ids.add(`write_${match[1]}`)
   }
@@ -99,6 +98,7 @@ const READ_ELSEWHERE = Object.freeze({
   uninstall_data: 'shell/uninstall-retention.cjs — RETENTION_PREF_KEY',
   glow: 'src/appearance-persistence.js — GLOW_KEY, applied at launch',
   reduce_motion: 'src/appearance-persistence.js — REDUCE_MOTION_KEY, applied at launch',
+  scenario_tick_rate: 'src/views/settings.js — applyStoredSimPace(), called from src/main.js at launch',
 })
 
 /* A row that stores no value at all: it runs something when pressed. */
@@ -147,25 +147,9 @@ test('every claimed reader still exists, so the licences above cannot go stale',
   const appearance = read('src/appearance-persistence.js')
   assert.match(appearance, /GLOW_KEY = `mc\.set\.\$\{GLOW_SETTING_ID\}`/)
   assert.match(appearance, /REDUCE_MOTION_KEY = `mc\.set\.\$\{REDUCE_MOTION_SETTING_ID\}`/)
-})
-
-test('the example row has its registry, its enforcement, and its control, by name', () => {
-  /* The owner's doctrine -- "a user setting needs registry, enforcement, and
-     a control, or it's a lie" -- asserted for the one row that replaced the
-     per-view family, because a toggle claiming to change EVERY screen is the
-     most expensive place a dead control could sit.
-       REGISTRY     src/data-source.js owns the stored choice (`mc.example`).
-       ENFORCEMENT  resolveDataSource() consults the toggle first and answers
-                    'mock' for every screen while it is on.
-       CONTROL      the settings row writes through setExampleMode (door 1,
-                    already walked above) and reads back through
-                    isExampleMode, never through a private copy. */
-  const dataSource = read('src/data-source.js')
-  assert.match(dataSource, /const EXAMPLE_KEY = 'mc\.example'/, 'data-source.js no longer owns the stored example choice')
-  assert.match(dataSource, /if \(isExampleMode\(\)\)/, 'resolveDataSource no longer consults the example toggle')
-  assert.match(settingsSource, /setExampleMode\(Boolean\(value\)\)/, 'the settings row no longer writes through setExampleMode')
-  assert.match(settingsSource, /if \(setting\.id === 'example_mode'\) return isExampleMode\(\)/, 'the settings row no longer reads back the applied state')
-  assert.match(settingsSource, /from '\.\.\/data-source\.js'/, 'the settings page no longer imports the one source module')
+  assert.match(settingsSource, /export function applyStoredSimPace\(\)/)
+  assert.match(settingsSource, /sim\.setPace\(Number\(readStored\(setting\)\) \/ 100\)/)
+  assert.match(read('src/main.js'), /applyStoredSimPace\(\)/)
 })
 
 test('the sections the page lists are exactly the sections its rows are in', () => {

@@ -249,21 +249,20 @@ async function main() {
      * it failed with it, the last of them crashing this harness on
      * `Cannot read properties of undefined (reading 'disabled')`. None of that
      * was a product defect. src/views/computers.js builds Launch, Team and Loop
-     * with `live: true` inside mountStartWorkControls and nowhere else, and
-     * each of those builders returns null unless it is -- deliberately, and
-     * the comment there says so: under the example fleet the rail mounts a
-     * stated absence instead, because the example's own badge says nothing on
-     * it is real, and a control that reaches the audited bridge has no
-     * business on it. So a harness pointed at the example board was asserting
-     * that the example copy can dispatch real agents, which it must never be
-     * able to do.
+     * with `live: true` on the PROJECTION rail and nowhere else, and each of
+     * those builders returns null unless it is -- deliberately, and the comment
+     * there says so: the simulated rail is the example copy, whose own banner
+     * says nothing on it is real, and a control that reaches the audited bridge
+     * has no business on it. So a harness pointed at the simulated rail was
+     * asserting that the example copy can dispatch real agents, which it must
+     * never be able to do.
      *
      * The live rail is also the one a paying customer gets. It draws from
      * window.mcOrg.read(), which answers on any machine (src/declared-fleet.js);
      * the build-time /data/fleet.json does not, and treating that absence as
      * "no computers exist" was the defect that module was written to close. */
     await evaluate(`(() => {
-      localStorage.removeItem('mc.example')
+      localStorage.setItem('mc.live.computers', 'live')
       localStorage.setItem('mc.write.dispatch', 'enabled')
       /* The walk below starts an agent on this computer to get a node onto the
          board, and this is the switch that decides whether the product will let

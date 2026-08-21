@@ -60,6 +60,7 @@ import {
 } from '../../src/setup-profile.js'
 import { WRITE_ACTION_FLAGS } from '../../src/write-flags.js'
 import { createSetupProfileSettings } from '../../src/setup-profile-settings.js'
+import { LIVE_VIEW_FLAGS } from '../../src/live-flags.js'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const read = relative => readFileSync(path.join(REPO_ROOT, relative), 'utf8')
@@ -71,8 +72,9 @@ const SHELL = read('shell/main.cjs')
 const PRELOAD = read('shell/fleet-profile-preload.cjs')
 
 const WRITE_IDS = WRITE_ACTION_FLAGS.map(flag => flag.id)
+const LIVE_IDS = LIVE_VIEW_FLAGS.map(flag => flag.id)
 
-const derive = (answers, tier) => deriveProfile(answers, { tier, writeFlagIds: WRITE_IDS })
+const derive = (answers, tier) => deriveProfile(answers, { tier, writeFlagIds: WRITE_IDS, liveFlagIds: LIVE_IDS })
 
 /* ---------- 1. FEW: three questions, nineteen settings ---------- */
 
@@ -145,16 +147,14 @@ test('one answer moves ten settings, which is what earns it a step', () => {
 })
 
 test('the other answer reaches every screen', () => {
-  /* It used to reach them seven flags at a time, and the canary here counted
-     the flag register so a new screen could not silently widen the answer.
-     The register is gone: the answer now lands on the ONE example toggle in
-     src/data-source.js, which every screen resolves its data through, so
-     "reaches every screen" holds by construction and the derivation only has
-     to point the toggle the right way -- true means "show the example". */
   const live = derive({ screens: 'live' }, 'unrestricted')
   const demonstration = derive({ screens: 'demonstration' }, 'unrestricted')
-  assert.equal(live.exampleMode, false, 'choosing your own activity left the example toggle on')
-  assert.equal(demonstration.exampleMode, true, 'choosing the demonstration did not turn the example toggle on')
+  assert.deepEqual(Object.values(live.liveFlags), LIVE_IDS.map(() => true))
+  assert.deepEqual(Object.values(demonstration.liveFlags), LIVE_IDS.map(() => false))
+  /* The canary: 7 = home, computers, agent, metrics, comms, ledger, research.
+     A new screen must raise this ON PURPOSE, here, so a register edit cannot
+     silently widen what one setup answer switches. */
+  assert.equal(LIVE_IDS.length, 7)
 })
 
 /* A typo in the derivation's flag list would leave one flag off at the most
@@ -170,17 +170,18 @@ test('every flag the most permissive answer names is a flag that exists', () => 
 
 /* THE PROPERTY THAT MAKES SKIP DEFENSIBLE, asserted as an equivalence.
    src/write-flags.js returns true only for the literal 'enabled', and
-   src/data-source.js reads the example toggle as OFF when no choice is
-   stored. So the state a skipped walkthrough applies has to be: every write
-   flag false, the example toggle off. Anything else means skipping changed
-   the machine. */
+   src/live-flags.js defaults every view live. So the state a skipped
+   walkthrough applies has to be: every write flag false, every live flag true.
+   Anything else means skipping changed the machine. */
 test('skipping applies exactly the state of a machine that never ran setup', () => {
   for (const tier of ['guided', 'standard', 'unrestricted']) {
     const skipped = derive(SAFE_ANSWERS, tier)
     for (const id of WRITE_IDS) {
       assert.equal(skipped.writeFlags[id], false, `skipping switched on ${id} at ${tier}`)
     }
-    assert.equal(skipped.exampleMode, false, `skipping switched every screen to the example at ${tier}`)
+    for (const id of LIVE_IDS) {
+      assert.equal(skipped.liveFlags[id], true, `skipping changed the ${id} screen's source at ${tier}`)
+    }
   }
 })
 
@@ -333,14 +334,11 @@ test('choosing a different overall answer resets the settings that answer implie
 /* ---------- 3. VISIBLE ---------- */
 
 test('every setting the questions produce is reachable in Settings afterwards', () => {
-  /* The write flags already had rows; the assertion that matters is that they
-     are still generated FROM the shared list rather than from a copy that can
-     go stale. The matching live-flags assertion was RETIRED with the flags:
-     the screens answer lands on the one `example_mode` row now, so what must
-     stay reachable is that row, wired to the same module the answer writes
-     through (src/data-source.js). */
+  /* The six write flags and the six live flags already had rows; the assertion
+     that matters is that they are still generated FROM the shared lists rather
+     than from a copy that can go stale. */
   assert.match(SETTINGS_VIEW, /WRITE_ACTION_FLAGS\.map/, 'the write flags stopped being rows in Settings')
-  assert.match(SETTINGS_VIEW, /id: 'example_mode'/, 'the example toggle has no row in Settings, so the screens answer is unreachable after first run')
+  assert.match(SETTINGS_VIEW, /LIVE_VIEW_FLAGS\.map/, 'the live flags stopped being rows in Settings')
   // ...and the settings that had no home at all now have one
   assert.match(SETTINGS_VIEW, /createSetupProfileSettings/, 'Settings no longer mounts the setup profile section')
   assert.match(SETTINGS_VIEW, /'Setup',/, 'Settings has no Setup category in its rail')
@@ -635,7 +633,7 @@ const PINNED_ABSOLUTE_CLAIMS = Object.freeze([
   {
     match: /None of it is your data and each screen says so/,
     kind: 'pinned',
-    pinnedBy: 'the demonstration answer turns on the one example toggle, src/data-source.js answers the mock source for every screen while it is on, and sourceIsBadged() marks that source on every surface; asserted by "the other answer reaches every screen"',
+    pinnedBy: 'the demonstration answer sets every live-view flag false, so each surface reads its preserved simulation and labels itself; asserted by "the other answer reaches every screen"',
   },
   {
     match: /These are the shipped defaults: nothing that acts is switched on/,
@@ -859,25 +857,17 @@ test('the stored key is the one the settings section reads', () => {
 
 test('applying the profile goes through the application’s own setters', () => {
   const wrote = []
-  const exampled = []
+  const lived = []
   const profile = derive({ autonomy: 'assisted', screens: 'demonstration' }, 'unrestricted')
   applyProfile(profile, {
     setWriteFlag: (id, on) => { wrote.push([id, on]); return on },
-    setExampleMode: on => { exampled.push(on); return on },
+    setLiveFlag: (id, on) => { lived.push([id, on]); return on },
   })
   assert.equal(wrote.length, WRITE_IDS.length, 'not every write flag was written, so one keeps a stale value')
+  assert.equal(lived.length, LIVE_IDS.length)
   assert.deepEqual(wrote.find(entry => entry[0] === 'agent-session'), ['agent-session', true])
   assert.deepEqual(wrote.find(entry => entry[0] === 'decision'), ['decision', false])
-  /* Exactly one call, carrying the answer: the demonstration answer turns the
-     example ON, and the toggle is written in both directions so a leftover
-     example state cannot survive a profile that chose the other answer. */
-  assert.deepEqual(exampled, [true])
-  const backToLive = []
-  applyProfile(derive({ autonomy: 'assisted', screens: 'live' }, 'unrestricted'), {
-    setWriteFlag: () => true,
-    setExampleMode: on => { backToLive.push(on); return on },
-  })
-  assert.deepEqual(backToLive, [false], 'choosing your own activity did not switch the example off')
+  assert.ok(lived.every(entry => entry[1] === false))
 })
 
 /* ---------- the shell: the folder question, driven for real ---------- */

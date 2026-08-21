@@ -27,12 +27,11 @@
  *      door and inference the person cannot see is not allowed to exist.
  *
  * WHY THE FOURTH QUESTION IS ON THE REVIEW AND NOT ITS OWN STEP. Whether the
- * screens read this computer or the labelled example is a real setting -- the
- * one example toggle in src/data-source.js -- but it is the one choice nobody
- * can make well without looking at the screens it changes. Putting it on the
- * review shows it and walks through it without spending a step on it. Section 1
- * of the design promises a beginner "a total of three questions"; this keeps
- * that promise for every level.
+ * screens read this computer or the labelled demonstration is a real setting --
+ * six flags -- but it is the one choice nobody can make well without looking at
+ * the screens it changes. Putting it on the review shows it and walks through it
+ * without spending a step on it. Section 1 of the design promises a beginner
+ * "a total of three questions"; this keeps that promise for every level.
  *
  * NOTHING IS WRITTEN UNTIL FINISH, WITH ONE EXCEPTION THAT PREDATES THIS.
  * The permission level is recorded when its own Continue is pressed, because the
@@ -77,9 +76,7 @@ import {
   accountStep,
   loadGoogleAvailability,
 } from '../account-state.js'
-/* The screens answer lands on ONE switch now: the example toggle owned by
-   src/data-source.js, which replaced the seven per-view live flags. */
-import { setExampleMode } from '../data-source.js'
+import { LIVE_VIEW_FLAGS, setLiveView } from '../live-flags.js'
 import { WRITE_ACTION_FLAGS, setWriteEnabled } from '../write-flags.js'
 import {
   AUTONOMY_CHOICES,
@@ -158,6 +155,7 @@ const QUESTION_STEPS = Object.freeze(['tier', 'workspace', 'autonomy'])
 let liveWalk = null
 
 const WRITE_FLAG_IDS = WRITE_ACTION_FLAGS.map(flag => flag.id)
+const LIVE_FLAG_IDS = LIVE_VIEW_FLAGS.map(flag => flag.id)
 
 export function setupView({ navigate = hash => { location.hash = hash } } = {}) {
   const state = SETUP_RESOLUTION
@@ -439,6 +437,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     return deriveProfile(answers, {
       tier: recordedTier(),
       writeFlagIds: WRITE_FLAG_IDS,
+      liveFlagIds: LIVE_FLAG_IDS,
     })
   }
 
@@ -1191,7 +1190,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
   /* ---------- writing it down ---------- */
 
   function applyDerived() {
-    return applyProfile(derived(), { setWriteFlag: setWriteEnabled, setExampleMode })
+    return applyProfile(derived(), { setWriteFlag: setWriteEnabled, setLiveFlag: setLiveView })
   }
 
   /**

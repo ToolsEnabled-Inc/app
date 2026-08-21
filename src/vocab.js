@@ -10,6 +10,8 @@
 
 import { FLEET } from './fleet-profile.js'
 
+export const TASKS = FLEET.tasks
+export const FEED = FLEET.feed
 export const CHAT = FLEET.chat
 export const CHAT_REPLIES = FLEET.chatReplies
 export const CHAT_CONTEXT_REPLIES = FLEET.chatContextReplies

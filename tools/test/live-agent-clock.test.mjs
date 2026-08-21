@@ -57,15 +57,7 @@ test('live agent runtime advances, freezes, and stays unavailable without epochs
     running: true,
   })
   assert.match(source, /const runtime = liveAgentRuntimeSource\(declaredAgent\)/)
-  /* RE-AIMED with the one-render cutover. This pinned `if (!live || liveRuntime)`
-     -- the shape in which the old simulated render skipped the normalizer,
-     because the simulator's agents were always running. Every source now feeds
-     the same projection (the mock included, and the mock has a seat that never
-     started and a lane that ran and stopped), so the ring answers to the
-     normalizer alone: no epochs, no ring; a finite stop freezes it. The fact
-     being fenced is unchanged -- the ring's epoch and its updating both come
-     from liveAgentRuntimeSource's verdict, never from a raw field. */
-  assert.match(source, /if \(agentRuntime\) \{[\s\S]*epoch: ringEpoch[\s\S]*ringUpdates = agentRuntime\.running/)
+  assert.match(source, /if \(!live \|\| liveRuntime\) \{[\s\S]*epoch: ringEpoch[\s\S]*ringUpdates = !live \|\| liveRuntime\.running/)
 })
 
 test('live rail rebuild restores the runtime-ring mount and contains bad appends', () => {

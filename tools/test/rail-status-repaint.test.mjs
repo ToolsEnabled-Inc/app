@@ -88,11 +88,7 @@ test('a drained or refused queued message repaints the rail in place, never rebu
 
 test("a turn completion repaints the rail in place, never rebuilds it", () => {
   const start = code.indexOf('const status = sessionTurnStatus(packet, sessionId)')
-  /* The end marker is the view's boot statement — it used to be the liveMode
-     fork (`if (liveMode) loadProjection()`), which died with the second
-     render; `void bootFromSource()` is the line that replaced it at the same
-     tail position. */
-  const end = code.indexOf('void bootFromSource()')
+  const end = code.indexOf('if (liveMode) loadProjection()')
   assert.ok(start !== -1 && end > start, 'the turn-completion branch moved; re-aim this slice')
   const completion = code.slice(start, end)
   assert.ok(!/showTreeNodeControls\(/.test(completion),
