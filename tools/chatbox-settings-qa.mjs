@@ -368,7 +368,7 @@ async function drive(executable, scratch) {
        what makes "which agents" testable here at all. Chosen through the same
        stored preference the Settings control writes, then the view is remounted
        the way the router remounts it. */
-    await evaluate('localStorage.setItem("mc.live.home", "simulated"); location.hash = "#/settings"; location.hash = "#/"')
+    await evaluate('localStorage.setItem("mc.example", "on"); location.hash = "#/settings"; location.hash = "#/"')
     const first = await settleBox('the demonstration', reading => reading.turnCount > 0)
     check('the box shows a conversation to begin with', first.turnCount > 0, `${first.turnCount} turns`)
     const speakersAtStart = [...new Set(first.speakers.filter(Boolean))]
@@ -442,7 +442,7 @@ async function drive(executable, scratch) {
     await evaluate('location.hash = "#/settings"')
     await until('the hide control', 'document.querySelector(\'[data-chatbox-set="runs"][data-chatbox-value="hidden"]\') !== null')
     await evaluate('document.querySelector(\'[data-chatbox-set="runs"][data-chatbox-value="hidden"]\').click()')
-    await evaluate('localStorage.setItem("mc.live.home", "live"); location.hash = "#/settings"; location.hash = "#/"')
+    await evaluate('localStorage.removeItem("mc.example"); location.hash = "#/settings"; location.hash = "#/"')
     const nothing = await settleBox('the empty box', reading => reading.notices.length > 0)
     check('a box asked to show nothing says so instead of refilling itself',
       nothing.turnCount === 0 && nothing.runRows === 0 && /set to show nothing/i.test(nothing.notices.join()),
@@ -483,7 +483,7 @@ async function drive(executable, scratch) {
       `${beforeAutonomy} then ${afterAutonomy}`)
 
     /* ---------- back to a state worth carrying across a relaunch ---------- */
-    await evaluate('localStorage.setItem("mc.live.home", "simulated"); location.hash = "#/"')
+    await evaluate('localStorage.setItem("mc.example", "on"); location.hash = "#/"')
     await until('the box again', '!!document.querySelector(".home")')
     await evaluate('location.hash = "#/settings"')
     await until('the runs control again', 'document.querySelector(\'[data-chatbox-set="runs"][data-chatbox-value="with"]\') !== null')
@@ -568,7 +568,7 @@ ${checks.length - failedSoFar.length}/${checks.length} checks passed before the 
       if (reopened?.present && reopened.turnCount > 0) break
       await delay(250)
     }
-    const reopenedState = await evaluate2('JSON.stringify({ hash: location.hash, live: localStorage.getItem("mc.live.home"), runs: localStorage.getItem("mc.chat.runs"), mode: document.querySelector(".home")?.dataset.mode })')
+    const reopenedState = await evaluate2('JSON.stringify({ hash: location.hash, example: localStorage.getItem("mc.example"), runs: localStorage.getItem("mc.chat.runs"), mode: document.querySelector(".home")?.dataset.mode })')
     check('and the box comes back narrowed rather than full',
       reopened?.present && reopened.turnCount > 0 && !reopened.speakers.some(label => label.includes(target)),
       `${reopened?.turnCount} turns, ${JSON.stringify([...new Set((reopened?.speakers || []).filter(Boolean))])}, ${reopenedState}`)

@@ -237,7 +237,7 @@ async function run() {
      drill-in. Reloaded, because both flags are read at mount. */
   await js(`(() => {
     localStorage.setItem('mc.write.agent-session', 'enabled')
-    localStorage.removeItem('mc.live.agent')
+    localStorage.removeItem('mc.example')
     location.hash = '#/agent/this-computer/${target.id}'
     return true
   })()`)

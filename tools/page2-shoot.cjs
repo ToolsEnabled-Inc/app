@@ -88,7 +88,7 @@ const PROBE = `(() => {
   out.rootAttr = document.documentElement.getAttribute('data-theme')
   out.bgVar = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()
   out.stageBg = (el => el ? getComputedStyle(el).backgroundColor : null)(document.getElementById('stage'))
-  try { out.storedTheme = localStorage.getItem('mc.theme'); out.storedLive = localStorage.getItem('mc.live.computers') } catch {}
+  try { out.storedTheme = localStorage.getItem('mc.theme'); out.storedExample = localStorage.getItem('mc.example') } catch {}
   return out
 })()`
 
@@ -140,8 +140,9 @@ async function run() {
         await load(`${origin}/__seed`)
         await win.webContents.executeJavaScript(`(() => {
           try { localStorage.setItem('mc.theme', ${JSON.stringify(theme)}) } catch {}
-          try { localStorage.setItem('mc.live.computers', ${JSON.stringify(mode)}) } catch {}
-          try { localStorage.setItem('mc.live.agent', ${JSON.stringify(mode)}) } catch {}
+          /* mode names the shot; the app's one source switch is mc.example --
+             absent for your own data, 'on' for the example fleet. */
+          try { localStorage.${mode === 'live' ? "removeItem('mc.example')" : "setItem('mc.example', 'on')"} } catch {}
           return true
         })()`)
         await load(`${origin}/#/${route}`)
@@ -168,7 +169,7 @@ async function run() {
         } catch {}
         probe.consoleErrors = errors
         report.push({ name, probe })
-        console.log(`[shot] ${name}  vp=${probe.viewport?.w}x${probe.viewport?.h}@${probe.viewport?.dpr} bg=${probe.bodyBg} theme=${probe.theme}/${probe.storedTheme} live=${probe.storedLive} nodes=${probe.nodeCount} overlaps=${probe.nodeOverlaps} chips=${probe.chipsPlaced}/${probe.chipCount}`)
+        console.log(`[shot] ${name}  vp=${probe.viewport?.w}x${probe.viewport?.h}@${probe.viewport?.dpr} bg=${probe.bodyBg} theme=${probe.theme}/${probe.storedTheme} example=${probe.storedExample} nodes=${probe.nodeCount} overlaps=${probe.nodeOverlaps} chips=${probe.chipsPlaced}/${probe.chipCount}`)
         win.destroy()
       }
     }

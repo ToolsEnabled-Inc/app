@@ -79,8 +79,8 @@ const TESTER = Object.freeze({
    things: `mc.theme`, `mc.checkout.v1`, and anything under `mc.set.`. A subject
    whose key falls outside that set is not account-scoped at all, so choosing one
    would make this probe pass by testing nothing. That is also why neither
-   subject is a `live_*` or `write_*` flag: those store under `mc.live.` and
-   `mc.write.`, which `isAccountScoped()` does not cover.
+   subject is the example toggle or a `write_*` flag: those store under
+   `mc.example` and `mc.write.`, which `isAccountScoped()` does not cover.
 
    BOTH ARE SEGMENTED CONTROLS on purpose -- the click path below addresses
    `button[data-setting-value=...]`, which only a seg has. Of the rows that

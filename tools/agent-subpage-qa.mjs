@@ -545,21 +545,21 @@ async function drive(executable, scratch, tier) {
        origin with the router's stage in it is the real first paint. */
     await until('the application origin',
       `location.protocol === 'http:' && Boolean(document.querySelector('#stage'))`)
-    /* The simulated drill-in, which is the state the owner screenshotted and the
-       one where every card carries an activity line. The shipped default for
-       this view is LIVE, and on a machine with no fleet host that renders an
-       honest "unavailable" panel with no agents at all -- a real state, but not
-       the one with the layout defects in it. */
+    /* The example drill-in, which is the state the owner screenshotted and the
+       one where every card carries an activity line. mc.example is the one
+       source switch now (src/data-source.js): absent, every screen reads this
+       computer, and on a machine with no fleet host that renders an honest
+       "unavailable" panel with no agents at all -- a real state, but not the
+       one with the layout defects in it. */
     await evaluate(`(() => {
-      localStorage.setItem('mc.live.agent', 'simulated');
+      localStorage.setItem('mc.example', 'on');
       localStorage.setItem('mc.theme', 'tan');
-      /* The session surface is behind a write flag that first-run setup turns
-         on, and this harness seeds the machine record directly rather than
-         walking the questions -- so without this the control under test simply
-         does not mount and every assertion about its words reads "". That is
-         correct product behaviour (mountAgentSessionSurface returns early on a
-         disabled flag), which is exactly why it has to be set here rather than
-         worked around in the assertions. */
+      /* The session surface's write flag is turned ON even though this is the
+         example page: the no-live-session-control check below must hold
+         because of the page's provenance (mountAgentSessionSurface's live
+         fence), not because the capability happened to be switched off -- a
+         run that left it off would pass without measuring anything. Same
+         posture as tools/example-page-write-fence-qa.mjs. */
       localStorage.setItem('mc.write.agent-session', 'enabled');
       location.hash = '#/agent/c1/codex';
     })()`)

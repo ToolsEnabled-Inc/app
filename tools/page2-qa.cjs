@@ -252,9 +252,10 @@ async function run() {
   })
 
   await window.loadURL(`${origin}/`)
+  /* One key stands where the two per-view flags stood: mc.example 'on' shows
+     the example fleet on every screen (src/data-source.js). */
   await webContents.executeJavaScript(`
-    localStorage.setItem('mc.live.computers', 'simulated');
-    localStorage.setItem('mc.live.agent', 'simulated');
+    localStorage.setItem('mc.example', 'on');
     localStorage.setItem('mc.theme', 'tan');
     location.hash = '#/computers/c1';
     location.reload();
@@ -424,7 +425,10 @@ async function run() {
     && initial.chipNodeOverlaps === 0 && initial.chipMaterial.backgroundImage === 'none'
     && initial.chipMaterial.accentBackgroundImage === 'none'
     && Math.abs(parseFloat(initial.chipMaterial.accentWidth) - 2) < 0.1, JSON.stringify(initial))
-  check('statistics order', JSON.stringify(initial.sections) === JSON.stringify(['Load', 'Tasks', 'Legend']), initial.sections.join(','))
+  /* The sim rail's Load/Tasks/Legend went with the second render; the one
+     stats rail reads the record on every source (renderLiveStats in
+     src/views/computers.js), so the pin is the delivered section walk. */
+  check('statistics order', JSON.stringify(initial.sections) === JSON.stringify(['Folders your agents work in', 'This computer', 'Services', 'Organisation', 'Roles', 'Research filing']), initial.sections.join(','))
 
   /* LABEL LAYOUT, MEASURED ON GLASS.
      tools/test/phase2-label-layout.test.mjs pins the same contract as source
@@ -662,7 +666,10 @@ async function run() {
      the knobs that do not exist with a reason for each. */
   const controls = await webContents.executeJavaScript(`(() => {
     const page = document.querySelector('.ctl-page.is-active');
-    const box = page?.querySelector('.board-ctl-box');
+    /* The stated absence lives inside the Start-work group now, behind the
+       what-is-on-record box -- ask for it by its own class, not for the first
+       .board-ctl-box on the rail. */
+    const box = page?.querySelector('.board-ctl-absent');
     return {
       inertSliders: page ? page.querySelectorAll('.ctl-row[data-t]').length : -1,
       sliderLabels: [...(page?.querySelectorAll('.cl') || [])].map(node => node.textContent.trim()),
@@ -670,7 +677,7 @@ async function run() {
          session: launch, team and loop are ABSENT here by design and replaced
          by a stated-absence box. */
       steeringControls: page ? page.querySelectorAll('[data-launch], [data-team], [data-loop]').length : -1,
-      absent: Boolean(box?.classList.contains('board-ctl-absent')),
+      absent: Boolean(box),
       absentCopy: box?.textContent?.replace(/\\s+/g, ' ').trim() || '',
     };
   })()`)
@@ -718,17 +725,23 @@ async function run() {
   await waitFor(webContents, `document.querySelector('.ctl-page.is-active .board-chat-box .chat')`)
   const board = await webContents.executeJavaScript(`(() => {
     const page = document.querySelector('.ctl-page');
-    const order = ['.board-head', '.agent-ring-wrap', '.board-chat-box', '.board-chart-box', '.board-ctl-box', '.board-actions']
+    /* The one rail per node (showProjectionControls): head, chat, the
+       what-is-on-record box, the Start-work group, actions. The sim rail's
+       uptime ring and synthesised activity chart went with the second render,
+       so what is asserted about them below is their absence, not their
+       styling. */
+    const order = ['.board-head', '.board-chat-box', '.board-ctl-box', '[data-start-work-group]', '.board-actions']
       .map(selector => page.querySelector(selector));
     return {
       order: order.every(Boolean) && order.every((item, index) => index === 0
         || Boolean(order[index - 1].compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING)),
-      chartGradientCount: page.querySelectorAll('.board-chart-box linearGradient, .board-chart-box radialGradient').length,
-      ringGlowDisplay: getComputedStyle(page.querySelector('.uring .arc-glow')).display,
+      chartPresent: Boolean(page.querySelector('.board-chart-box')),
+      ringPresent: Boolean(page.querySelector('.agent-ring-wrap, .uring')),
     };
   })()`)
   check('double-click opens agent board in required order', board.order)
-  check('board chart is flat and ring glow is removed', board.chartGradientCount === 0 && board.ringGlowDisplay === 'none', JSON.stringify(board))
+  check('the sim rail furniture stays gone: no synthesised chart, no uptime ring',
+    board.chartPresent === false && board.ringPresent === false, JSON.stringify(board))
   await webContents.executeJavaScript(`document.querySelector('.ctl-page .rail-back').click()`)
   await waitFor(webContents, `document.querySelector('.stats-page.is-active')`)
 
