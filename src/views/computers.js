@@ -3288,7 +3288,11 @@ export function computersView({ initialComputer = null, navigate }) {
           return
         }
         setOpenTarget(agent)
-        showProjectionControls(agent)
+        /* The rail chooser for a record agent follows the source: an example
+           seat opens in the tree rail's family (conversation first), a real
+           declared seat in the projection rail. See showExampleAgentControls. */
+        if (mockSource()) showExampleAgentControls(agent)
+        else showProjectionControls(agent)
       },
       onRootChange: (next, trail) => { renderCrumb(next, trail); refreshTreeSwitch(); railFollowsCanvas(next) },
       onOverridesChange: syncResetButton,
@@ -4274,8 +4278,12 @@ export function computersView({ initialComputer = null, navigate }) {
    * person's own chat settings (which agents, and whether runs appear) rather
    * than inventing a second filter that could disagree with the settings page.
    */
-  function mountRailChat(agent, role) {
-    const host = controlsPage.querySelector('.board-chat-box')
+  /* `host` and `tall` exist for the example rail: it mounts this same chat
+     into the tree rail's chat-tab host, full height, so the example and a
+     person's own tree present a conversation through one presentation. The
+     projection rail keeps its boxed default. */
+  function mountRailChat(agent, role, { host: chatHost = null, tall = false } = {}) {
+    const host = chatHost || controlsPage.querySelector('.board-chat-box')
     if (!host) return
     /* The chat this box built last time. render() runs again whenever the
        person changes a chatbox setting, and the wipe below used to drop a
@@ -4310,6 +4318,7 @@ export function computersView({ initialComputer = null, navigate }) {
           subtitle: channelCaption(plan.channel, role.label),
           roleKey: agent.role,
           seed: 6,
+          tall,
           /* The ONE surface where the composer answering itself is the product:
              a labelled demonstration conversation on the example fleet. Every
              other caller either wires a real sender or gets the switched-off
@@ -5607,14 +5616,97 @@ export function computersView({ initialComputer = null, navigate }) {
     return true
   }
 
-  /* showControls — the fork between the projection rail and a second,
-     simulated-only rail ('Agent Controls': the uptime ring, a model·pool
-     line, a seeded chat, a synthesised activity chart, and Pause/Resume/
-     Respawn) — is gone. There is one rail per node now,
-     showProjectionControls, and under mock it simply describes the example
-     record. The dd01899 fence's substance (a demonstration screen must not
-     dispatch a real agent) lives on in mountStartWorkControls' mock branch,
-     which mounts the stated-absence box instead of the four live controls. */
+  /* THE RAIL FOR A SELECTED EXAMPLE AGENT, in the tree rail's own shape.
+   *
+   * WHAT THE OWNER SAW, verified against his screenshots: with the second
+   * render gone, a selected example agent was routed through
+   * showProjectionControls — 'Recorded agent', 'What is on record' facts
+   * first, Pause/Resume/Respawn and 'Open full view' underneath — which is
+   * the OLD demonstration rail he had already rejected, now wearing the
+   * projection rail's clothes. The surface his installed app actually shows
+   * for a selected agent is showTreeNodeControls: 'Agent in your tree',
+   * Chat/Details tabs, the conversation first, an honest composer.
+   *
+   * So the example presents its agents through THAT family. An example seat
+   * is not a tree-store node, so showTreeNodeControls itself cannot be
+   * reused — every live updater in it reads the store — but the rail is built
+   * from its exact primitives: railTitleRow, the `.seg.rail-tabs` pair, the
+   * `.rail-chat-body > .rail-chat-host` chat column (mountRailChat, tall,
+   * the same seeded sample conversation the old rail showed — the one place
+   * a composer answering itself is the product), and the Details tab's
+   * `.agent-head` + `.board-box` stack. The record facts the projection rail
+   * led with (id, provider, state, origin, runtime, tasks, and what the
+   * record does not carry) are all still here, demoted to the Details tab
+   * exactly as his live tree rail demotes a node's setup. Nothing honest is
+   * lost; nothing is front and centre that is not the conversation.
+   *
+   * NO Pause/Resume/Respawn, NO 'Open full view': the tree rail has neither
+   * (its verbs live in the chat composer's actions popup, and an example seat
+   * has no verbs — nothing real can be done to it). The bar's own 'Open agent
+   * detail' button still aims at the selected seat, as on every source. The
+   * Start-work group rides in Details as on the tree rail, and under mock it
+   * carries the stated-absence box (mountStartWorkControls' mock branch), so
+   * the dd01899 fence — a demonstration screen must not dispatch a real agent
+   * — still holds structurally.
+   *
+   * showProjectionControls is untouched: it is the rail for REAL declared
+   * seats on local and relay, and it is reached from nowhere under mock. */
+  function showExampleAgentControls(agent) {
+    clearBoard()
+    const role = ROLES[agent.role] || ROLES.default
+    controlsPage.style.setProperty('--rc', role.hex)
+    const runtime = Number.isFinite(agent.bornAt)
+      ? fmtRuntime(agent.bornAt, Number.isFinite(agent.stoppedAt) ? agent.stoppedAt : Date.now())
+      : null
+    const taskSummary = Number.isFinite(agent.tasksDone)
+      ? `${agent.tasksDone} tasks${Number.isFinite(agent.failRate) ? ` · ${agent.failRate}% fail` : ''}`
+      : null
+    const missing = [runtime === null ? 'runtime' : null, taskSummary === null ? 'task history' : null, 'activity'].filter(Boolean)
+    /* DISPOSE BEFORE THE WIPE — the rule stated where railChat is declared:
+       never innerHTML over a mounted chat. */
+    disposeRailSaid()
+    disposeRailChat()
+    controlsPage.innerHTML = `
+      ${railTitleRow({ back: { aria: 'Back to the fleet overview' }, title: 'Example agent' })}
+      <div class="seg rail-tabs" data-rail-tabs role="group" aria-label="Agent panels">
+        <button type="button" class="on" data-rail-tab="chat">Chat</button>
+        <button type="button" data-rail-tab="details">Details</button>
+      </div>
+      <div class="rail-tab-body rail-chat-body" data-rail-body="chat">
+        <div class="rail-chat-host" data-rail-chat-host></div>
+      </div>
+      <div class="rail-tab-body rail-scroll" data-rail-body="details" hidden>
+        <div class="agent-head board-head"><span class="role-dot"></span><div><div class="an">${escapeMarkup(agent.name)}</div><div class="ar">${escapeMarkup(agent.declaredRole)}</div></div></div>
+        <div class="board-box board-ctl-box">
+          <div class="board-box-h"><span class="bh-t">On the example record</span></div>
+          <div class="rail-sub">ID · ${escapeMarkup(agent.id)}</div>
+          <div class="rail-sub">Provider · ${escapeMarkup(agent.provider)}</div>
+          <div class="rail-sub">State · ${escapeMarkup(agent.state)}</div>
+          <div class="rail-sub">Origin · ${escapeMarkup(agent.origin || 'unresolved')}</div>
+          ${runtime === null ? '' : `<div class="rail-sub">Runtime · ${escapeMarkup(runtime)}</div>`}
+          ${taskSummary === null ? '' : `<div class="rail-sub">${escapeMarkup(taskSummary)}</div>`}
+          <div class="projection-unavailable">${escapeMarkup(missing.join(', '))} unavailable · ${escapeMarkup(agent.projectionUnavailableReason)}</div>
+        </div>
+        <div class="board-start-work-slot"></div>
+      </div>`
+    controlsPage.querySelector('.rail-back').addEventListener('click', showStats)
+    /* The tabs toggle [hidden] on persistent bodies, exactly as the tree rail
+       does, so the mounted chat is never rebuilt by a tab press. */
+    const railTabs = controlsPage.querySelector('[data-rail-tabs]')
+    railTabs?.addEventListener('click', (event) => {
+      const pressed = event.target.closest('[data-rail-tab]')
+      if (!pressed) return
+      for (const button of railTabs.querySelectorAll('[data-rail-tab]')) {
+        button.classList.toggle('on', button === pressed)
+      }
+      for (const body of controlsPage.querySelectorAll('[data-rail-body]')) {
+        body.hidden = body.dataset.railBody !== pressed.dataset.railTab
+      }
+    })
+    mountRailChat(agent, role, { host: controlsPage.querySelector('[data-rail-chat-host]'), tall: true })
+    mountStartWorkControls({ id: agent.id, name: agent.name }, controlsPage.querySelector('.board-start-work-slot'))
+    activateRail(controlsPage)
+  }
 
   /**
    * THE FOUR ANSWERS TO "HOW DOES WORK GET STARTED FROM THIS COMPUTER",
