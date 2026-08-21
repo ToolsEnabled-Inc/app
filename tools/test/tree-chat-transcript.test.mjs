@@ -216,7 +216,10 @@ test('every rail rebuild disposes the mounted chat first', () => {
     )
     from = at + 1
   }
-  assert.ok(sites >= 4, `expected every rail rebuild to be checked; found ${sites}`)
+  /* Three sites since the simulated rail died with the second render
+     (showControls' rebuild went with it): showTreeNodeControls,
+     showProjectionControls, and showProjectionUnavailable's wipe. */
+  assert.ok(sites >= 3, `expected every rail rebuild to be checked; found ${sites}`)
 })
 
 test('the settings-driven chat box disposes before it re-renders', () => {

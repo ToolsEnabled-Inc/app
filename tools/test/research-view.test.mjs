@@ -233,13 +233,12 @@ test('research styling stays theme-native across white, tan, and black', () => {
   }
 })
 
-test('live Sankey empty state preserves the hero slot and offers an explicit simulation switch', () => {
+test('live Sankey empty state preserves the hero slot', () => {
   const view = read('src/views/metrics.js')
   const css = read('src/metrics.css')
 
   /* R1522 language pass: the sentence leads with what cannot be drawn and why,
-     in plain words; the button names the demonstration the way the rest of the
-     product does.
+     in plain words.
    *
    * THE SENTENCE CHANGED, AND THE CHANGE IS THE POINT. It used to describe the
    * BUILD-TIME projection -- a file written on the builder's machine, absent by
@@ -248,13 +247,22 @@ test('live Sankey empty state preserves the hero slot and offers an explicit sim
    * draws this computer's own signed record of what each turn used, and its
    * empty state is that record's own absence, which distinguishes a browser, a
    * shell too old to keep the record, a record that will not open, and a record
-   * with nothing in it yet. The hero slot and the demonstration switch below are
-   * unchanged and are what this test is really guarding. */
+   * with nothing in it yet. The hero slot below is unchanged and is what this
+   * test is really guarding.
+   *
+   * RE-AIMED with the source-axis cutover: this clause used to also pin the
+   * panel's "View the demonstration" button and its setLiveView('metrics',
+   * false) press -- the per-view flag machinery the one source axis
+   * (src/data-source.js) replaces. Those pins are gone on purpose, and gone
+   * from HERE on purpose: whether and how the empty panel still offers the
+   * example is the metrics page's contract, and it belongs in the metrics
+   * suite beside the code that decides it, not in a research suite that once
+   * borrowed the assertion. What stays is deliberately true both before and
+   * after the metrics cutover lands, so landing it does not turn this suite
+   * red. */
   assert.match(view, /LOCAL_USAGE_COPY\.empty/)
   assert.doesNotMatch(view, /measured usage does not say which pool, provider, or role it belongs to/,
     'the empty state still describes a build-time file the reader does not have')
-  assert.match(view, /View the demonstration/)
-  assert.match(view, /setLiveView\('metrics', false\)/)
   assert.match(view, /host\.replaceChildren\(panel\)/)
   assert.match(css, /#sankey-chart\.m-sankey-empty-host[\s\S]*?min-height: 430px/)
 })

@@ -135,7 +135,10 @@ test('the palette row opens a confirm sub-stage and the confirmed press reaches 
 })
 
 test('the removal deletes the transcript through the store API and cleans every cache', () => {
-  const body = functionBody('async function performNodeRemoval', 'function showControls')
+  /* The end pin was `function showControls`, which died with the simulated
+     second render; the tombstone comment that replaced it is the next stable
+     marker after performNodeRemoval's close. */
+  const body = functionBody('async function performNodeRemoval', '/* showControls')
   assert.match(body, /treeStore\.removeNode\(/, 'the store’s removeNode is not the thing doing the removing')
   assert.match(body, /transcriptStore\?\.remove\(/, 'the durable conversation is not removed through the store’s own API')
   assert.doesNotMatch(body, /localStorage|storage\.write|setItem/, 'raw key surgery beside the store’s own API')

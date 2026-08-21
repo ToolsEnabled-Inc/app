@@ -1,14 +1,21 @@
-import * as echarts from 'echarts/core'
-import { LineChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent } from 'echarts/components'
-import { SVGRenderer } from 'echarts/renderers'
-import { sim, fmtRuntime } from '../sim.js'
-import { CHAT, ROLES } from '../vocab.js'
-import { el, uptimeRing, setViewMorph, buildChat } from '../components.js'
+import { fmtRuntime } from '../runtime-clock.js'
+import { ROLES } from '../vocab.js'
+import { el, setViewMorph, buildChat } from '../components.js'
 import { railTitleRow } from '../rail-title.js'
 import { StaticTreeGraph } from '../tree-graph.js'
-import { withAlpha } from '../echarts-theme.js'
-import { isLiveView, LIVE_FLAGS_EVENT } from '../live-flags.js'
+/* THE ONE AXIS THIS PAGE FORKS ON. live-flags.js's per-view second render is
+   gone (owner: "all simulated pages ARE the UI pages, just mock data"); what
+   remains is a data source — local, relay, or mock — and one render fed by
+   whichever answered. resolveDataSource is async because a public page has to
+   ask the host for a transport; DATA_SOURCE_EVENT is the host saying the world
+   changed (sign-in, sign-out, the example toggle), on which this view
+   re-resolves and remounts. */
+import { resolveDataSource, currentDataSource, DATA_SOURCE_EVENT } from '../data-source.js'
+/* The example fleet, in exactly the `{computers, graph}` shape mountProjection
+   consumes — see src/sample-fleet.js for why it is copied literals rather than
+   anything imported from the modules being deleted. When the source is mock,
+   THIS is the whole record the page draws; no real store is read beside it. */
+import { sampleFleetData } from '../sample-fleet.js'
 import { fetchFleet, fetchAgents } from '../live-status.js'
 import {
   LAUNCH_TIERS, launchTier, tierArgvFragment, UNSUPPORTED_CONTROLS,
@@ -187,19 +194,6 @@ import '../tree-graph.css'
    import inside it would make it unloadable there. Same arrangement as the two
    above. */
 import '../agent-compose-panel.css'
-
-echarts.use([LineChart, GridComponent, TooltipComponent, SVGRenderer])
-
-const BAR_DEFS = [
-  { key: 'cpu', label: 'CPU' },
-  { key: 'gpu', label: 'GPU' },
-  { key: 'net', label: 'Network' },
-  { key: 'disk', label: 'Disk' },
-]
-const BAR_C = 'var(--m-load, var(--ink-2))'
-const ROLE_LOAD = { coordinator: 68, helper: 57, shadow: 41, manager: 52, default: 34, spawned: 22 }
-const CHART_N = 24
-const CHART_SPAN_MIN = 30
 
 /* WHAT USED TO BE HERE, AND WHY IT IS GONE.
  *
@@ -404,151 +398,14 @@ function projectionMonitorContext(agent) {
   }
 }
 
-function monitorContextFor(agent) {
-  let hash = 2166136261
-  for (let index = 0; index < agent.name.length; index += 1) {
-    hash ^= agent.name.charCodeAt(index)
-    hash = Math.imul(hash, 16777619)
-  }
-  const seed = 3
-  const span = Math.max(1, CHAT.length - seed)
-  const start = (hash >>> 0) % span
-  const recent = CHAT.slice(start, start + seed).at(-1)
-  return {
-    current: agent.context?.at(-1),
-    previous: agent.context?.at(-2),
-    chat: recent?.text || '',
-    tasks: agent.tasksDone,
-    failRate: agent.failRate,
-    model: agent.model,
-  }
-}
-
-const agentSeries = new Map()
-function seriesFor(agent) {
-  if (agentSeries.has(agent.id)) return agentSeries.get(agent.id)
-  if (agentSeries.size > 240) agentSeries.clear()
-  let seed = 2166136261
-  for (let index = 0; index < agent.id.length; index += 1) {
-    seed ^= agent.id.charCodeAt(index)
-    seed = Math.imul(seed, 16777619)
-  }
-  seed >>>= 0
-  const random = () => {
-    seed ^= seed << 13; seed >>>= 0
-    seed ^= seed >>> 17
-    seed ^= seed << 5; seed >>>= 0
-    return seed / 4294967296
-  }
-  const base = ROLE_LOAD[agent.role] ?? 40
-  const amplitude = 10 + random() * 13
-  const phase = random() * Math.PI * 2
-  const values = Array.from({ length: CHART_N }, (_, index) => Math.max(3, Math.min(97,
-    base
-    + amplitude * Math.sin((index + phase) / 3.4)
-    + amplitude * 0.42 * Math.sin((index + phase) / 1.25 + 1.7)
-    + (random() - 0.5) * 9)))
-  agentSeries.set(agent.id, values)
-  return values
-}
-
-function agentChartBox(agent) {
-  const values = seriesFor(agent)
-  const box = el(`
-    <div class="board-box board-chart-box">
-      <div class="board-box-h">
-        <span class="bh-t">Runtime Statistics</span>
-        <span class="bh-v"><i></i><span><b class="bc-now">${Math.round(values.at(-1))}</b>%</span></span>
-      </div>
-      <div class="board-cap">agent activity · last ${CHART_SPAN_MIN} min</div>
-      <div class="board-plot"><div class="bc-canvas" role="img" aria-label="${escapeMarkup(agent.name)} activity over the last ${CHART_SPAN_MIN} minutes"></div></div>
-    </div>`)
-  const canvas = box.querySelector('.bc-canvas')
-  let chart = null
-  let themeObserver = null
-
-  const theme = () => {
-    const rootStyle = getComputedStyle(document.documentElement)
-    const scopeStyle = getComputedStyle(box)
-    const read = (style, name, fallback) => style.getPropertyValue(name).trim() || fallback
-    return {
-      role: read(scopeStyle, '--rc', '#008dab'),
-      ink2: read(rootStyle, '--ink-2', '#4f5f70'),
-      grid: read(rootStyle, '--chart-grid', 'rgba(14,23,38,0.07)'),
-      cross: read(rootStyle, '--chart-cross', 'rgba(14,23,38,0.24)'),
-      mono: read(rootStyle, '--font-mono', 'ui-monospace, monospace'),
-    }
-  }
-  const data = () => values.map((value, index) => [
-    -CHART_SPAN_MIN + index * (CHART_SPAN_MIN / (CHART_N - 1)),
-    +value.toFixed(2),
-  ])
-  const paint = () => {
-    if (!chart || chart.isDisposed()) return
-    const current = theme()
-    chart.setOption({
-      animation: false,
-      backgroundColor: 'transparent',
-      color: [current.role],
-      grid: { left: 34, right: 10, top: 12, bottom: 30 },
-      xAxis: {
-        type: 'value', min: -CHART_SPAN_MIN, max: 0, interval: CHART_SPAN_MIN / 2,
-        axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false },
-        axisLabel: {
-          color: current.ink2, fontFamily: current.mono, fontSize: 12.5, margin: 10,
-          formatter: (value) => value === 0 ? 'now' : `${value}m`,
-        },
-      },
-      yAxis: {
-        type: 'value', min: 0, max: 100, interval: 50,
-        axisLine: { show: false }, axisTick: { show: false },
-        axisLabel: { color: current.ink2, fontFamily: current.mono, fontSize: 12.5, margin: 8 },
-        splitLine: { show: true, lineStyle: { color: current.grid, width: 1 } },
-      },
-      tooltip: {
-        appendToBody: true, confine: true, transitionDuration: 0, padding: 0,
-        borderWidth: 0, backgroundColor: 'transparent', extraCssText: 'box-shadow:none;',
-        trigger: 'axis',
-        axisPointer: { type: 'cross', snap: true, label: { show: false }, lineStyle: { color: current.cross, width: 1 } },
-        formatter: (params) => {
-          const point = params[0]
-          if (!point) return ''
-          const [minutes, value] = point.value
-          const ago = Math.abs(Math.round(minutes))
-          return `<div class="mtip"><div class="tt-title">${escapeMarkup(agent.name)}</div><b>${Math.round(value)}%</b> active · ${ago ? `${ago} min ago` : 'now'}</div>`
-        },
-      },
-      series: [{
-        id: 'agent-activity', type: 'line', data: data(), smooth: 0.28,
-        symbol: 'none', showSymbol: false,
-        lineStyle: { color: current.role, width: 2, cap: 'round', join: 'round' },
-        itemStyle: { color: current.role },
-        areaStyle: { color: withAlpha(current.role, 0.08) },
-      }],
-    }, true)
-  }
-
-  const resizeObserver = new ResizeObserver(() => chart?.resize())
-  resizeObserver.observe(canvas)
-  return {
-    el: box,
-    mount() {
-      if (chart) return
-      chart = echarts.init(canvas, null, { renderer: 'svg' })
-      paint()
-      if (typeof MutationObserver !== 'undefined') {
-        themeObserver = new MutationObserver(paint)
-        themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
-      }
-    },
-    destroy() {
-      resizeObserver.disconnect()
-      themeObserver?.disconnect()
-      if (chart && !chart.isDisposed()) chart.dispose()
-      chart = null
-    },
-  }
-}
+/* monitorContextFor — the hash-seeded fake chat excerpt — and agentChartBox,
+   the synthesised per-agent activity chart, stood here. Both existed only for
+   the simulated second render, and both fabricated readings (a canned CHAT
+   line picked by name-hash; a sine-wave "activity" series) that no source
+   ever produced. With one render on one source axis, every card reads
+   projectionMonitorContext(): what the record carries, and an honest
+   "no activity observed" where it carries nothing. Their departure also took
+   this file's whole echarts dependency with them. */
 
 /* ---------------------------------------------------------------
    STARTING A REAL AGENT, WHICH IS THE ONE THING THIS PAGE COULD NOT DO.
@@ -619,6 +476,21 @@ function agentChartBox(agent) {
  * a refusal from the engine — nothing was asked of anything. */
 const START_NEEDS_APP_TEXT = 'Starting an agent needs the installed ToolsEnabled application. This page is a preview of it, so nothing here can start one. Open ToolsEnabled on your computer to grow a real tree.'
 
+/* WHY THE EXAMPLE FLEET DOES NOT GROW TREES, and it is the same fence dd01899
+   put on this page's Dispatch control.
+   `isWriteEnabled` is a question about PERMISSION; this is a question about
+   PROVENANCE, and they are not the same question. On the desktop with the
+   example toggle on, a real agent bridge exists on `window`, so an empty node
+   pressed on the example fleet would start a real session on this computer
+   from a page whose own badge says nothing on it is real. The refusal
+   therefore sits BEFORE any bridge check, and this sentence is what every
+   mock-sourced start surface answers with.
+   MODULE SCOPE because startAgentForNode below — itself module-scope, and
+   exported for the research dispatcher — is one of those surfaces. The
+   sentence names the switch's real home: Settings → Data & Sim, the one
+   "Show the example fleet" toggle that replaced the per-view flags. */
+const EXAMPLE_BOARD_TEXT = 'This is the example fleet, so nothing here can start a real agent. Turn off “Show the example fleet” in Settings, under Data & Sim, to build a tree on your own computer.'
+
 /* THE SENTENCE FOR THE ONE FAILURE THAT IS NOT A FAILED START.
  *
  * The lead states the fact only this file knows — the session opened, the words
@@ -674,6 +546,22 @@ function sendRefusalSentence(result) {
  * screen naming it -- the failure the four outcome shapes above exist to
  * prevent. */
 export async function startAgentForNode({ text, surface, tier, effort, profileId, requestKeys = null, onSessionOpen }) {
+  /* THE MOCK REFUSAL COMES BEFORE THE BRIDGE CHECKS, deliberately. On the
+     desktop with the example toggle on, window.mcAgent EXISTS and works — so
+     a bridge-presence test alone would let a mock-sourced press start a real
+     session. Mock never writes; the sentence says which switch makes it real.
+     `needsApp: false` because the app may genuinely be installed — the
+     needsApp shape is reserved for the browser-preview absence it describes. */
+  if (currentDataSource() === 'mock') {
+    return {
+      ok: false,
+      needsApp: false,
+      sessionId: null,
+      code: null,
+      sentence: EXAMPLE_BOARD_TEXT,
+      needsAssistantProgram: false,
+    }
+  }
   const bridge = typeof window === 'undefined' ? null : window.mcAgent
   if (!bridge || typeof bridge.start !== 'function' || typeof bridge.send !== 'function') {
     return {
@@ -862,14 +750,22 @@ const RECORD_SOURCE = Object.freeze({
 })
 
 export function computersView({ initialComputer = null, navigate }) {
-  let liveMode = isLiveView('computers')
+  /* WHERE THIS VIEW'S DATA COMES FROM: 'local' | 'relay' | 'mock', written by
+     bootFromSource() and by the DATA_SOURCE_EVENT handler, and null only for
+     the moment before the first resolution answers. Null is "not yet known" —
+     never defaulted to a source (see currentDataSource's note) — and nothing
+     mounts until it resolves, so every render-time read below sees a verdict.
+     mockSource() is the one question the surfaces ask: mock never writes,
+     mock never reads a real store, and mock is the only badged source. */
+  let source = null
+  const mockSource = () => source === 'mock'
   let liveComputers = []
-  let computer = liveMode ? null : (sim.computers.find(candidate => candidate.id === initialComputer) || sim.computers[0])
+  /* Always null until a mount picks one from liveComputers — there is no
+     synchronous fleet to reach for any more; even the example fleet arrives
+     through the same mountProjection path. */
+  let computer = null
   let graph = null
   let canvas = null
-  let boardChart = null
-  let boardRing = null
-  let boardClock = 0
   /* The cloud box's controller outlives its DOM node unless it is told
      otherwise: its bridge calls are in flight while a person clicks the next
      node in the tree, and a publish into a detached box is a listener leak per
@@ -947,21 +843,22 @@ export function computersView({ initialComputer = null, navigate }) {
      A flags event is dispatched synchronously and src/main.js queues the
      route re-render a microtask behind it, so a listener here reads the Role
      library's open items and typed wording while they are still on the page.
-     Registered FIRST in this view on purpose: onLiveFlag below rebuilds the
-     rail synchronously on the same event, and a capture that ran after it
-     would read the fresh empty library and preserve nothing. */
+     Registered FIRST in this view on purpose. DATA_SOURCE_EVENT is the other
+     announcement that ends in this library being rebuilt (the example toggle
+     remounts the whole page); this view's own remount on that event is a
+     microtask behind the announcement too, so the capture still reads the
+     library while it stands. */
   const captureRoleLibrary = () => {
     if (destroyed) return
     const snapshot = snapshotRoleLibrary(statsPage?.querySelector?.('.board-roles-box'))
     if (snapshot) roleLibraryToRestore = snapshot
   }
   window.addEventListener(WRITE_FLAGS_EVENT, captureRoleLibrary)
-  window.addEventListener(LIVE_FLAGS_EVENT, captureRoleLibrary)
+  window.addEventListener(DATA_SOURCE_EVENT, captureRoleLibrary)
   unsubs.push(() => {
     window.removeEventListener(WRITE_FLAGS_EVENT, captureRoleLibrary)
-    window.removeEventListener(LIVE_FLAGS_EVENT, captureRoleLibrary)
+    window.removeEventListener(DATA_SOURCE_EVENT, captureRoleLibrary)
   })
-  let sourceUnsubs = []
   /* The runs half of the chatbox. Read once per view from the same spawn
      record the home screen reads, never per node click, and left as an empty
      list when this copy has no computer to ask — readLocalSessions() already
@@ -1176,11 +1073,6 @@ export function computersView({ initialComputer = null, navigate }) {
   }
 
   function clearBoard() {
-    clearInterval(boardClock)
-    boardClock = 0
-    boardRing = null
-    boardChart?.destroy()
-    boardChart = null
     boardCloudBox?.__cloudController?.destroy()
     boardCloudBox = null
     /* The rail's chat re-plans on a window event. Every node click builds a new
@@ -1223,20 +1115,25 @@ export function computersView({ initialComputer = null, navigate }) {
     syncResetButton()
   }
 
-  /* IN LIVE MODE THE EDIT BUTTON IS A DOOR TO A WRITE.
+  /* THE EDIT BUTTON IS A DOOR TO A WRITE.
      Editing the hierarchy means dragging a node onto a new manager, and that
      move is only a change if an organisation store accepts it. With no store
      behind this window — a plain browser, or a build whose payload carries no
      organisation modules — every drag would be undone the moment it was tried,
      so the button is disabled and carries the reason instead of opening a mode
      that can only disappoint.
-     The SIMULATED fleet is a different case and stays available: its drag moves
-     demonstration data around demonstration data, which is exactly what it
-     claims to do. */
+     THE EXAMPLE FLEET IS DISABLED WITH ITS OWN SENTENCE, which reverses the
+     old simulated render's rule ("its drag moves demonstration data around
+     demonstration data"). Mock never writes, and a drag that rearranged the
+     example would be an edit of nothing that LOOKS like an edit of something;
+     tree-graph.js separately refuses any drop with no onReparent, so this
+     disable and mountGraph's null onReparent are two locks on one door. */
   function syncEditAvailability() {
-    const blocked = liveMode && !orgReady()
-      ? failureSentence(orgAvailability, 'The declared organisation could not be read.')
-      : null
+    const blocked = mockSource()
+      ? 'This is the example fleet — nothing in it is yours to rearrange.'
+      : !orgReady()
+        ? failureSentence(orgAvailability, 'The declared organisation could not be read.')
+        : null
     editButton.disabled = Boolean(blocked)
     if (blocked) {
       editButton.title = `The hierarchy cannot be edited here. ${blocked}`
@@ -1381,7 +1278,15 @@ export function computersView({ initialComputer = null, navigate }) {
    * COULD run, it is exactly what the drill-in page reads, and declared-fleet.js
    * keeps the two halves apart on purpose. Nothing is drawn; a door is named. */
   function firstDeclaredTarget() {
-    if (!liveMode || !orgReady()) return null
+    /* Under mock the door aims at the example fleet's own first seat, derived
+       from sample-fleet — NEVER from the declared organisation, which is real
+       data a badged screen must not read. The drill-in behind it renders the
+       same example world (src/views/agent.js resolves by the same source). */
+    if (mockSource()) {
+      const seat = sampleFleetData(Date.now()).graph.nodes[0]
+      return seat ? { id: seat.id, name: seat.label || seat.id } : null
+    }
+    if (!orgReady()) return null
     const seat = declaredAgentsData(orgAvailability.org)?.declared?.[0]
     return seat ? { id: seat.id, name: seat.displayName || seat.id } : null
   }
@@ -1408,21 +1313,17 @@ export function computersView({ initialComputer = null, navigate }) {
     syncResetButton()
   })
 
+  /* One tab per computer in the mounted record — the example fleet's two
+     computers arrive through the same liveComputers list as a real fleet's.
+     The simulated render's "+" tab (sim.addComputer) is gone with the render:
+     a control that mints a pretend computer has no honest meaning on any
+     source, and connecting a real one is not a tab press. */
   function renderTabs() {
     tabsElement.innerHTML = ''
-    const computers = liveMode ? liveComputers : sim.computers
-    for (const candidate of computers) {
+    for (const candidate of liveComputers) {
       const tab = el(`<button class="tab ${candidate === computer ? 'active' : ''}">${escapeMarkup(candidate.name)}<span class="ip">${escapeMarkup(candidate.ip)}</span></button>`)
       tab.addEventListener('click', () => switchComputer(candidate))
       tabsElement.appendChild(tab)
-    }
-    if (!liveMode) {
-      const add = el('<button class="tab add" type="button" title="Connect a computer">+</button>')
-      add.addEventListener('click', () => {
-        const next = sim.addComputer()
-        switchComputer(next)
-      })
-      tabsElement.appendChild(add)
     }
   }
 
@@ -1454,6 +1355,30 @@ export function computersView({ initialComputer = null, navigate }) {
         crumbElement.appendChild(current)
       }
     })
+  }
+
+  /* THE BADGE FOLLOWS THE SOURCE. Mock draws a visible "Example, not your
+     data" marking beside the computer's name — the product's one phrasing for
+     example data (src/approvals-example.js pins it; home, comms and the
+     ledger all say these exact words) — and local AND relay draw nothing,
+     because real data is never badged. It sits in the bar's lead slot, beside
+     graphTitle, so it is on screen at every scroll position and cannot be
+     mistaken for a fact about one node. It rides `.rail-sub` — the product's
+     small mono register, already a stylesheet rule, which keeps rail-chrome's
+     unstyled-class sweep honest — and the pill itself is drawn inline from
+     the theme's own tokens because this pass touches no stylesheet; the vars
+     keep it truthful in both themes. */
+  function syncExampleBadge() {
+    const lead = root.querySelector('.graph-bar-lead')
+    if (!lead) return
+    let badge = lead.querySelector('[data-example-badge]')
+    if (!mockSource()) {
+      badge?.remove()
+      return
+    }
+    if (badge) return
+    badge = el('<span class="rail-sub graph-example-badge" data-example-badge="true" style="font: 600 10.5px/1.7 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; margin: 0 0 0 10px; align-self: center; white-space: nowrap;">Example, not your data</span>')
+    lead.appendChild(badge)
   }
 
   function clearMountedGraph() {
@@ -2225,16 +2150,12 @@ export function computersView({ initialComputer = null, navigate }) {
      closing the panel puts back what they had rather than resetting the rail. */
   let railBeforeCompose = null
 
-  /* WHY THE EXAMPLE BOARD DOES NOT GROW TREES, and it is the same fence dd01899
-     put on this page's Dispatch control.
-     `isWriteEnabled` is a question about PERMISSION; this is a question about
-     PROVENANCE, and they are not the same question. In the packaged app the
-     example fleet has a real agent bridge on `window`, so an empty node pressed
-     on the demonstration board would start a real session on this computer from
-     a page whose own banner says nothing on it is real. The slots are therefore
-     GONE from that board rather than disabled — see mountGraph — and this
-     sentence is the belt-and-braces answer if a press reaches here anyway. */
-  const EXAMPLE_BOARD_TEXT = 'This is the example fleet, so nothing here can start a real agent. Turn the example off in Settings, under what the screens show, to build a tree on your own computer.'
+  /* EXAMPLE_BOARD_TEXT — the mock start refusal — moved to module scope (see
+     its note beside START_NEEDS_APP_TEXT): startAgentForNode itself now
+     refuses mock-sourced starts before any bridge check, so the sentence had
+     to live where that module-scope function can reach it. The empty slots
+     are DRAWN on the example fleet — the dashed start slot is part of the
+     product — and every press of one answers with that sentence instead. */
 
   /* THE ONE OUTCOME NEITHER SHARED COPY MODULE HAS A SENTENCE FOR, because it is
      not a refusal: the agent started, and the drawing of it could not be saved.
@@ -2254,9 +2175,14 @@ export function computersView({ initialComputer = null, navigate }) {
   }
 
   /* Open the store for the computer on screen, or make sure there is none.
-     The example board keeps no trees at all: see the fence above. */
+     THE EXAMPLE FLEET KEEPS NO TREES AT ALL: an example fleet is not yours to
+     save trees onto — a tree persisted under `sample-computer-1` would be a
+     real record of yours filed inside a fleet that is nobody's, and would
+     resurface there for as long as the toggle stayed on. Every tree-save
+     surface refuses under mock with the example sentence (the compose panel
+     via composeUnavailableReason, the drag via syncEditAvailability). */
   function syncTreeStore() {
-    if (!liveMode || !computer) {
+    if (mockSource() || !computer) {
       releaseTreeStore()
       return null
     }
@@ -2435,16 +2361,14 @@ export function computersView({ initialComputer = null, navigate }) {
 
   const treeAgents = () => (treeStore ? treeStore.snapshot().nodes.map(treeAgentRecord) : [])
 
-  /* The computer handed to the graph: the fleet's own agents plus the ones this
-     person started. A COPY is only made when there is something to add, because
-     the simulated page relies on object identity — src/tree-graph.js subscribes
-     to sim events and compares `comp === this.computer` — and a copy handed over
-     for nothing would silently stop the example fleet animating. */
+  /* The computer handed to the graph: the record's own agents plus the ones
+     this person started. One code path for every source — under mock the tree
+     store is released (syncTreeStore), so treeAgents() is empty and the
+     untouched example computer is what draws. A COPY is only made when there
+     is something to add; nothing downstream depends on identity any more
+     (tree-graph.js no longer subscribes to sim events), but a fresh object
+     for nothing is still a reconcile for nothing. */
   function graphComputer() {
-    /* The example board is left byte-for-byte as it was — see EXAMPLE_BOARD_TEXT
-       above for the fence, and note that this is the same object identity check
-       the sim relies on. */
-    if (!liveMode) return computer
     const grown = treeAgents()
     if (grown.length === 0) return computer
     return { ...computer, agents: [...(computer.agents || []), ...grown] }
@@ -2474,7 +2398,11 @@ export function computersView({ initialComputer = null, navigate }) {
 
   function treeContextFeed(agent) {
     const node = agent.treeNode
-    if (!node) return liveMode ? projectionMonitorContext(agent) : monitorContextFor(agent)
+    /* One code path: the projection carries whatever the source carried, mock
+       data included, and projectionMonitorContext reads only what is on it.
+       The hash-seeded fake excerpt (monitorContextFor) died with the second
+       render — a fabricated chat line has no honest home on any source. */
+    if (!node) return projectionMonitorContext(agent)
     /* THE CONTEXT WINDOW, not a telemetry card. The owner's words for the old
        shape: "I dont see anything just nonsense" — and he was right by
        construction: chat was hardcoded null, statusNote is cleared on success,
@@ -2543,8 +2471,11 @@ export function computersView({ initialComputer = null, navigate }) {
      mounting early would print that sentence about a service nobody has asked
      yet. The slot holds a waiting line until then and this replaces it. */
   function mountResearchScopeControl() {
+    /* Real sources only: filing writes an assignment against your research
+       projects, and mock neither writes nor shows them. The slot under mock
+       carries its own sentence instead (see renderLiveStats). */
     const slot = root.querySelector('[data-research-scope-slot]')
-    if (!slot || slot.querySelector('[data-assign-control]') || !liveMode || !researchService) return
+    if (!slot || slot.querySelector('[data-assign-control]') || mockSource() || !researchService) return
     slot.innerHTML = ''
     slot.appendChild(createAssignmentControl({
       projects: researchService?.ok ? researchService.projects : [],
@@ -2575,7 +2506,13 @@ export function computersView({ initialComputer = null, navigate }) {
     }))
   }
 
-  if (liveMode) {
+  /* Read once per view, from the boot path's real branch — never at
+     construction (the source is not resolved yet) and never under mock (the
+     projects list is your data; a badged screen does not read it). The guard
+     makes a mock→real source flip read it on arrival without a second read
+     when the view booted real. */
+  function readResearchOnce() {
+    if (mockSource() || researchService) return
     readResearchSnapshot().then(result => {
       if (destroyed) return
       researchService = result
@@ -2713,7 +2650,11 @@ export function computersView({ initialComputer = null, navigate }) {
    * setWriteEnabled is the single writer of these rows (src/write-flags.js),
    * which is what makes the two surfaces incapable of disagreeing. */
   function composeUnavailableAction(detail) {
-    if (!liveMode || treeStoreProblem) return null
+    /* Mock answers null FIRST: the example refusal's remedy is the Data & Sim
+       toggle, and that is a navigation, not a press this panel may perform.
+       The old one-press "turn the example off" flipped a per-view live flag —
+       a mechanism that no longer exists. */
+    if (mockSource() || treeStoreProblem) return null
     if (isWriteEnabled(START_CONTROL_FLAG)) return null
     return {
       label: START_CONTROL_ON.label,
@@ -2748,7 +2689,7 @@ export function computersView({ initialComputer = null, navigate }) {
      person pressing a circle that does nothing, which is the state this whole
      feature was built to end. */
   function composeUnavailableReason() {
-    if (!liveMode) return EXAMPLE_BOARD_TEXT
+    if (mockSource()) return EXAMPLE_BOARD_TEXT
     if (treeStoreProblem) return treeStoreProblem
     /* THE SWITCH THAT DECIDES WHETHER THIS PRODUCT MAY START AN AGENT, asked
        on the surface that actually starts them.
@@ -2985,8 +2926,10 @@ export function computersView({ initialComputer = null, navigate }) {
     /* ASKED AGAIN HERE, because the sign-in is the one input that changes while
        this view stays mounted -- see readProviderSignIn(). It settles after the
        panel is built and repaints the menu over the same node, exactly as the
-       tier list and the confinement line already do. */
-    void readProviderSignIn()
+       tier list and the confinement line already do. Not under mock: no
+       bridge call from a mock-sourced press, and the panel it would repaint
+       is disabled with the example sentence anyway. */
+    if (!mockSource()) void readProviderSignIn()
     syncTreeStore()
     const parent = composeParentFor(detail)
     const unavailable = composeUnavailableReason()
@@ -3065,6 +3008,12 @@ export function computersView({ initialComputer = null, navigate }) {
    * would lose the specific reason their start did not happen.
    */
   async function submitCompose(draft, detail) {
+    /* Belt and braces: the panel opened disabled with this same sentence, and
+       startAgentForNode refuses mock too — but a submit is the press that
+       counts, and under mock the null store's fallback below would otherwise
+       claim the app is missing, which on a desktop with the example on is
+       simply false. */
+    if (mockSource()) return { ok: false, message: EXAMPLE_BOARD_TEXT }
     const store = treeStore
     if (!store) return { ok: false, message: treeStoreProblem || START_NEEDS_APP_TEXT }
     /* ASKED AGAIN HERE, AND THIS IS THE ONE THAT COUNTS. The panel's disabled
@@ -3262,6 +3211,7 @@ export function computersView({ initialComputer = null, navigate }) {
     }
     syncTreeStore()
     graphTitle.textContent = computer.name
+    syncExampleBadge()
     canvas = el('<div class="computer-tree-canvas"></div>')
     /* First child of the canvas slot, under the absolute overlays (crumb,
        hint, status) that follow it in the DOM — the same stacking the old
@@ -3273,8 +3223,15 @@ export function computersView({ initialComputer = null, navigate }) {
       computer: graphComputer(),
       screenChips: true,
       contextFeed: treeContextFeed,
-      edges: liveMode ? computer.graphEdges : null,
-      onReparent: liveMode ? handleReparent : null,
+      /* Every source's projection carries its own edge list — the example
+         fleet's included — so the graph always draws the record's edges. */
+      edges: computer.graphEdges,
+      /* A reparent is an org WRITE, so the callback exists only where a real
+         source has a ready org store behind it. Everywhere else it is null,
+         and tree-graph.js refuses a drop with no onReparent — the drag never
+         silently pretends. (Edit mode is separately disabled with the reason
+         by syncEditAvailability, so this null is the second lock.) */
+      onReparent: !mockSource() && orgReady() ? handleReparent : null,
       /* The graph asks, the view answers: tree roles are FREE TEXT, so the
          graph's old inline `role !== 'coordinator'` rule silently froze any
          tree node a person happened to name "coordinator". A tree node is
@@ -3331,15 +3288,17 @@ export function computersView({ initialComputer = null, navigate }) {
           return
         }
         setOpenTarget(agent)
-        showControls(agent)
+        showProjectionControls(agent)
       },
       onRootChange: (next, trail) => { renderCrumb(next, trail); refreshTreeSwitch(); railFollowsCanvas(next) },
       onOverridesChange: syncResetButton,
-      /* THE OFFER, AND ONLY WHERE IT CAN BE HONOURED. Empty nodes are drawn on
-         the board that reads this computer and are absent from the example one,
-         the same way the launch controls are — a demonstration screen that could
-         start a real session is the defect, not the feature. */
-      emptySlots: liveMode === true,
+      /* THE OFFER IS DRAWN ON EVERY SOURCE. The dashed start slot is part of
+         the product — the example page IS the product page — and a press of
+         one under mock answers with the example sentence through
+         composeUnavailableReason, the same way every disabled start surface
+         answers. The old rule hid the slots from the example render entirely;
+         hiding a control silently is the thing this codebase does not do. */
+      emptySlots: true,
       /* WHERE AN OFFER IS REAL, ASKED OF THE MODEL THAT OWNS THE ANSWER.
          src/fleet-trees.js already knows every position it would accept — its
          extensionPoints() excludes a branch at the engine's fan-out or depth cap
@@ -3365,12 +3324,20 @@ export function computersView({ initialComputer = null, navigate }) {
     graph.onDensity = (dense) => hintElement.classList.toggle('show', dense)
     graph.updateDensity()
     /* Asked as the board comes up, so the answer is usually in hand before the
-       first empty node is pressed. */
-    void readStartableTiers()
-    void readProviderSignIn()
-    void readComposeFolders()
-    void readComposeDefaultFolder()
-    void readComposeConfinement()
+       first empty node is pressed. REAL SOURCES ONLY: every one of these is a
+       bridge read about THIS computer — its engines, its sign-ins, its
+       folders, its permission level — and a mock-sourced page issues no
+       bridge call. On the desktop with the example toggle on those bridges
+       exist and would answer, and their answers would put this machine's
+       facts inside a screen badged as an example; the compose panel under
+       mock is disabled with the example sentence, so it needs none of them. */
+    if (!mockSource()) {
+      void readStartableTiers()
+      void readProviderSignIn()
+      void readComposeFolders()
+      void readComposeDefaultFolder()
+      void readComposeConfinement()
+    }
     /* THE PANEL THE PERSON WAS IN, REOPENED AFTER THE SWITCH THEY PRESSED IN IT
        tore this view down. Read once and cleared, so an ordinary visit never
        inherits it. See composeToRestore for the measurement. */
@@ -3418,7 +3385,10 @@ export function computersView({ initialComputer = null, navigate }) {
    * would make a correct save feel like a page reset.
    */
   function reprojectFromOrg({ keepAgentId = null } = {}) {
-    if (!lastFleetData || !liveMode) return
+    /* Real sources only: this re-derives from the saved ORGANISATION, and the
+       example fleet has no org behind it — under mock lastFleetData is the
+       sample record and must never be re-projected through a real store. */
+    if (!lastFleetData || mockSource()) return
     const rootId = graph?.rootId || null
     const editing = !!graph?.editMode
     const computerId = computer?.id || null
@@ -3450,37 +3420,15 @@ export function computersView({ initialComputer = null, navigate }) {
     showProjectionControls(agent)
   }
 
+  /* One stats rail for every source. The simulated body that stood here —
+     stat-hero over sim.spawnedTotal, the CPU/GPU/Network/Disk load bars, the
+     rotating task chips — was the second render's own furniture, all of it
+     fed by generated numbers no record ever held. The live rail below reads
+     only the projection, which under mock is the example record, so the same
+     rail is honest on all three sources. */
   function renderStats() {
     if (!computer) return
-    if (liveMode) {
-      renderLiveStats()
-      return
-    }
-    const active = computer.agents.length
-    statsPage.innerHTML = `
-      ${railTitleRow({ title: 'Runtime Statistics' })}
-      <div class="rail-scroll">
-        <div class="stat-hero"><span class="v" id="agent-count">${computer.spawnedTotal}</span><span class="l">Agent Count</span></div>
-        <div class="rail-sub">${active} live now · ${escapeMarkup(computer.name.toLowerCase())} · ${escapeMarkup(computer.note)}</div>
-        <div class="rail-sec">Load</div>
-        <div class="bars">
-          ${BAR_DEFS.map(definition => `
-            <div class="bar-row" data-k="${definition.key}">
-              <span class="bl">${definition.label}</span>
-              <div class="bar-track"><div class="bar-fill" style="--bc:${BAR_C};transform:scaleX(0)"></div></div>
-              <span class="bv">0%</span>
-            </div>`).join('')}
-        </div>
-        <div class="rail-sec">Tasks</div>
-        <div class="task-list"></div>
-        <div class="rail-sec">Legend</div>
-        <div class="legend">
-          ${Object.entries(ROLES).map(([key, role]) => `
-            <div class="leg ${key === 'spawned' ? 'off' : ''}" style="--lc:${role.hex}"><i></i>${escapeMarkup(role.label)}</div>`).join('')}
-        </div>
-      </div>`
-    updateBars()
-    updateTasks()
+    renderLiveStats()
   }
 
   /* THE RAIL THE OWNER CALLED HARD TO READ, REBUILT AROUND THREE CHANGES.
@@ -3504,7 +3452,7 @@ export function computersView({ initialComputer = null, navigate }) {
     const sourceSentence = RECORD_SOURCE[computer.note] || 'This computer did not say where its record came from.'
     statsPage.innerHTML = `
       ${railTitleRow({ title: 'Fleet overview' })}
-      <div class="rail-scroll" data-live-mode="live" data-projection-state="available">
+      <div class="rail-scroll" data-live-mode="${mockSource() ? 'simulated' : 'live'}" data-projection-state="available">
         <div class="stat-hero"><span class="v" id="agent-count" data-record-state="reading">—</span><span class="l">Agents on record</span></div>
         <div class="rail-prose is-dim" data-agent-record-note>Reading this computer’s own record of what has run here.</div>
         ${declaredOnlyReason ? `<div class="rail-note projection-unavailable" data-projection-state="declared">
@@ -3551,13 +3499,27 @@ export function computersView({ initialComputer = null, navigate }) {
              in the middle of an empty panel while every other sentence on the
              rail started at the left margin. */
           : '<p class="rail-prose is-dim">No services are on record for this computer.</p>'}
+        <!-- Under mock these two sections state their own absence in the
+             example's words. orgSourceMarkup's absent notice says "running in
+             a browser", which on a desktop showing the example would be a
+             false sentence — and the org and role library are real data a
+             badged rail does not read. The .board-org-slot is simply not
+             rendered there, so mountOrgLibrary's null-slot guard makes the
+             library structurally unreachable under mock. -->
         <div class="rail-sec">Organisation</div>
-        ${orgSourceMarkup()}
+        ${mockSource()
+          ? '<p class="rail-prose is-dim">This is the example fleet, so your declared organisation is not read or shown here.</p>'
+          : orgSourceMarkup()}
         <div class="rail-sec">Roles</div>
-        <div class="board-org-slot"></div>
+        ${mockSource()
+          ? '<p class="rail-prose is-dim">The example’s roles are drawn on its circles. Your own role library is not read here.</p>'
+          : '<div class="board-org-slot"></div>'}
         <div class="rail-sec">Research filing</div>
         <p class="rail-prose is-dim">Pick a project and every session in the tree you are looking at gets filed under it. Every tree files the whole computer.</p>
-        <div class="rail-research-slot" data-research-scope-slot><p class="rail-prose is-dim">Reading your research projects.</p></div>
+        <!-- Under mock the slot states its own absence instead of waiting on a
+             read that will never run: research projects are your data, and a
+             badged rail neither reads nor files against them. -->
+        <div class="rail-research-slot" data-research-scope-slot><p class="rail-prose is-dim">${mockSource() ? 'This is the example fleet, so nothing here can be filed under your research projects.' : 'Reading your research projects.'}</p></div>
       </div>`
     mountOrgLibrary(statsPage.querySelector('.board-org-slot'))
     void mountProfilePanel(statsPage.querySelector('[data-profile-slot]'))
@@ -3598,6 +3560,20 @@ export function computersView({ initialComputer = null, navigate }) {
     const hero = statsPage.querySelector('#agent-count')
     const note = statsPage.querySelector('[data-agent-record-note]')
     if (!hero || !note) return
+
+    /* THE EXAMPLE ANSWERS FROM ITS OWN RECORD. mcAgent.history() reads this
+       computer's signed run ledger — real data — and on the desktop with the
+       example on that bridge exists and would answer; its count inside a
+       badged rail would make one number on the example true, which is the
+       mixing the badge forbids. The example's number is its own seat count,
+       and the note says which record it came from rather than claiming the
+       signed ledger. */
+    if (mockSource()) {
+      hero.textContent = String(computer?.spawnedTotal ?? 0)
+      hero.dataset.recordState = 'example'
+      note.textContent = 'This is the example fleet’s own record — nothing here was read from your computer.'
+      return
+    }
 
     const bridge = typeof window === 'undefined' ? null : window.mcAgent
     let raw
@@ -3649,6 +3625,14 @@ export function computersView({ initialComputer = null, navigate }) {
      Actions tab; this box creates and removes the profiles themselves. */
   async function mountProfilePanel(slot) {
     if (!slot) return
+    /* Mock: the surface stays, with a sentence in it, and no bridge call.
+       Profiles are names of YOUR folders (the main process resolves them from
+       OS-dialog picks) — a badged rail listing them would be your data inside
+       the example, and creating or removing one is a write. */
+    if (mockSource()) {
+      slot.innerHTML = '<p class="rail-prose is-dim">This is the example fleet, so it does not read or manage the session folders on your computer. Turn off “Show the example fleet” in Settings, under Data & Sim, to manage them.</p>'
+      return
+    }
     const bridge = typeof window === 'undefined' ? null : window.mcAgent
     if (!bridge || typeof bridge.profiles !== 'function') {
       slot.innerHTML = `<p class="rail-prose is-dim">${escapeMarkup(PROFILE_PANEL.needsApp)}</p>`
@@ -3762,42 +3746,6 @@ export function computersView({ initialComputer = null, navigate }) {
     return result
   }
 
-  function updateBars() {
-    if (liveMode || !computer || !statsPage.isConnected) return
-    for (const definition of BAR_DEFS) {
-      const row = statsPage.querySelector(`.bar-row[data-k="${definition.key}"]`)
-      if (!row) continue
-      const value = Math.round(computer.stats[definition.key])
-      row.querySelector('.bar-fill').style.transform = `scaleX(${(value / 100).toFixed(4)})`
-      row.querySelector('.bv').textContent = `${value}%`
-    }
-    const count = statsPage.querySelector('#agent-count')
-    if (count) count.textContent = String(computer.spawnedTotal)
-  }
-
-  function updateTasks() {
-    if (liveMode || !computer) return
-    const list = statsPage.querySelector('.task-list')
-    if (!list) return
-    const seen = new Set()
-    const wanted = computer.tasks.filter(task => !seen.has(task.text) && seen.add(task.text)).slice(0, 8)
-    const existing = new Map([...list.children].map(node => [node.dataset.taskId, node]))
-    let previous = null
-    for (const task of wanted) {
-      let node = existing.get(task.id)
-      if (node) existing.delete(task.id)
-      else {
-        const role = ROLES[task.role] || ROLES.default
-        node = el(`<span class="task-chip" data-task-id="${task.id}" style="--tc:${role.hex}"><i></i>${escapeMarkup(task.text)}</span>`)
-      }
-      node.classList.toggle('done', !!task.done)
-      const target = previous ? previous.nextSibling : list.firstChild
-      if (node !== target) list.insertBefore(node, target)
-      previous = node
-    }
-    for (const node of existing.values()) node.remove()
-  }
-
   function showStats() {
     /* THE DOOR COMES BACK WITH THE OVERVIEW. Selecting a node in your own tree
        aims "Open agent detail" at nothing (a tree node has no drill-in page,
@@ -3865,23 +3813,25 @@ export function computersView({ initialComputer = null, navigate }) {
    * capability/src/lib/mission-bridge/actions.js builds for the selected tier,
    * so a person can read what their choice does instead of trusting a label.
    */
-  /* What stands where the launch, team and loop boxes stand on the real board.
+  /* What stands where the launch, team, loop and cloud boxes stand on a
+   * real-source board.
    *
-   * It is a statement, not a control: no button, nothing focusable, nothing that
-   * could be re-enabled by deleting an attribute. It exists because an empty gap
-   * is its own kind of dishonesty -- somebody who used this page yesterday and
-   * finds Dispatch missing today should be told the board changed and where the
-   * working one is, rather than left to wonder whether the product broke.
-   *
-   * The route it names is the same one the tabs use, so it cannot rot into a
-   * link to a page that does not exist. */
+   * It is a statement, not a control: no button, nothing focusable, nothing
+   * that could be re-enabled by deleting an attribute. It exists because an
+   * empty gap is its own kind of dishonesty -- somebody who used this page
+   * yesterday and finds Dispatch missing today should be told why and where
+   * the working one is, rather than left to wonder whether the product broke.
+   * mountStartWorkControls mounts it inside the Start-work group whenever the
+   * source is mock, so the group itself stays visible and named -- the
+   * example page IS the product page, and its start-work surface states its
+   * own inertness instead of vanishing. */
   function exampleControlsAbsentBox() {
     return el(`
       <div class="board-box board-ctl-box board-ctl-absent">
         <div class="board-box-h"><span class="bh-t">No launch controls on this board</span></div>
-        <div class="board-cap">this is the example fleet, and nothing here starts anything</div>
-        <p class="board-absent-copy">Launch, team and loop controls are left out of the example on purpose, so that nothing on a demonstration screen can start a real agent. They appear on the board that reads this computer.</p>
-        <p class="board-absent-copy">Turn the example off in Settings, under what the screens show, to see your own computer and its controls.</p>
+        <div class="board-cap">this is the example fleet, and nothing here starts anything.</div>
+        <p class="board-absent-copy">Launch, team, loop and cloud controls are left out of the example on purpose: nothing on an example screen may start a real agent. They appear on the board that reads this computer.</p>
+        <p class="board-absent-copy">Turn off “Show the example fleet” in Settings, under Data &amp; Sim, to see your own computer and its controls.</p>
       </div>`)
   }
 
@@ -3903,10 +3853,10 @@ export function computersView({ initialComputer = null, navigate }) {
    * example board, not greyed out, because a disabled Dispatch button still
    * describes a capability this board does not have.
    *
-   * IT IS BELT AND BRACES ON PURPOSE. showControls() below no longer calls these
-   * at all for the simulated rail, so this branch should be unreachable; it is
-   * here because "unreachable" is a property of today's callers and this file is
-   * edited by several lanes. */
+   * IT IS BELT AND BRACES ON PURPOSE. mountStartWorkControls below mounts the
+   * stated-absence box instead of these four whenever the source is mock, so
+   * this branch should be unreachable; it is here because "unreachable" is a
+   * property of today's callers and this file is edited by several lanes. */
   function launchControlsBox(agent, { live = false } = {}) {
     if (live !== true) return null
     const settings = readLaunchSettings()
@@ -4334,12 +4284,19 @@ export function computersView({ initialComputer = null, navigate }) {
     let mounted = null
     const render = () => {
       if (!host.isConnected) return
+      /* `live` is the source axis now: real sources plan the live channel,
+         mock plans the demonstration one. The `{kind:'simulated', canSend}`
+         channel vocabulary inside planNodeChatbox is deliberately untouched —
+         node-chatbox and orchestration-controls pin it — so under mock the
+         example seat still gets the seeded demonstration chat, badged by the
+         page it sits on. railRuns is empty under mock (loadRailRuns is a
+         real-source read), so no real run ever lands in this box. */
       const plan = planNodeChatbox({
         agent,
-        live: liveMode,
+        live: !mockSource(),
         sessionAvailable: false,
         sessionAgentId: null,
-        turns: liveMode ? [] : [{ who: agent.id }],
+        turns: mockSource() ? [{ who: agent.id }] : [],
         runs: railRuns,
         runsSupported: railRunsSupported,
       })
@@ -4353,6 +4310,11 @@ export function computersView({ initialComputer = null, navigate }) {
           subtitle: channelCaption(plan.channel, role.label),
           roleKey: agent.role,
           seed: 6,
+          /* The ONE surface where the composer answering itself is the product:
+             a labelled demonstration conversation on the example fleet. Every
+             other caller either wires a real sender or gets the switched-off
+             composer -- buildChat refuses the canned path without this flag. */
+          sampleConversation: true,
         })
         host.appendChild(mounted)
       } else {
@@ -5645,90 +5607,14 @@ export function computersView({ initialComputer = null, navigate }) {
     return true
   }
 
-  function showControls(agent) {
-    if (liveMode) {
-      showProjectionControls(agent)
-      return
-    }
-    clearBoard()
-    const role = ROLES[agent.role] || ROLES.default
-    controlsPage.style.setProperty('--rc', role.hex)
-    /* DISPOSE BEFORE THE WIPE. The rule is stated where railChat is declared
-       -- never innerHTML over a mounted chat -- and only showTreeNodeControls
-       obeyed it. After any of the other three rebuilds, railChat survived
-       pointing at a DETACHED root whose sessionId still matched, so the event
-       listener kept opening streams and pushing every delta into a chat log
-       that was no longer in the document: the answer was recorded and never
-       seen (owner, 2026-08-18, "the messages in history disappear"). It also
-       leaked that chat's observers, frames and timers. */
-    disposeRailSaid()
-    disposeRailChat()
-    controlsPage.innerHTML = `
-      ${railTitleRow({ back: { aria: 'Back to statistics' }, title: 'Agent Controls' })}
-      <div class="rail-scroll">
-        <div class="agent-head board-head"><span class="role-dot"></span><div><div class="an">${escapeMarkup(agent.name)}</div><div class="ar">${escapeMarkup(role.label)}</div></div></div>
-        <div class="agent-ring-wrap"></div>
-        <div class="rail-sub board-meta">
-          <span>${escapeMarkup(agent.model)} · ${escapeMarkup(agent.pool)}</span>
-          <span>${agent.tasksDone} tasks · <em class="sev-${agent.failRate < 2 ? 'good' : agent.failRate < 5 ? 'warn' : 'serious'}">${agent.failRate}% fail</em></span>
-        </div>
-        <div class="board-box board-chat-box"></div>
-        <div class="board-chart-slot"></div>
-        <div class="board-box board-ctl-box"></div>
-        <div class="board-box board-legend-box">
-          <div class="board-box-h"><span class="bh-t">Legend</span></div>
-          <div class="legend board-legend">
-            ${Object.entries(ROLES).map(([key, item]) => `
-              <div class="leg ${key === agent.role ? 'is-self' : ''}" style="--lc:${item.hex}"><i></i>${escapeMarkup(item.label)}</div>`).join('')}
-          </div>
-        </div>
-      </div>
-      <div class="board-actions">
-        <div class="ctl-grid">
-          ${deadActionButtons()}
-        </div>
-        <button class="ctl-btn" data-a="open">Open full view</button>
-      </div>`
-
-    mountRailChat(agent, role)
-    /* THE EXAMPLE BOARD GETS NO LAUNCH, TEAM OR LOOP BOX AT ALL.
-     *
-     * It used to get all three, really wired, gated only on the dispatch write
-     * flag -- so the demonstration copy of this page could dispatch a real
-     * agent. They are not disabled here, they are ABSENT, for the reason the
-     * example agent page settled on in dd01899: a disabled control still
-     * advertises a capability, and a disabled button is still something a
-     * keyboard can reach and a future refactor can re-enable by deleting one
-     * attribute. What replaces them says where the real ones are, because a
-     * person who came here looking for Dispatch is owed a direction rather than
-     * a hole. */
-    controlsPage.querySelector('.board-ctl-box').replaceWith(exampleControlsAbsentBox())
-
-    const ringSize = Math.max(180, Math.min(214, (railElement.clientWidth || 320) - 130))
-    boardRing = uptimeRing({
-      size: ringSize,
-      epoch: agent.bornAt,
-      colors: [`color-mix(in oklab, ${role.hex} 35%, var(--sheet))`, role.hex],
-      caption: 'Runtime',
-      showDays: false,
-    })
-    controlsPage.querySelector('.agent-ring-wrap').appendChild(boardRing.el)
-    boardClock = setInterval(() => boardRing?.update(), 1000)
-
-    boardChart = agentChartBox(agent)
-    controlsPage.querySelector('.board-chart-slot').replaceWith(boardChart.el)
-    boardChart.mount()
-
-    controlsPage.querySelector('.rail-back').addEventListener('click', showStats)
-    controlsPage.querySelector('[data-a="open"]').addEventListener('click', () => {
-      const record = graph?.nodes.get(agent.id)
-      const target = record?.el || boardRing?.el || graphWrap
-      const bounds = target.getBoundingClientRect()
-      setViewMorph({ kind: 'zoom', x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 })
-      navigate(`#/agent/${computer.id}/${agent.id}`)
-    })
-    activateRail(controlsPage)
-  }
+  /* showControls — the fork between the projection rail and a second,
+     simulated-only rail ('Agent Controls': the uptime ring, a model·pool
+     line, a seeded chat, a synthesised activity chart, and Pause/Resume/
+     Respawn) — is gone. There is one rail per node now,
+     showProjectionControls, and under mock it simply describes the example
+     record. The dd01899 fence's substance (a demonstration screen must not
+     dispatch a real agent) lives on in mountStartWorkControls' mock branch,
+     which mounts the stated-absence box instead of the four live controls. */
 
   /**
    * THE FOUR ANSWERS TO "HOW DOES WORK GET STARTED FROM THIS COMPUTER",
@@ -5758,13 +5644,12 @@ export function computersView({ initialComputer = null, navigate }) {
    * "UNMEASURED -- the control could not be reached".
    *
    * THE RAIL A PERSON ACTUALLY REACHES IS THE TREE NODE'S. That is the node the
-   * fleet page's own start path creates, it is on the board that reads THIS
-   * computer, and it is absent from the example board by construction --
-   * graphComputer() returns the untouched example computer when the page is not
-   * live, so no tree node and no empty slot can appear there. The fence
-   * tools/example-page-write-fence-qa measures is structural, not a flag, and it
-   * still holds: the example rail goes through showControls(), which builds
-   * exampleControlsAbsentBox() and never calls this function.
+   * fleet page's own start path creates, and it exists only on real sources by
+   * construction -- the example fleet keeps no tree store (syncTreeStore), so
+   * no tree node can appear there. The example-fence still holds and is now
+   * decided HERE: when the source is mock, this function mounts the
+   * stated-absence box instead of the four live controls, so a mock rail can
+   * name the controls without ever building one.
    *
    * `live: true` is stated HERE and nowhere else, for the reason it was stated
    * on the projection rail: only a rail reading this computer may build a
@@ -5809,22 +5694,32 @@ export function computersView({ initialComputer = null, navigate }) {
     const toggle = group.querySelector('[data-start-work-toggle]')
     toggle.setAttribute('aria-label', open ? START_WORK_GROUP.collapseLabel : START_WORK_GROUP.expandLabel)
 
-    /* THE FOUR ARE BUILT AND MOUNTED EITHER WAY, open or closed. Building them
-       lazily on first press would mean the live updaters that query these boxes
-       find nothing until somebody presses, and a control that exists only after
-       a gesture is the defect this rail already has a comment about. `hidden`
-       is a paint decision; the boxes are real from the moment the rail is. */
-    const launchBox = launchControlsBox(agent, { live: true })
-    body.appendChild(launchBox)
-    const teamBox = teamControlsBox(agent, { live: true })
-    body.appendChild(teamBox)
-    const loopBox = loopControlsBox(agent, { live: true })
-    body.appendChild(loopBox)
-    /* Codex Cloud sits with Launch, Team and Loop because it is the fourth
-       answer to the same question -- how does work get started from this
-       computer -- and the first one whose answer is "somewhere else". */
-    boardCloudBox = cloudControlsBox()
-    body.appendChild(boardCloudBox)
+    /* MOCK GETS THE GROUP AND A STATEMENT, NEVER THE CONTROLS. All four boxes
+       reach real machinery -- Dispatch, Team and Loop post through the audited
+       bridge, and the cloud box calls the cloud task bridge -- and on the
+       desktop with the example on those bridges exist and would work. So the
+       Start-work group stays on the mock rail, visible and named (nothing is
+       hidden silently), and its body is the stated absence with the way to the
+       real board -- the same sentence family every mock start surface answers
+       with. The dd01899 fence, restated for the one render. */
+    if (mockSource()) {
+      body.appendChild(exampleControlsAbsentBox())
+    } else {
+      /* THE FOUR ARE BUILT AND MOUNTED EITHER WAY, open or closed. Building
+         them lazily on first press would mean the live updaters that query
+         these boxes find nothing until somebody presses, and a control that
+         exists only after a gesture is the defect this rail already has a
+         comment about. `hidden` is a paint decision; the boxes are real from
+         the moment the rail is. */
+      body.appendChild(launchControlsBox(agent, { live: true }))
+      body.appendChild(teamControlsBox(agent, { live: true }))
+      body.appendChild(loopControlsBox(agent, { live: true }))
+      /* Codex Cloud sits with Launch, Team and Loop because it is the fourth
+         answer to the same question -- how does work get started from this
+         computer -- and the first one whose answer is "somewhere else". */
+      boardCloudBox = cloudControlsBox()
+      body.appendChild(boardCloudBox)
+    }
 
     toggle.addEventListener('click', () => {
       const nowOpen = toggle.getAttribute('aria-expanded') !== 'true'
@@ -5862,7 +5757,7 @@ export function computersView({ initialComputer = null, navigate }) {
     disposeRailChat()
     controlsPage.innerHTML = `
       ${railTitleRow({ back: { aria: 'Back to the fleet overview' }, title: 'Recorded agent' })}
-      <div class="rail-scroll" data-live-mode="live" data-projection-state="available">
+      <div class="rail-scroll" data-live-mode="${mockSource() ? 'simulated' : 'live'}" data-projection-state="available">
         <div class="agent-head board-head"><span class="role-dot"></span><div><div class="an">${escapeMarkup(agent.name)}</div><div class="ar">${escapeMarkup(agent.declaredRole)}</div></div></div>
         <div class="board-box board-chat-box"></div>
         <div class="board-box board-ctl-box projection-state">
@@ -5951,27 +5846,11 @@ export function computersView({ initialComputer = null, navigate }) {
     })()
   }
 
-  function clearSourceUnsubs() {
-    sourceUnsubs.forEach(unsubscribe => unsubscribe())
-    sourceUnsubs = []
-  }
-
-  function mountSimulation() {
-    fetchVersion += 1
-    clearSourceUnsubs()
-    clearMountedGraph()
-    liveMode = false
-    liveComputers = []
-    root.dataset.liveMode = 'simulated'
-    root.dataset.projectionState = 'simulated'
-    computer = sim.computers.find(candidate => candidate.id === initialComputer) || sim.computers[0]
-    renderTabs()
-    mountGraph()
-    showStats()
-    sourceUnsubs.push(sim.on('stats', updateBars))
-    sourceUnsubs.push(sim.on('tasks', updateTasks))
-    sourceUnsubs.push(sim.on('spawn', ({ comp }) => { if (comp === computer) updateBars() }))
-  }
+  /* mountSimulation stood here: the second render's own mount, wired to
+     src/sim.js's generated computers and its stats/tasks/spawn event stream.
+     It went with the render. The example is mounted by mountMockFleet below,
+     through the SAME mountProjection every real source uses, fed the
+     deterministic sample record instead of a live one. */
 
   /* THE EMPTY STATE IS THE SHIPPING STATE.
    *
@@ -5987,21 +5866,30 @@ export function computersView({ initialComputer = null, navigate }) {
    * to know their machine has no fleet host — and it now arrives inside an
    * explanation, in the central panel where the person is already looking.
    *
-   * The one action offered leads to the demonstration copy of the drill-in,
-   * which announces itself as such on arrival. It is offered ONLY when the
-   * simulator actually has an agent to show: an action that leads nowhere is
-   * the same defect as the blank panel it replaced, one screen further along.
+   * The one action offered leads to the example copy of the drill-in — the
+   * /example route, which announces itself as such on arrival. It is built
+   * from the example fleet's own record, so it can only name a seat that
+   * record really holds: an action that leads nowhere would be the same
+   * defect as the blank panel it replaced, one screen further along.
    */
   function emptyStateExample() {
-    const computer0 = sim.computers?.[0]
-    const agent0 = computer0?.agents?.[0]
+    /* The door is built from the example fleet's own record — the same
+       sample-fleet data the /example route renders on arrival — never from
+       the deleted simulator. Deriving the ids keeps this link and that page
+       describing one world; the first computer and the first seat are the
+       coordinator's, which is the example worth opening on. */
+    const sample = sampleFleetData(Date.now())
+    const computer0 = sample.computers[0]
+    const agent0 = sample.graph.nodes[0]
     if (!computer0 || !agent0) return ''
     return `<a class="graph-empty-action" href="#/agent/${escapeMarkup(computer0.id)}/${escapeMarkup(agent0.id)}/example">See an example agent</a>
             <div class="graph-empty-note">Demonstration data. Nothing in it is running on this computer.</div>`
   }
 
+  /* A REAL-SOURCE STATE ONLY: the example record always mounts (sample-fleet
+     cannot be empty or unreadable), so this is reached exclusively on local
+     and relay, and its dataset stays 'live'. */
   function showProjectionUnavailable(reason, loading = false) {
-    clearSourceUnsubs()
     clearMountedGraph()
     clearBoard()
     /* There is no computer on this screen any more, so there is nothing for an
@@ -6009,13 +5897,16 @@ export function computersView({ initialComputer = null, navigate }) {
        whose submit could only refuse. */
     closeComposePanel()
     releaseTreeStore()
-    liveMode = true
     liveComputers = []
     computer = null
     declaredOnlyReason = null
     setOpenTarget(null)
     root.dataset.liveMode = 'live'
     root.dataset.projectionState = loading ? 'loading' : 'unavailable'
+    /* The badge follows the source, and this is a real-source state — but a
+       mock→real flip lands here first (loadProjection's loading face), so the
+       marking a mock mount left in the bar has to come off with it. */
+    syncExampleBadge()
     tabsElement.innerHTML = ''
     graphTitle.textContent = ''
     crumbElement.innerHTML = ''
@@ -6085,16 +5976,26 @@ export function computersView({ initialComputer = null, navigate }) {
   function mountProjection(data, { preferComputerId = null, declaredReason = declaredOnlyReason } = {}) {
     lastFleetData = data
     declaredOnlyReason = declaredReason
-    const next = projectionComputers(data, orgReady() ? orgAvailability.org : null)
+    /* THE SAVED ORGANISATION IS LAID OVER REAL SOURCES ONLY. Under mock the
+       merge input is null even when orgAvailability still holds a reading (a
+       real mount earlier in this view's life may have read it): your saved
+       roles and hierarchy drawn over the example fleet would be real data in
+       a badged box — the mixing the badge promises does not happen.
+       mountMockFleet also resets the availability itself, so this null is the
+       second lock on the same door. */
+    const next = projectionComputers(data, !mockSource() && orgReady() ? orgAvailability.org : null)
     if (!next.length) {
       showProjectionUnavailable('the fleet record lists no usable computers or relationships')
       return
     }
-    clearSourceUnsubs()
     clearMountedGraph()
-    liveMode = true
     liveComputers = next
-    root.dataset.liveMode = 'live'
+    /* `dataset.liveMode` is DOM vocabulary now, derived from the source axis:
+       src/board.css keys on 'simulated' to hold the app-wide example toast
+       off a page that is already carrying its own badge, and packaged drives
+       read the attribute. The VALUE names what the person sees (an example
+       face or their fleet), not which render runs — there is one render. */
+    root.dataset.liveMode = mockSource() ? 'simulated' : 'live'
     root.dataset.projectionState = declaredOnlyReason ? 'declared' : 'available'
     computer = next.find(candidate => candidate.id === preferComputerId)
       || next.find(candidate => candidate.id === initialComputer)
@@ -6111,8 +6012,15 @@ export function computersView({ initialComputer = null, navigate }) {
   function loadProjection() {
     const version = ++fetchVersion
     showProjectionUnavailable('', true)
+    /* STALENESS IS THE VERSION COUNTER'S JOB. Every remount bumps
+       fetchVersion — this function's own ++, and mountMockFleet's — so a
+       fetch that was in flight when the source flipped fails the version
+       check and never paints. The extra currentDataSource() clause is belt
+       and braces for the one thing the counter cannot promise: a FUTURE
+       caller that mounts the example without bumping. A live fetch must
+       never apply over a mock mount, whoever mounted it. */
     Promise.all([fetchFleet(), readOrg()]).then(([result, org]) => {
-      if (destroyed || version !== fetchVersion || !isLiveView('computers')) return
+      if (destroyed || version !== fetchVersion || currentDataSource() === 'mock') return
       orgAvailability = org
       /* THE FLEET PROJECTION IS NOT THE ONLY SOURCE OF COMPUTERS, and on a
          customer machine it is the one that can never answer. When it has
@@ -6131,18 +6039,86 @@ export function computersView({ initialComputer = null, navigate }) {
       }
       syncEditAvailability()
     }).catch(error => {
-      if (destroyed || version !== fetchVersion || !isLiveView('computers')) return
+      /* Same two guards as the .then above, for the same reasons. */
+      if (destroyed || version !== fetchVersion || currentDataSource() === 'mock') return
       showProjectionUnavailable(`the fleet record could not be fetched: ${error?.message || error}`)
     })
   }
 
-  const onLiveFlag = (event) => {
-    if (event.detail?.view !== 'computers' || destroyed) return
-    if (event.detail.live) loadProjection()
-    else mountSimulation()
+  /* THE EXAMPLE MOUNT — the mock arm of the one fork. Same mountProjection,
+     same rails, same graph as every real source; only the record differs. */
+  function mountMockFleet() {
+    /* The bump is this mount's stale-async fence: a real fetch still in
+       flight (the example was switched on mid-load) fails loadProjection's
+       version check and never paints over the example. */
+    fetchVersion += 1
+    /* NOTHING REAL RIDES INTO THE BADGED SCREEN. A real mount earlier in this
+       view's life may have filled these from this computer's own stores —
+       the saved organisation, the signed run ledger, the shell's sign-in and
+       tier readings. Each is dropped back to its nothing-learned default
+       before the example mounts, because an example-badged box holding your
+       real org, your real runs or your machine's sign-in warnings would make
+       part of it true — the exact mixing the badge rules out. Real sources
+       re-read all of them on the way back in. */
+    orgAvailability = { state: 'absent', code: 'ORG_BRIDGE_ABSENT', reason: ORG_ABSENT_REASON }
+    railRuns = []
+    railRunsSupported = false
+    startableTierChoices = TIER_CHOICES
+    startableTierIdList = TREE_DEFAULT_STARTABLE_TIERS
+    signedOutProviders = []
+    noProgramProviders = []
+    /* The compose panel's machine-read inputs too: your folder names, where a
+       default start lands, and this computer's permission sentence would all
+       ride into the (disabled) example panel otherwise. */
+    composeFolders = []
+    composeDefaultFolder = ''
+    composeConfinementLine = ''
+    mountProjection(sampleFleetData(Date.now()), { declaredReason: null })
   }
-  window.addEventListener(LIVE_FLAGS_EVENT, onLiveFlag)
-  unsubs.push(() => window.removeEventListener(LIVE_FLAGS_EVENT, onLiveFlag))
+
+  /* WHERE THE PAGE'S DATA COMES FROM — the one fork, taken per resolution.
+     The owner's ruling collapsed the two renders: "all simulated pages ARE
+     the UI pages, just mock data." So the fork here chooses a RECORD, never
+     a render: mock mounts the example record, local and relay read the real
+     one. Resolution is async (a public page has to ask the host for a
+     transport), which is why the boot is a function and not a statement. */
+  /* The real arm: the projection load plus the real-source-only reads. The
+     reads fire from here rather than at construction because the source was
+     not known at construction — and never under mock, where a bridge call
+     from a badged screen is the thing that must not happen. All three
+     tolerate re-runs (a mock→real flip lands here again through the event
+     below). */
+  function mountRealSource() {
+    loadProjection()
+    void startableTiersNow()
+    loadRailRuns()
+    readResearchOnce()
+  }
+
+  async function bootFromSource() {
+    source = await resolveDataSource()
+    if (destroyed) return
+    if (source === 'mock') mountMockFleet()
+    else mountRealSource()
+  }
+
+  /* The host says the world changed — sign-in, sign-out, the example toggle
+     — and this view re-resolves rather than trusting the cached verdict
+     (`reask` because a transport may have just appeared or died). A verdict
+     that did not change remounts nothing: the event deliberately carries no
+     payload, and reacting to the announcement alone would rebuild the page
+     under the person for nothing. */
+  const onDataSourceChange = () => {
+    void (async () => {
+      const next = await resolveDataSource({ reask: true })
+      if (destroyed || next === source) return
+      source = next
+      if (source === 'mock') mountMockFleet()
+      else mountRealSource()
+    })()
+  }
+  window.addEventListener(DATA_SOURCE_EVENT, onDataSourceChange)
+  unsubs.push(() => window.removeEventListener(DATA_SOURCE_EVENT, onDataSourceChange))
 
   /* A SESSION THAT STARTS WHILE THIS PAGE IS OPEN IS DRAWN WITHOUT A RELOAD.
    *
@@ -6164,11 +6140,13 @@ export function computersView({ initialComputer = null, navigate }) {
     const agentId = record?.agentId ?? null
     if (agentId === lastStartedAgentId) return
     lastStartedAgentId = agentId
-    if (destroyed || !liveMode || !declaredOnlyReason || !orgReady()) return
+    /* Real sources only: the registry describes real sessions, and the
+       declared re-projection it triggers reads the real org — neither may
+       touch a mock mount. */
+    if (destroyed || mockSource() || !declaredOnlyReason || !orgReady()) return
     reprojectFromOrg()
   }))
 
-  loadRailRuns()
   /* THE COMPACT CARD'S SEND. Busy agent: the words join the queue and the
      card says so — the same one-turn-at-a-time truth the engine enforces.
      Idle agent: the words go now, the node returns to running, and the
@@ -6825,15 +6803,11 @@ export function computersView({ initialComputer = null, navigate }) {
     }))
   }
 
-  if (liveMode) loadProjection()
-  else mountSimulation()
-
-  /* Asked once, here, and deliberately NOT awaited. The tree must draw whether
-     or not the shell ever answers; a panel opened before the reply lands shows
-     the pessimistic default, which is what every build could always start. The
-     promise is allowed to settle after the view is gone -- startableTiersNow()
-     checks `destroyed` before it writes. */
-  void startableTiersNow()
+  /* THE BOOT. Deliberately NOT awaited: the view returns its root now and the
+     mount lands when the source resolves. startableTiersNow (fired from the
+     real arm) keeps its old property too — the tree draws whether or not the
+     shell ever answers, and every late settle checks `destroyed` first. */
+  void bootFromSource()
 
   return {
     el: root,
@@ -6845,7 +6819,6 @@ export function computersView({ initialComputer = null, navigate }) {
       if (chipRefreshFrame) cancelAnimationFrame(chipRefreshFrame)
       disposeRailSaid()
       clearBoard()
-      clearSourceUnsubs()
       clearMountedGraph()
       /* The action buffers and the chats they were broadcast to. Holding a
          detached chat root holds its whole log, and this view with it. */
