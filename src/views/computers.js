@@ -10,7 +10,7 @@ import { StaticTreeGraph } from '../tree-graph.js'
    ask the host for a transport; DATA_SOURCE_EVENT is the host saying the world
    changed (sign-in, sign-out, the example toggle), on which this view
    re-resolves and remounts. */
-import { resolveDataSource, currentDataSource, previewWithoutHost, DATA_SOURCE_EVENT } from '../data-source.js'
+import { resolveDataSource, currentDataSource, previewWithoutHost, hostFallbackSentence, DATA_SOURCE_EVENT } from '../data-source.js'
 /* The example fleet, in exactly the `{computers, graph}` shape mountProjection
    consumes — see src/sample-fleet.js for why it is copied literals rather than
    anything imported from the modules being deleted. When the source is mock,
@@ -504,9 +504,26 @@ const exampleBoardText = () => (previewWithoutHost() ? START_NEEDS_APP_TEXT : EX
 /* THE WAY BACK TO YOUR OWN COMPUTER, said correctly for whichever visitor is
    reading it. Four places on this page used to name a switch; the browser
    preview reaches none of them. */
-const exampleExitSentence = () => (previewWithoutHost()
-  ? 'This page is a preview of ToolsEnabled running in your browser. Install ToolsEnabled on your computer to see your own fleet and its controls.'
-  : 'Turn off “Show the example fleet” in Settings, under What the screens show, to see your own computer and its controls.')
+/* THREE STATES, NOT TWO — and the third one is the whole web journey.
+ *
+ * The two below are "you chose the example" and "you have no ToolsEnabled".
+ * The one that was missing is the person who has ToolsEnabled, has it
+ * connected, and whose machine simply did not answer this minute. Telling them
+ * to install it is an instruction they cannot follow, about a problem they do
+ * not have, and it was measured on the live site being said to exactly that
+ * person a minute after /account/ told them their computer was "awake and
+ * ready".
+ *
+ * Only the host bridge knows which of those it is, so when it has left a reason
+ * that reason wins. When it has not, the install sentence is still the right
+ * guess for a browser with no host — that is who reaches this page cold. */
+const exampleExitSentence = () => {
+  if (!previewWithoutHost()) {
+    return 'Turn off “Show the example fleet” in Settings, under What the screens show, to see your own computer and its controls.'
+  }
+  return hostFallbackSentence()
+    || 'This page is a preview of ToolsEnabled running in your browser. Install ToolsEnabled on your computer to see your own fleet and its controls.'
+}
 
 /* THE SENTENCE FOR THE ONE FAILURE THAT IS NOT A FAILED START.
  *

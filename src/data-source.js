@@ -128,6 +128,35 @@ export function previewWithoutHost(source = resolved) {
   return source === 'mock' && !isExampleMode()
 }
 
+/* WHY THIS SCREEN IS ON THE EXAMPLE, WHEN THE BRIDGE KNOWS AND THE APP DOES NOT.
+ *
+ * previewWithoutHost() answers "is the example a choice?" — and for everybody
+ * who did not choose it, the app has been saying one thing: install
+ * ToolsEnabled. That is right for a stranger who followed a link and wrong for
+ * everybody else, and on 2026-08-22 it was measured being told to somebody with
+ * the app installed, a computer connected, and a reachability check that had
+ * answered a minute earlier. Their machine had gone quiet; the page told them to
+ * go and get software they already had.
+ *
+ * The host bridge is the only thing that knows the difference — it is what
+ * failed — so it now leaves its reason on `window.mcHostFallback` as a finished
+ * sentence, and this is the app's side of that channel.
+ *
+ * A MISSING OR MALFORMED REASON IS NOT AN ERROR. Nothing publishes this on the
+ * desktop, and no version of the website is required to. null means "no better
+ * words than the ones you already have", and every caller keeps its own
+ * fallback rather than rendering a blank. The length bound is there because
+ * this string is drawn: a bridge that somehow published a paragraph should not
+ * be able to reshape a page. */
+export function hostFallbackSentence() {
+  try {
+    const published = globalThis.window?.mcHostFallback
+    const sentence = published && published.sentence
+    if (typeof sentence === 'string' && sentence.length > 0 && sentence.length <= 400) return sentence
+  } catch { /* no window, or a getter that throws: fall through to null */ }
+  return null
+}
+
 /** Badge rule, in one place so no surface derives its own: mock is badged,
  *  real data -- local or relay alike -- never is. */
 export function sourceIsBadged(source = resolved) {
