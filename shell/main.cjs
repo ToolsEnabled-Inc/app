@@ -1538,11 +1538,14 @@ function getAgentCommandSurface() {
    it starts survive a dropped tab, a lease expiry and a relay-child respawn
    (design §5.1); they end when the app quits or a close command ends them.
    mayWrite is read PER CALL because it belongs to the owner's "this computer
-   may be driven from the web" switch, whose ruled default is OFF; until that
-   switch is wired HERE (one deliberate line, with its own review), the relay
-   may read everything and change nothing -- every write is refused
-   MC_AGENT_PRINCIPAL_READ_ONLY, which is correct, expected, and what the web
-   surface renders honestly. The label is
+   may be driven from the web" switch, whose ruled default is OFF. The switch
+   is the one control in the connect section of Settings
+   (src/connect-computer-settings.js, label in src/device-claim-flow.js); it
+   writes `mc.relay.web-drive` over the ordinary `mc-prefs:write` channel into
+   shell/renderer-prefs.cjs, and the line below reads that record. While it is
+   off the relay may read everything and change nothing -- every write is
+   refused MC_AGENT_PRINCIPAL_READ_ONLY, which is correct, expected, and what
+   the web surface renders honestly, naming the switch. The label is
    a FIXED STRING: it reaches refusal sentences and logs, so it must never
    carry a machine name, a pair id, or anything else identifying. */
 const RELAY_OWNER = Object.freeze({ principal: 'relay' })
@@ -1551,8 +1554,10 @@ function relayPrincipal() {
     kind: 'relay',
     owner: RELAY_OWNER,
     /* THE OWNER'S SWITCH, READ HERE AND NOWHERE ELSE. Its ruled default is
-       OFF and its store is this shell's own settings file
-       (shell/relay-supervisor.cjs, key `mc.relay.web-drive`); an unset,
+       OFF and its store is shell/renderer-prefs.cjs, the shell's own
+       durable-choice file, at key `mc.relay.web-drive`; the reader is
+       webDriveMayWrite() in shell/relay-supervisor.cjs, and the only writer
+       is the connect section in Settings, over `mc-prefs:write`. An unset,
        malformed, damaged or unreadable record all answer false, so there is
        no path by which a settings fault becomes write access. Read per call
        rather than captured, so turning it off takes effect on the next

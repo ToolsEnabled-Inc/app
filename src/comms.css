@@ -1,17 +1,26 @@
 /* ============================================================
-   COMMS — the agents' internal board (fleet-board durable memory),
-   rendered as a calm, white/black-first channel view.
+   AGENT COMMS — the messages agents send each other, channel by
+   channel, rendered as a calm, white/black-first channel view.
    Glass frame = the site's language; the message surface = flat white.
-   Neon appears only as tiny accents: live dot, role bars, unread dots,
-   hover underline, jump chip. Corners are 3px square. All type ≥13px.
+   Neon appears only as tiny accents: live dot, sender bars, hover
+   underline, jump chip. Corners are 3px square. All type ≥13px.
 
    Two rules govern everything below:
    · NOTHING animates at rest. Every animation on this page is a one-shot
-     tied to an event (a packet landing, a tile moving); the steady state of
+     tied to an event (a message landing, a tile moving); the steady state of
      a quiet board is a completely still board.
-   · Every machine-readable token — timestamp, memory key, port, machine tag
-     — shares one mono treatment with tabular figures, so digits line up in a
-     column whether they are in the rail, the log or a board tile.
+   · Every machine-readable token — timestamp, port, machine tag — shares one
+     mono treatment with tabular figures, so digits line up in a column
+     whether they are in the rail, the log or a board tile. Everything a
+     person READS (names, descriptions, counts in a sentence, notices) is the
+     UI face: the old page set all non-message text mono and grey, so the
+     inventory and every failure read as console output.
+
+   SELECTOR CENSUS: every class rule in this file is for a class the view
+   (src/views/comms.js) actually writes; tools/test/comms-view-wiring.test.mjs
+   fails on a rule nothing emits. Dead rules are how the old sheet came to
+   style an unread dot, a pin tag, a pulse and a branch spine that no code
+   path produced.
    ============================================================ */
 
 .comms {
@@ -36,38 +45,22 @@
 
 .comms .spacer { flex: 1; }
 
-/* role binding the graph never needed — the system voice ([assistant]) */
-.comms .role-spawned { --rc: var(--c-spawned); --gc: var(--ink-3); }
-
 /* ---------- the ONE machine-token treatment ----------
-   Everything on this page that is machine-readable rather than written —
-   timestamps, memory keys, ports, IPs, machine tags — is the same mono face
-   at the same 13px with the same tabular figures, so digits stack in a true
-   column down the rail, the log and the board. Before this the treatment was
-   redeclared in eight places and had already drifted: .ch-mach carried a
-   private -0.02em tracking that made the same machine tag narrower in the
-   rail than in a message, only .cmsg-time had tabular figures (so the log's
-   one aligned column sat beside ports and IPs that wobbled), and the tag
-   boxes sat at 4px radius, off the settled 3px-square register. */
-.comms .head-meta,
-.comms .ch-mach,
-.comms .ch-topic,
-.comms .ch-rail-foot,
-.comms .cmsg-mach,
+   Timestamps and machine tags are the same mono face at the same 13px with
+   the same tabular figures, so digits stack in a true column down the log
+   and the board. Nothing else on the page is mono: a port inside a service
+   row is part of a sentence a person reads, and takes the UI face with it. */
 .comms .cmsg-time,
-.comms .cmsg-pin,
-.comms .wb-key,
-.comms .integ-row,
-.comms .integ-tag {
+.comms .cmsg-machine {
   font-family: var(--font-mono);
   font-size: 13px;
   letter-spacing: 0;
   font-variant-numeric: tabular-nums;
 }
-/* the three boxed tags share one box: same hairline, same square, same pad */
-.comms .cmsg-mach,
-.comms .cmsg-pin,
-.comms .integ-tag {
+/* the boxed tags share one box: same hairline, same square, same pad */
+.comms .cmsg-machine,
+.comms .cmsg-kind,
+.comms .comms-badge {
   flex: none;
   line-height: 1.45;
   color: var(--ink-3);
@@ -75,23 +68,15 @@
   border: 1px solid var(--line-2);
   border-radius: var(--r-sm, 2px);
   padding: 0 5px;
-}
-/* pinned is the one tag that carries a hue. It used to be a near-WHITE pill
-   (color-mix against literal white/black), which on the black theme burned a
-   bright slab into the log; mixing against --ink and transparent instead
-   lets it re-read correctly in all three themes. */
-.comms .cmsg-pin {
-  font-weight: 620;
-  color: color-mix(in oklab, var(--c-coordinator) 55%, var(--ink));
-  border-color: color-mix(in oklab, var(--c-coordinator) 45%, transparent);
+  font-size: 12.5px;
 }
 
-/* ---------- header: channel name · fleet-board · live · count ----------
-   Sits OUTSIDE the glass card (first child of .comms) since the home-concept
-   pass: the page's own chrome floats bare on the page, the card holds only
-   the board/sheet it frames. All JS queries run from .comms and the
-   data-mode rules are .comms[data-mode] descendants, so the move is
-   invisible to both. */
+/* ---------- header: name · inventory · mode · size · live ----------
+   Sits OUTSIDE the glass card (first child of .comms): the page's own chrome
+   floats bare on the page, the card holds only the board/sheet it frames.
+   The title is the page's ONE name and the line under it is the inventory,
+   said once; the old header carried a hash, a channel name, two mode-specific
+   taglines and a count that was patched by childNodes index. */
 .comms-head {
   flex: none;
   display: flex;
@@ -99,41 +84,62 @@
   gap: 12px;
   padding: 0 2px 12px;
 }
-.head-hash { font-size: 17px; font-weight: 600; color: var(--ink-4); }
-.head-name { font-size: 17px; font-weight: 680; color: var(--ink); letter-spacing: 0.01em; }
-.head-meta { color: var(--ink-3); white-space: nowrap; }  /* mono from the machine-token rule */
+.head-title { margin: 0; font-size: 17px; font-weight: 680; color: var(--ink); letter-spacing: 0.01em; }
+.head-sub { margin: 0; font-size: 13px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .head-live {
   display: flex; align-items: center; gap: 7px;
   font-size: 13px; font-weight: 590; color: var(--ink-2);
   white-space: nowrap;
 }
-/* The relay indicator rests STILL. It used to breathe on a 2.4s infinite
-   loop, which put permanent motion in the corner of a page whose whole job
-   is to be read — the eye kept getting recalled to a dot that was reporting
-   nothing new. "Live" is a fact, not an animation: the dot states it, and
-   the one thing that IS news — a packet landing — spends a single beat.
-   (JS adds .beat per arrival and clears it on animationend.) */
+/* The live indicator rests STILL. "Live" is a fact, not an animation: the
+   dot states it, and the one thing that IS news — a message landing — spends
+   a single beat on its own row (.cmsg.fresh below). */
 .head-live i {
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--c-shadow);
 }
-.head-live i.beat { animation: commsBeat 0.85s var(--ease); }
-/* ...AND IT STOPS STATING IT WHEN IT IS NOT TRUE.
-   The word beside this dot is written by JS and becomes "unavailable" the
-   moment the live read fails, but the dot kept #00956c -- a saturated green
-   one step from this sheet's own --s-good (#198038). Measured on a fresh
-   profile: `rgb(0, 149, 108)` sitting immediately left of the word
-   "unavailable", which is a health light contradicting its own label. In the
-   unavailable state it takes the same --ink-3 every other "unavailable"
-   readout in this product uses. */
+/* ...AND IT STOPS STATING IT WHEN IT IS NOT TRUE. The word beside this dot
+   becomes "could not be read" the moment the read fails; a saturated green
+   one step from --s-good beside that word is a health light contradicting
+   its own label (measured on a fresh profile: rgb(0,149,108) left of
+   "unavailable"). In the unavailable state it takes the same --ink-3 every
+   other "could not be read" readout in this product uses. */
 .comms[data-projection-state="unavailable"] .head-live i { background: var(--ink-3); }
-@keyframes commsBeat {              /* a genuine state moment — glow, then gone */
-  0%   { transform: none;         box-shadow: none; }
-  22%  { transform: scale(1.38);  box-shadow: var(--glow-shadow-soft); }
-  100% { transform: none;         box-shadow: none; }
+.comms[data-projection-state="partial-unavailable"] .head-live i,
+.comms[data-projection-state="loading"] .head-live i { background: var(--ink-4); }
+/* The example badge: the one boxed tag in the header, the same words home's
+   example badge says. */
+.comms-badge { white-space: nowrap; }
+
+/* ---------- the one notice ----------
+   A message-read refusal, or the host-absent explanation when the whole read
+   failed. Under the header, above the card, prose in the UI face: the old
+   page pushed every failure sentence through the mono machine-token rule. */
+.comms-notice {
+  flex: none;
+  margin: 0 0 12px;
+  padding: var(--s3, 12px) var(--s4, 16px);
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  background: var(--sheet);
+  font-size: 13px; line-height: 1.5; color: var(--ink-2);
 }
-.head-count { font-size: 13px; color: var(--ink-3); white-space: nowrap; }
-.head-count b { color: var(--ink); font-weight: 660; font-variant-numeric: tabular-nums; }
+.comms-notice-body { margin: 0; }
+/* The shared notices (styles.css .projection-unavailable is mono 12.5px;
+   .projection-state is a centred grid) carry console styling this page does
+   not want for a sentence a person reads. Two-class specificity beats both,
+   and guide.css's .comms .chip-preview .host-absent placements. */
+.comms .projection-unavailable,
+.comms .projection-state,
+.comms .host-absent-reason {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
+  display: block;
+  color: var(--ink-3);
+  padding: 0;
+}
 
 /* ---------- the flat white sheet: rail | timeline ---------- */
 .comms-sheet {
@@ -147,7 +153,7 @@
   box-shadow: 0 1px 2px rgba(14, 23, 38, 0.03);
 }
 
-/* ---------- channel rail ---------- */
+/* ---------- channel rail: Services (prose rows) · Channels (buttons) ---------- */
 .ch-rail {
   flex: none;
   width: 232px;
@@ -156,12 +162,21 @@
   min-height: 0;
   border-right: 1px solid var(--line-2);
 }
-.ch-rail-label {
+.ch-group-label {
   flex: none;
   padding: 14px 16px 6px;
   font-size: 13px; font-weight: 640;
   letter-spacing: 0.15em; text-transform: uppercase;
   color: var(--ink-3);
+}
+.ch-services {
+  flex: none;
+  padding: 0 16px 6px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.ch-service {
+  font-size: 13px; line-height: 1.45; color: var(--ink-3);
+  overflow-wrap: anywhere;
 }
 .ch-list {
   flex: 1;
@@ -172,7 +187,6 @@
   flex-direction: column;
   gap: 2px;
 }
-.ch-rail-sep { flex: none; height: 1px; background: var(--line); margin: 7px 8px; }
 
 .ch {
   position: relative;
@@ -202,8 +216,7 @@
 .ch.active::before { opacity: 1; transform: none; }
 
 .ch-hash { flex: none; width: 13px; font-size: 13.5px; font-weight: 600; color: var(--ink-4); }
-.ch-hash svg { width: 13px; height: 13px; display: block; transform: translateY(1px); }
-.ch-name { position: relative; font-size: 13.5px; font-weight: 560; color: var(--ink-2); white-space: nowrap; }
+.ch-name { position: relative; font-size: 13.5px; font-weight: 560; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .ch-name::after {                /* hover underline — hairline wipe, no glow */
   content: "";
   position: absolute; left: 0; right: 0; bottom: -2px; height: 1px;
@@ -213,61 +226,11 @@
 }
 .ch:hover .ch-name::after { transform: scaleX(1); }
 .ch.active .ch-name { color: var(--ink); font-weight: 660; }
-/* the machine tag is information, so it takes the informational ink the same
-   tag already uses in .cmsg-mach / .integ-tag / the rail footer. It was on
-   --ink-4, which styles.css reserves for decorative grey only, and read at
-   3.4–4.3:1 — the one place on the page this token fell under 4.5:1. */
-.ch-mach {
-  margin-left: auto;
-  color: var(--ink-3);
-  flex: none;
-}
-/* Unread dot: FLAT at rest. A channel can sit unread for an hour, and a
-   dot that glowed the whole time would be a permanent bloom pretending to
-   be an event. The arrival is the event, so the arrival gets the light —
-   one shot of --glow-*-soft, then back to a plain dot. */
-.ch-dot {
-  flex: none;
-  width: 6px; height: 6px; border-radius: 50%;
-  background: var(--c-coordinator);
-  opacity: 0; transform: scale(0.4);
-  transition: opacity 0.25s var(--ease), transform 0.3s var(--ease-spring);
-}
-.ch.has-unread .ch-dot { opacity: 1; transform: none; }
-.ch.has-unread .ch-dot.ping { animation: chDotPing 0.8s var(--ease); }
-@keyframes chDotPing {
-  0%   { box-shadow: none;                       transform: scale(0.4); }
-  30%  { box-shadow: var(--glow-coordinator-soft); transform: scale(1.3); }
-  100% { box-shadow: none;                       transform: none; }
-}
-
-.ch-rail-foot {
-  flex: none;
-  border-top: 1px solid var(--line);
-  padding: var(--s3, 12px) var(--s4, 16px);
-  display: flex; flex-direction: column; gap: var(--s1, 4px);
-  color: var(--ink-3);        /* mono + tabular from the machine-token rule */
-}
-.foot-line { display: flex; align-items: center; gap: 7px; white-space: nowrap; min-width: 0; }
-.foot-line .ft {                 /* flex child gets its own ellipsis — never a hard clip */
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.foot-can { flex: none; margin-left: auto; }
-.foot-line .ok {
-  flex: none;
-  width: 6px; height: 6px; border-radius: 50%;
-  background: var(--c-shadow);
-}
-.foot-line b { color: var(--ink-2); font-weight: 620; }
 
 /* ---------- timeline column ---------- */
-/* One gutter for the whole reading column. The topic bar, the log and the
-   footer used to sit at 24 / 26 / 24px, so the log's left edge stepped 2px
-   out of line with the two hairline rows that bracket it. --cg reads the
-   shared space scale (--s5 = 24px) with a literal fallback, so the column
-   holds one gutter whether or not the token sheet is present. */
+/* One gutter for the whole reading column: --cg reads the shared space scale
+   (--s5 = 24px) with a literal fallback, so the topic bar and the log share
+   one left edge whether or not the token sheet is present. */
 .ch-main {
   flex: 1;
   min-width: 0;
@@ -286,14 +249,16 @@
 }
 .ch-view.swap { opacity: 0; transform: translateY(5px); }
 
+/* the channel's describe() sentence — prose, UI face, allowed to wrap at
+   narrow widths (the ≤720 rule below lifts the one-line clamp) */
 .ch-topic {
   flex: none;
   padding: var(--s2, 8px) var(--cg);
   border-bottom: 1px solid var(--line);
+  font-size: 13px; line-height: 1.45;
   color: var(--ink-3);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.ch-topic b { color: var(--ink-2); font-weight: 620; }
 
 .ch-log {
   flex: 1;
@@ -302,11 +267,11 @@
   padding: var(--s3, 12px) var(--cg) var(--s4, 16px);
   display: flex;
   flex-direction: column;
-  /* Channels-mode parity with the watch panes. This log is pinned to its
+  /* Channels-mode parity with the board panes. This log is pinned to its
      newest line exactly as they are, so its top edge cuts an older message in
      half exactly as theirs does — but it was the one surface still doing it
      with a hard guillotine, and the message it cut is always one that has
-     lost its [name] time header to the same cut, so the reader gets an
+     lost its name/time header to the same cut, so the reader gets an
      unattributed fragment presented at full strength. Same eased recipe,
      shorter: the log carries 12px of its own top padding, which already
      covers half the ramp, so at the true top of a history nothing legible is
@@ -319,13 +284,12 @@
   -webkit-mask-image: var(--wb-fade-ramp);
   mask-image: var(--wb-fade-ramp);
 }
-.ch-log::before { content: ""; flex: 1 0 0; } /* bottom-anchor short histories, Discord-style */
+.ch-log::before { content: ""; flex: 1 0 0; } /* bottom-anchor short histories: the newest line sits at the bottom of the column */
 .ch-log > * { flex: 0 0 auto; }               /* messages never squash in the column */
 
-/* day dividers — on the space scale (was gap 14 / margin 14·10, which
-   belonged to no rhythm the rest of the column used). Converted by the space
-   scale's own rule: nearest step, ties (6/10/14) round DOWN, which keeps the
-   original relationship of more air above the rule than below it. */
+/* day dividers — on the space scale (nearest step, ties round DOWN, which
+   keeps more air above the rule than below it). Emitted by the log between
+   days (comms.js fillRows). */
 .day-div {
   display: flex; align-items: center;
   gap: var(--s3, 12px);
@@ -335,20 +299,31 @@
 .day-div span {
   font-size: 13px; font-weight: 620; color: var(--ink-3);
   letter-spacing: 0.04em;
-  font-variant-numeric: tabular-nums;   /* "Aug 3" sits on the same figures as the stamps */
+  font-variant-numeric: tabular-nums;   /* "21 Aug" sits on the same figures as the stamps */
 }
 
 /* messages */
 .cmsg { display: flex; gap: 12px; padding: 6px 0; }
-.cmsg-bar {                      /* role marker — same hues as the graph nodes */
+.cmsg-bar {                      /* sender marker — hue by first appearance in the channel (--rc) */
   flex: none; align-self: stretch;
   width: 3px; border-radius: 2px; margin: 2px 0;
   background: color-mix(in oklab, var(--rc, var(--ink-4)) 78%, white);
 }
 .cmsg-main { flex: 1; min-width: 0; }
 .cmsg-top { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
-.cmsg-au { font-size: 13.5px; font-weight: 660; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cmsg-au .br { color: var(--ink-4); font-weight: 480; }
+.cmsg-au {
+  font-size: 13.5px; font-weight: 660; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: color-mix(in oklab, var(--rc, var(--ink)) 45%, var(--ink));
+}
+.cmsg-to { font-size: 13px; color: var(--ink-3); white-space: nowrap; }
+/* "replying to {name}" is a press: it scrolls the parent row into view */
+.cmsg-reply {
+  border: none; background: none; padding: 0; cursor: pointer;
+  font-family: var(--font-ui); font-size: 13px; color: var(--ink-3);
+  text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--line-2);
+  white-space: nowrap;
+}
+.cmsg-reply:hover { color: var(--ink); text-decoration-color: var(--c-coordinator); }
 .cmsg-time {
   margin-left: auto; padding-left: 10px; flex: none;
   color: var(--ink-3);
@@ -361,10 +336,10 @@
 }
 .cmsg.fresh { animation: cmsgIn 0.5s var(--ease) both; }
 @keyframes cmsgIn { from { opacity: 0; transform: translateY(9px); } }
-/* The role tick is the only thing that lights when a packet lands — and only
-   while it lands. One pass of that role's own soft glow stack, no fill mode,
-   so it settles back to a flat 3px bar and stays flat. Older messages in the
-   log never carry it, which is what makes the newest one findable. */
+/* The sender tick is the only thing that lights when a message lands — and
+   only while it lands. One pass of a soft glow, no fill mode, so it settles
+   back to a flat 3px bar and stays flat. Older messages in the log never carry
+   it, which is what makes the newest one findable. */
 .cmsg.fresh .cmsg-bar { animation: cmsgTick 0.9s var(--ease); }
 @keyframes cmsgTick {
   0%   { box-shadow: none; }
@@ -372,13 +347,18 @@
   100% { box-shadow: none; }
 }
 
-/* jump-to-latest chip (in place, above the footer — never a popup) */
+/* THE FOLD, on all three surfaces. The rules come from styles.css
+   (.chat-context*, written for the chat's context block); this page only
+   takes the margin off so a folded row sits where an unfolded body would. */
+.comms .cmsg .chat-context,
+.comms .msg .chat-context,
+.comms .cl .chat-context { margin: 0; }
+.comms .chat-context-head { padding: 0; }
+.comms .chat-context-body { padding: var(--s1, 4px) 0 0; }
+
+/* jump-to-latest chip (in place, above the log's bottom edge — never a popup) */
 .jump-chip {
-  /* retuned from 58px: this offset clears the dormant-integration footer by a
-     fixed gap, and the footer lost 4px of height when it went onto the space
-     scale — a positional offset stays literal, but it still has to follow the
-     thing it was measured against */
-  position: absolute; left: 50%; bottom: 54px;
+  position: absolute; left: 50%; bottom: 12px;
   transform: translateX(-50%);
   z-index: 5;
   display: flex; align-items: center; gap: 7px;
@@ -405,52 +385,20 @@
 .jump-chip.hidden { opacity: 0; transform: translateX(-50%) translateY(10px); pointer-events: none; }
 .jump-chip svg { width: 13px; height: 13px; display: block; }
 
-/* honest footer: the real Discord integration, dormant — on the same scale
-   and the same gutter as the topic bar it mirrors, so the two hairline rows
-   bracket the log evenly instead of by eye */
-.integ-row {
-  flex: none;
-  display: flex; align-items: center; gap: var(--s2, 8px);
-  padding: var(--s2, 8px) var(--cg);
-  border-top: 1px solid var(--line);
-  color: var(--ink-3);
-  white-space: nowrap; overflow: hidden;
-}
-/* flex children carry their own ellipsis (text-overflow on a flex row never
-   reaches its children); the note yields first, the headline fact last */
-.integ-main { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.integ-note { flex: 0 30 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.integ-dot {
-  flex: none;
-  width: 8px; height: 8px; border-radius: 50%;
-  border: 1.5px solid var(--ink-4);
-  background: transparent;      /* hollow — no token, no glow, no lie */
-}
-.integ-row b { color: var(--ink-2); font-weight: 630; }
-/* .integ-tag's box comes from the shared machine-token rule above */
-
 /* focus ring — same recipe as the rest of the site (professional-pass:
    crisp double ring, no blur — see styles.css) */
 .comms .ch:focus-visible,
+.comms .cmsg-reply:focus-visible,
 .comms .jump-chip:focus-visible {
   outline: none;
   box-shadow:
     0 0 0 1.5px rgba(255,255,255,calc(0.95 * var(--wa))),
-    /* band reads --focus-ring: this copy's 0.6-alpha cyan was even weaker
-       than the shared recipe's (1.80:1 on white) */
     0 0 0 3.5px var(--focus-ring);
 }
 
-@media (max-width: 900px) {
-  .ch-rail { width: 196px; }
-  .head-meta { display: none; }
-  .ch-mach { display: none; }
-  .integ-note { display: none; }
-}
-
 /* ============================================================
-   C7 — WATCH BOARD (completes the salvaged watch-board JS)
-   The boxes ARE the shared chip component; these rules only
+   THE BOARD
+   The tiles ARE the shared chip component; these rules only
    re-seat it in a scrollable, tileable board.
    ============================================================ */
 
@@ -460,12 +408,6 @@
 .comms[data-mode="watch"] .comms-sheet { display: none; }
 .comms[data-mode="channels"] .watch-pane { display: none; }
 .comms[data-mode="channels"] .size-seg { display: none; }
-.comms .head-wt, .comms .head-wt-meta { display: none; }
-.comms[data-mode="watch"] .head-hash,
-.comms[data-mode="watch"] .head-name,
-.comms[data-mode="watch"] .head-meta { display: none; }
-.comms[data-mode="watch"] .head-wt { display: inline; font-size: 17px; font-weight: 680; color: var(--ink); letter-spacing: 0.01em; }
-.comms[data-mode="watch"] .head-wt-meta { display: inline; font-family: var(--font-mono); font-size: 13px; font-variant-numeric: tabular-nums; color: var(--ink-3); white-space: nowrap; }
 .watch-pane, .comms-sheet { animation: wbIn 0.32s var(--ease); }
 @keyframes wbIn { from { opacity: 0; transform: translateY(6px); } }
 
@@ -479,31 +421,27 @@
 .watch-stack { display: flex; flex-direction: column; gap: var(--s3, 12px); max-width: 1060px; margin: 0 auto; }
 .watch-pane.no-trans * { transition: none !important; }
 
-/* preview height scale — the size control; dominant boxes read ~1.7×.
-   Re-tuned for full 2-3 sentence messages (a message now runs ~2 wrapped
-   lines ≈ 48px with its gap, vs ~23px for the old one-line bits): each step
-   shows roughly what it used to show in MESSAGES — S ≈ the newest two,
-   M ≈ three, L ≈ five — rather than shrinking to a fixed count of pixels
-   that now cuts mid-sentence. */
-.watch-pane[data-size="s"] { --pv-h: 116px; --pv-dom: 196px; }
-.watch-pane[data-size="m"] { --pv-h: 188px; --pv-dom: 320px; }
-.watch-pane[data-size="l"] { --pv-h: 292px; --pv-dom: 472px; }
-/* measured box chrome — everything between a tile's edge and its preview:
+/* preview height scale — the size control. Tiles weigh equally (a channel is
+   not more important than another channel), so there is one height per step:
+   S ≈ the newest two messages, M ≈ three, L ≈ five. */
+.watch-pane[data-size="s"] { --pv-h: 116px; }
+.watch-pane[data-size="m"] { --pv-h: 188px; }
+.watch-pane[data-size="l"] { --pv-h: 292px; }
+/* measured tile chrome — everything between a tile's edge and its preview:
    8px padding ×2 + 1px hairline ×2 + 27px header row + 4px header margin
    + 19px purpose line + 8px purpose margin = 76px (probe-measured,
-   identical on every box). Split heights derive from preview steps + this,
+   identical on every tile). Split heights derive from preview steps + this,
    so the two never drift apart silently. */
 .watch-pane { --wb-chrome: 76px; }
 
 /* ---------- the reused chip, re-seated as a board tile ----------
-   The shared .chip is now transparent at rest — on the graph that is right,
+   The shared .chip is transparent at rest — on the graph that is right,
    because the sketch draws context as grey text held inside giant braces, so
    the braces ARE the box. This page has no braces: the board is a grid of
    tiles that abut each other and scroll as one field, and with the frame
-   gone the tiles bled together — two conversations' preview lines read as
-   one list, and a drag ghost was a shadow around nothing. So the BOARD (and
-   only the board) re-earns the frame the graph gave up: one hairline, one
-   flat sheet fill, 3px square, no shadow, no glow. */
+   gone the tiles bled together. So the BOARD (and only the board) re-earns
+   the frame the graph gave up: one hairline, one flat sheet fill, 3px square,
+   no shadow, no glow. */
 .watch-pane .chip {
   position: relative; width: auto; z-index: auto;
   cursor: grab;
@@ -516,11 +454,8 @@
   background: var(--sheet);
   border-color: var(--line-2);
 }
-/* hover: a whisper of tint and nothing else — the hairline is deliberately
-   left alone so a branch-paired tile keeps its role-tinted border under the
-   cursor. Mixing toward --ink rather than toward black keeps the direction
-   right in every theme (--ink inverts with the sheet, so dark themes lift
-   instead of muddying). */
+/* hover: a whisper of tint and nothing else. Mixing toward --ink rather than
+   toward black keeps the direction right in every theme. */
 .watch-pane .chip.wb-box:not(.as-chat):hover {
   background: color-mix(in oklab, var(--sheet) 95%, var(--ink));
 }
@@ -530,16 +465,15 @@
   background: var(--sheet);
   border-color: var(--line-2);
 }
-.wb-box { display: flex; flex-direction: column; min-height: 0; }
+.wb-box { display: flex; flex-direction: column; min-height: 0; touch-action: pan-y; }
 .wb-box .chip-preview {
   overflow-y: auto; min-height: 0;
   /* Two-column grid, not a flex stack: column 1 is a shared name rail every
      .cl line slots into via subgrid, so the senders align down the pane and
      "who is talking" reads without reading a message. max-content sizes the
-     rail to the longer of the pane's two names — no magic width to drift.
-     The 8px row gap is the between-message spacing; wrapped lines inside a
-     message sit at line-height only, so message boundaries stay legible now
-     that messages run 2-3 lines. */
+     rail to the longest name — no magic width to drift. The 8px row gap is
+     the between-message spacing; wrapped lines inside a message sit at
+     line-height only, so message boundaries stay legible. */
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   column-gap: 10px;
@@ -552,13 +486,11 @@
      through the middle of an older one — and a hard cut through the waist of a
      row of type reads as a rendering fault, not as "there is more above".
      A LINEAR 16px ramp did not fix that: over a 20.15px line box it left the
-     clipped row's cap-height ink sitting at 30–70% opacity, which is not a
-     dissolve, it is a legible second line of type printed faintly ten pixels
-     under the purpose line — the eye read it as double-exposure and tried to
-     parse it. The ramp is now eased and one line box longer: it holds under
-     10% across the whole first line (a texture that says "there is more
-     above", not words), then rises to solid before the first COMPLETE line
-     starts, so nothing a reader can actually read is ever dimmed. */
+     clipped row's cap-height ink sitting at 30–70% opacity — a legible second
+     line of type printed faintly under the purpose line. The ramp is eased
+     and one line box longer: it holds under 10% across the whole first line
+     (a texture that says "there is more above", not words), then rises to
+     solid before the first COMPLETE line starts. */
   --wb-fade: 24px;
   --wb-fade-ramp: linear-gradient(to bottom,
     transparent 0,
@@ -567,37 +499,14 @@
   -webkit-mask-image: var(--wb-fade-ramp);
   mask-image: var(--wb-fade-ramp);
 }
-.wb-box.dominant .chip-preview { max-height: var(--pv-dom, 320px); }
-/* dominance is size plus a firmer hairline — the old white-alpha fill was
-   invisible once the tile itself became an opaque sheet (and near-invisible
-   on the black theme's --wa 0.075 regardless) */
-.watch-pane .chip.wb-box.dominant:not(.as-chat) {
-  border-color: color-mix(in oklab, var(--ink-4) 42%, transparent);
-}
-.wb-box.dominant .wb-name { font-size: 14.5px; }
-/* .lead — the same emphasis inside a split. renderNode strips .dominant from
-   any box entering a split (its --pv-dom height clamp fights the cell's
-   flexed height), which silently took the hairline + name treatment with it:
-   the winner was wider but stopped READING as the lead. applyWeights pins
-   .lead on the winning side's box, so emphasis and width always agree — the
-   two rules here are exactly dominance minus the height clamp. */
-.watch-pane .chip.wb-box.lead:not(.as-chat) {
-  border-color: color-mix(in oklab, var(--ink-4) 42%, transparent);
-}
-.wb-box.lead .wb-name { font-size: 14.5px; }
 /* readable, wrapping context lines — the board is for reading, 13px floor.
-   overflow-wrap keeps the long evidence paths (reports/q44-…md) from pushing
-   the text column wide in a narrow split.
 
    THE GHOST READS THESE TOO. Every rule below was scoped to `.watch-pane
    .chip`, and the drag ghost is a clone appended to document.body — outside
-   the pane, so it matched none of them. The consequence was not subtle: the
-   ghost kept the two-column preview grid (that rule is not pane-scoped) but
-   lost `grid-column: 1 / -1`, so its lines stopped spanning and PAIRED UP,
-   two messages per row with names welded to the wrong text, at the wrong size
-   and with no name rail. The one element a reader stares at for the whole
-   duration of a drag was the only one rendering the board's own type wrong.
-   :is() adds the ghost to each selector at identical specificity. */
+   the pane, so it matched none of them: it kept the two-column preview grid
+   but lost `grid-column: 1 / -1`, so its lines PAIRED UP, two messages per
+   row with names welded to the wrong text. :is() adds the ghost to each
+   selector at identical specificity. */
 :is(.watch-pane .chip, .chip.wb-ghost) .cl {
   grid-column: 1 / -1;
   font-size: 13px; line-height: 1.55;
@@ -606,6 +515,9 @@
   font-variant-numeric: tabular-nums;   /* run counts and timings align down the box */
 }
 :is(.watch-pane .chip, .chip.wb-ghost) .cl b { font-weight: 640; }
+:is(.watch-pane .chip, .chip.wb-ghost) .cl > span { min-width: 0; }
+/* the shared row body inside a preview line takes the line's own size */
+:is(.watch-pane .chip, .chip.wb-ghost) .cl .cmsg-text { margin-top: 0; font-size: inherit; line-height: inherit; }
 /* fallback separator for browsers without subgrid: name and text sit inline,
    so they need the old " · " seam back or they run together */
 :is(.watch-pane .chip, .chip.wb-ghost) .cl > b::after { content: " · "; color: var(--ink-4); font-weight: 480; }
@@ -616,27 +528,27 @@
   :is(.watch-pane .chip, .chip.wb-ghost) .cl > b { justify-self: end; white-space: nowrap; }
   :is(.watch-pane .chip, .chip.wb-ghost) .cl > b::after { content: none; }
 }
-/* speaker identity, quiet: each side's name takes the same role hue its
-   header dot wears (set as --au-a/--au-b on the box), mixed well toward ink
-   so the rail reads as ink with a cast, not as colour noise. */
-:is(.watch-pane .chip, .chip.wb-ghost) .cl.side-a > b { color: color-mix(in oklab, var(--au-a, var(--ink)) 45%, var(--ink)); }
-:is(.watch-pane .chip, .chip.wb-ghost) .cl.side-b > b { color: color-mix(in oklab, var(--au-b, var(--ink)) 45%, var(--ink)); }
+/* speaker identity, quiet: each sender's name takes its first-appearance hue
+   (--rc on the row), mixed well toward ink so the rail reads as ink with a
+   cast, not as colour noise. */
+:is(.watch-pane .chip, .chip.wb-ghost) .cl > b { color: color-mix(in oklab, var(--rc, var(--ink)) 45%, var(--ink)); }
 
-/* box header: pair · key · actions — tightened to 4px so the purpose line
-   below it reads as part of the header block, not as a first message */
-/* The header row and the purpose line are the tile's natural grab area, and a
-   tile is dragged. `body.wb-dragging` only suppresses selection AFTER the
-   drag threshold is crossed, so the first few pixels of every drag highlight
-   whatever the cursor started on and leave that highlight behind on drop.
-   These two rows are labels — nothing anyone copies — so they opt out and a
-   drag begun where a drag is meant to begin leaves nothing behind. The
-   messages below stay selectable: they are the one thing on this board worth
-   copying. */
+/* tile header: # name · state · actions — tightened to 4px so the purpose
+   line below it reads as part of the header block, not as a first message.
+   The header row and the purpose line are the tile's natural grab area, and
+   a tile is dragged. `body.wb-dragging` only suppresses selection AFTER the
+   drag threshold is crossed, so the first few pixels of every drag would
+   highlight whatever the cursor started on. These two rows are labels —
+   nothing anyone copies — so they opt out. The messages below stay
+   selectable: they are the one thing on this board worth copying. */
 .wb-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; min-width: 0; user-select: none; -webkit-user-select: none; }
-/* one-line channel purpose under the header: the pane answers "what is this
-   channel for" before a single message is read. Prose, so it takes the UI
-   face, not the machine-token mono; one line always — it is a label, and a
-   wrapping label would compete with the messages it introduces. */
+.wb-hash { flex: none; font-size: 13.5px; font-weight: 600; color: var(--ink-4); }
+.wb-name { font-size: 13.5px; font-weight: 650; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.wb-state { flex: none; font-size: 13px; color: var(--ink-3); white-space: nowrap; }
+/* one-line channel purpose under the header: the describe() sentence the
+   topic bar also reads. Prose, UI face; one line on a wide screen (a
+   wrapping label would compete with the messages it introduces), allowed to
+   wrap under 720px where a clamp would hide most of it. */
 .wb-desc {
   margin: 0 0 8px;
   font-family: var(--font-ui);
@@ -645,57 +557,46 @@
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   user-select: none; -webkit-user-select: none;   /* see .wb-head */
 }
-/* the expanded chat's own header already names the pair and the key — the
-   purpose line would just push the log down */
+/* the expanded tile's own header already names the channel and its state —
+   the purpose line would just push the log down */
 .watch-pane .chip.as-chat .wb-desc { display: none; }
-.wb-pair { display: flex; align-items: center; gap: 6px; min-width: 0; flex: none; }
-.wb-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-.wb-name { font-size: 13.5px; font-weight: 650; color: var(--ink); white-space: nowrap; }
-.wb-x { color: var(--ink-4); font-size: 12.5px; flex: none; }
-.wb-key {                       /* mono + tabular from the machine-token rule */
-  color: var(--ink-3);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
-}
 .wb-btn {
   width: 27px; height: 27px; border-radius: 3px; border: none; flex: none;
   background: transparent; color: var(--ink-3); cursor: pointer;
   display: grid; place-items: center;
   transition: background 0.2s, color 0.2s;
 }
-/* The grid rule beats the UA's `[hidden] { display: none }`; comms.js ships
-   this button hidden. Gate: tools/test/hidden-display-honesty.test.mjs. */
+/* The grid rule beats the UA's `[hidden] { display: none }` should a caller
+   ship this button hidden. Gate: tools/test/hidden-display-honesty.test.mjs. */
 .wb-btn[hidden] { display: none; }
 .wb-btn svg { width: 15px; height: 15px; }
 .wb-btn:hover { background: rgba(127, 127, 127, 0.13); color: var(--ink); }
-.wb-btn.wb-branch.on { color: var(--c-coordinator); }
-.wb-restack, .wb-dismiss { display: none; }
+.wb-restack { display: none; }
 .wb-box.can-restack .wb-restack { display: grid; }
-.wb-box.branch-child .wb-dismiss { display: grid; }
 
-/* expanded chat inside the board (chip.as-chat sizes are graph-specific) */
+/* expanded tile inside the board (chip.as-chat sizes are graph-specific) */
 .watch-pane .chip.as-chat { width: auto; cursor: default; }
 .watch-pane .wb-box.as-chat.stack-leaf { height: min(48vh, 460px); }
 .watch-pane .chip.as-chat .wb-head { margin-bottom: 4px; }
 .wb-cell .chip.as-chat { height: 100%; }
+/* the expanded log's rows: the chat's .msg bubble with the sender on its own
+   line; the hue follows the row's --rc the way the log's bar does */
+.watch-pane .chip.as-chat .msg .who { color: color-mix(in oklab, var(--rc, var(--ink)) 45%, var(--ink)); }
+.watch-pane .chip.as-chat .msg .cmsg-text { margin-top: 0; }
 
 /* ---------- splits: nested tiles ---------- */
-.wb-split { display: flex; gap: var(--s3, 12px); min-height: 0; min-width: 0; flex: var(--w, 1); }
+.wb-split { display: flex; gap: var(--s3, 12px); min-height: 0; min-width: 0; flex: 1; }
 .wb-split.row { flex-direction: row; }
 .wb-split.col { flex-direction: column; }
-/* Top-level split heights FOLLOW the S/M/L step. They were fixed literals
-   (340px / 420px min, 64vh max), so the one control the board offers went
-   dead the moment a box entered a split — preview content pushed every split
-   to the 64vh guard at all three sizes. Derived instead from the same
-   --pv-h/--pv-dom scale the stack reads, plus the measured chrome:
-   · row: winner reads at the dominant preview height — a row split stands
-     exactly as tall as the dominant stack box at the same step;
-   · col: two stacked boxes at the plain step, plus the gap between them.
-   min pinned to max keeps the flex mechanics but hands the height to the
-   step instead of the content; the 64vh viewport guard survives as the
-   outer min(). */
+/* Top-level split heights FOLLOW the S/M/L step, derived from the same --pv-h
+   scale the stack reads plus the measured chrome: a row split stands as tall
+   as one stack tile at the same step; a col split is two stacked tiles plus
+   the gap between them. min pinned to max keeps the flex mechanics but hands
+   the height to the step instead of the content; the 64vh viewport guard
+   survives as the outer min(). */
 .watch-stack > .wb-split {
-  min-height: min(calc(var(--pv-dom) + var(--wb-chrome)), 64vh);
-  max-height: min(calc(var(--pv-dom) + var(--wb-chrome)), 64vh);
+  min-height: min(calc(var(--pv-h) + var(--wb-chrome)), 64vh);
+  max-height: min(calc(var(--pv-h) + var(--wb-chrome)), 64vh);
   /* same 0.45s step the previews glide on, so one size click moves the
      whole board in a single motion (FLIP's .no-trans still overrides) */
   transition: min-height 0.45s var(--ease), max-height 0.45s var(--ease);
@@ -704,30 +605,13 @@
   min-height: min(calc(2 * var(--pv-h) + 2 * var(--wb-chrome) + var(--s3, 12px)), 64vh);
   max-height: min(calc(2 * var(--pv-h) + 2 * var(--wb-chrome) + var(--s3, 12px)), 64vh);
 }
-.wb-cell { flex: var(--w, 1); min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.wb-cell { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 /* 0px basis, not the shorthand's 0%: a percentage basis needs a definite
-   container height and falls back to CONTENT size without one, so col splits
-   divided ~fifty-fifty no matter who won the importance weights (measured
-   144/144 where --w said 1.7/1). A length basis always resolves — the
-   winner's larger share now works down the page as well as across it. */
+   container height and falls back to CONTENT size without one. A length
+   basis always resolves, so two stacked cells really do halve the column. */
 .wb-split.col > .wb-cell, .wb-split.col > .wb-split { flex-basis: 0px; }
 .wb-cell > .chip { flex: 1; min-height: 0; }
 .wb-cell .chip-preview { max-height: none; flex: 1; }
-
-/* branch pairing: a thin role-tinted spine joins parent and child */
-.wb-split.branch { position: relative; padding-left: 11px; }
-.wb-split.branch::before {
-  content: ""; position: absolute; left: 0; top: 10%; bottom: 10%; width: 2px;
-  border-radius: 2px;
-  background: color-mix(in oklab, var(--pair, var(--c-coordinator)) 55%, white);
-}
-/* the paired child's hairline carries the pair hue. Mixed against white it
-   was paler than --line-2, so once tiles got their frame back the CHILD of a
-   pairing would have read as the least-framed box on the board; mixed against
-   transparent it lands at the same weight in every theme. */
-.watch-pane .wb-split.branch > .pair-b .chip:not(.as-chat) {
-  border-color: color-mix(in oklab, var(--pair, var(--c-coordinator)) 48%, transparent);
-}
 
 /* ---------- drag: ghost, sources, drop indicators ---------- */
 body.wb-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
@@ -740,14 +624,10 @@ body.wb-dragging { cursor: grabbing; user-select: none; -webkit-user-select: non
 }
 .wb-drop { position: absolute; inset: 0; z-index: 6; pointer-events: none; opacity: 0; border-radius: inherit; transition: opacity 0.16s var(--ease); }
 .wb-drop.show { opacity: 1; }
-/* The drop target is a RULE, not a slab. At 13% fill it was a solid pale
-   panel dropped over half a tile: it tinted the message text underneath
-   (which stayed readable through the wash, so the two fought), and on a page
-   whose whole register is hairlines and whitespace it was the one childish
-   highlight. A 3px-square hairline rectangle at the pair hue says exactly the
-   same thing — "the tile lands in this half" — and leaves the type alone.
-   Mixed against transparent, not white: against white the outline washed out
-   on the light themes and stayed pale on the dark ones. */
+/* The drop target is a RULE, not a slab: a 3px-square hairline rectangle at
+   the accent hue says "the tile lands in this half" and leaves the type
+   alone. Mixed against transparent so it lands at the same weight in every
+   theme. */
 .wb-drop i {
   position: absolute; inset: 6px; border-radius: 3px;
   background: color-mix(in oklab, var(--c-coordinator) 6%, transparent);
@@ -765,9 +645,47 @@ body.wb-dragging { cursor: grabbing; user-select: none; -webkit-user-select: non
 }
 .wb-stackdrop.show { display: block; animation: wbIn 0.18s var(--ease); }
 
-/* ---------- activity pulse (quiet, self-clearing) ---------- */
-.wb-box.pulse { animation: wbPulse 0.9s var(--ease); }
-@keyframes wbPulse {
-  0%, 100% { outline: 1.5px solid transparent; outline-offset: 3px; }
-  35% { outline: 1.5px solid color-mix(in oklab, var(--gc, #45d6ff) 55%, transparent); outline-offset: 3px; }
+/* ============================================================
+   RESPONSIVE. The old sheet had one query (≤900: a narrower rail)
+   and was unusable at 390px: a nowrap footer, a 1060px stack,
+   split tiles that never stacked. Three breakpoints now, each a
+   measured failure at that width:
+   · ≤1000 the header's five items no longer fit on one baseline
+     (1000×650 is the desktop floor), so it wraps; the inventory
+     line is allowed to wrap under it.
+   · ≤720 the sheet stacks — rail above log — and the rail becomes
+     a horizontal picker; split tiles stack vertically; the two
+     one-line clamps lift so the describe() sentence is readable.
+   · ≤480 (phone) the size switch goes (tiles are full width and
+     one step is enough), the mode switch takes its own row, the
+     log gutter shrinks, and a message's top line may wrap.
+   ============================================================ */
+@media (max-width: 1000px) {
+  .comms-head { flex-wrap: wrap; row-gap: 6px; }
+  .head-sub { white-space: normal; flex-basis: 100%; order: 9; }
+  .ch-rail { width: 196px; }
+}
+@media (max-width: 720px) {
+  .comms-sheet { flex-direction: column; }
+  .ch-rail { width: auto; flex: none; border-right: none; border-bottom: 1px solid var(--line-2); }
+  .ch-services { flex-direction: row; flex-wrap: wrap; gap: 3px 14px; }
+  .ch-list { flex: none; flex-direction: row; overflow-x: auto; overflow-y: hidden; padding: 4px 7px 8px; }
+  .ch { width: auto; white-space: nowrap; flex: none; }
+  .ch-topic { white-space: normal; overflow: visible; text-overflow: clip; }
+  .wb-desc { white-space: normal; overflow: visible; text-overflow: clip; }
+  .wb-split.row { flex-direction: column; }
+  .watch-stack > .wb-split, .wb-split.col { min-height: 0; max-height: none; }
+  /* a cell no longer gets its height from the split, so it takes the step's
+     own height and the preview keeps its clamp (:715-style `max-height: none`
+     would otherwise grow unbounded) */
+  .wb-cell { min-height: calc(var(--pv-h) + var(--wb-chrome)); }
+  .wb-cell .chip-preview { max-height: var(--pv-h); }
+  .watch-pane { padding: 12px 12px 18px; }
+}
+@media (max-width: 480px) {
+  .size-seg { display: none; }
+  .mode-seg { flex-basis: 100%; order: 9; }
+  .ch-log { padding-inline: var(--s3, 12px); }
+  .ch-topic { padding-inline: var(--s3, 12px); }
+  .cmsg-top { flex-wrap: wrap; }
 }

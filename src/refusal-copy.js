@@ -306,6 +306,16 @@ const FAMILY_REMEDY = Object.freeze([
      the generic remedy would have offered. */
   Object.freeze([/^LAUNCH_/, 'Nothing was started, and nothing else was changed. Check the agent and the level chosen above and try once more; if it refuses again, open the fleet page and look at what is already running before starting anything else.']),
   Object.freeze([/^BRIDGE_LEDGER_/, 'Nothing was moved. Ask for a fresh preview and read it before confirming anything.']),
+  /* THE ENGINE'S OWN ARCHIVE CODES, which reach this table unchanged:
+     capability/tools/ledger-archive.js fails with LEDGER_ARCHIVE_* (protected
+     request, exposure not yet sufficient, target ineligible, vetoed, locked,
+     plan changed...) and the bridge's typedError() keeps a well-formed code as
+     it is. Every one of them means the same thing to a person -- this request
+     was left exactly where it was -- and the one thing they can do about a
+     row that will not archive is take it off the screen, which the Ledger
+     page's × does. Without this floor they fell to GENERIC_REMEDY and were
+     told to close and reopen the application, which changes nothing here. */
+  Object.freeze([/^LEDGER_ARCHIVE_/, 'Nothing was moved. This request stays where it is; you can hide it from the Ledger page instead.']),
   Object.freeze([/^BRIDGE_(BOOTSTRAP|TOKEN|ORIGIN|PORT|BIND|RUNTIME|SETTINGS|DEPENDENCY)_/, RESTART_REMEDY]),
   Object.freeze([/^BRIDGE_(INPUT|BODY|JSON|CONTENT_TYPE|ROUTE)_/, 'Nothing was sent. Correct what you typed above and try again.']),
   Object.freeze([/^BRIDGE_/, 'Nothing was done. Try once more, and if it refuses again, close ToolsEnabled and open it a second time before assuming anything ran.']),

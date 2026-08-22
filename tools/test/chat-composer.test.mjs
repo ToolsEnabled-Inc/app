@@ -24,7 +24,11 @@ const chat = components.slice(components.indexOf('export function buildChat'))
 test('every new power is optional; the old callers compile unchanged', () => {
   assert.match(chat.slice(0, 800), /status = null, queue = null, actions = null, actionsNote = null, onStop = null/,
     'a new composer option lost its null default; agent.js and comms.js would have to change')
-  for (const caller of ['views/agent.js', 'views/comms.js']) {
+  /* views/comms.js left this list when it stopped calling buildChat at all:
+     its expanded tile is a header and a log with no composer (nothing on
+     that page can send). Keeping it here made the pin vacuous -- indexOf
+     returning -1 sliced an empty string that matched nothing. */
+  for (const caller of ['views/agent.js']) {
     const source = readFileSync(join(SRC, caller), 'utf8')
     const call = source.slice(source.indexOf('buildChat('), source.indexOf('buildChat(') + 1400)
     assert.ok(!/onStop|queue:|actions:|status:/.test(call),

@@ -24,12 +24,28 @@ import {
 } from '../../src/cloud-tasks-controller.js'
 import {
   DECISION_FORM,
+  HIDE_ROW,
   QUEUE_FORM,
   REGISTER_NOTICE_STATES,
   decisionOff,
   queueSnapshotLine,
   registerNotice,
 } from '../../src/ledger-copy.js'
+import {
+  COMMS_NAME,
+  EXAMPLE_BADGE,
+  LOADING_LINE,
+  READER_REFUSALS,
+  LOAD_FAILED,
+  UNREADABLE_SUB,
+  boardEmptyLine,
+  describe,
+  emptyLine,
+  inventoryLine,
+  readStateWord,
+} from '../../src/comms-copy.js'
+import { commsQuietNotice, hostAbsentNotice } from '../../src/first-run-needs.js'
+import { sampleOpsEnvelope } from '../../src/sample-comms.js'
 
 const NEVER = Object.freeze({ setTimeout: () => 0, clearTimeout: () => {} })
 
@@ -159,16 +175,26 @@ const QUEUE_REFUSED = Object.freeze({ ok: false, code: 'BRIDGE_GUARD_REFUSED', r
 const REQUESTS = 'your requests'
 const WORK_LIST = 'a folder’s work list'
 
-function ledgerState({ id, why, source, itemCount, snapshot, formsOn = true }) {
+function ledgerState({ id, why, source, itemCount, snapshot, formsOn = true, hiddenCount = 0, hiddenId = null }) {
   const notice = registerNotice(source)
   const line = queueSnapshotLine(snapshot)
-  /* The state the surface is handed, exactly as src/views/ledger.js hands it. */
+  /* The state the surface is handed, exactly as src/views/ledger.js hands it:
+     the VISIBLE rows, after any the person hid on this screen. */
   const register = { kind: notice ? notice.state : (source.kind === 'live' ? 'live' : source.kind), items: rowsFor(itemCount) }
+  /* The counter as the view composes it (src/views/ledger.js renderRegister):
+     the visible count, the column caption, and the hidden tail when any row is
+     hidden on this screen. */
+  const counter = `${itemCount} requests · with their status and gates${hiddenCount > 0 ? ` · ${HIDE_ROW.count(hiddenCount)}` : ''}`
   const slots = [
     { name: 'the register’s paragraph', subject: REQUESTS, tone: notice ? notice.tone : 'note', text: notice ? notice.body : '' },
     { name: 'the register’s accessible name', subject: REQUESTS, tone: notice ? notice.tone : 'note', text: notice ? notice.label : '' },
-    { name: 'the counter above the register', subject: REQUESTS, tone: notice ? notice.tone : 'note', text: notice ? notice.count : `${itemCount} requests` },
+    { name: 'the counter above the register', subject: REQUESTS, tone: notice ? notice.tone : 'note', text: notice ? notice.count : counter },
   ]
+  if (hiddenId) {
+    /* The toolbar note after a hide -- tone note, never a failure, and it must
+       not tell a second story against the counter beside it. */
+    slots.push({ name: 'the hidden-rows note', subject: REQUESTS, tone: HIDE_ROW.tone, text: HIDE_ROW.hiddenR(hiddenId) })
+  }
   if (formsOn) {
     /* The hint the form really shows: the reason it is off when it is off, and
        otherwise the sentence that matches whether the field is a picker or a
@@ -219,9 +245,125 @@ export function ledgerPanels() {
       itemCount: 4,
       snapshot: QUEUE_READY,
     }),
+    ledgerState({
+      id: 'register-populated-one-hidden',
+      why: 'the same register after the person hid one row with the ×: the counter carries the tail and the toolbar note says what happened',
+      source: { kind: 'live' },
+      itemCount: 3,
+      snapshot: QUEUE_READY,
+      hiddenCount: 1,
+      hiddenId: 'R1103',
+    }),
+  ]
+}
+
+/* ------------------------------------------------------- agent comms -- */
+
+/* THE PAGE THAT SAID ONE THING SIX WAYS. The comms page's defect was never a
+   single string: one count in four nouns across one header row, one refusal
+   stamped into every tile, the topic bar and the rail foot. So the panel is
+   composed here exactly as src/views/comms.js composes it -- the title, the
+   inventory line, the one notice, the topic bar of the first channel, the
+   empty line a channel shows, the empty line the board shows -- for each state
+   a person reaches, and measured as one thing. */
+const MESSAGES = 'messages between agents'
+const INVENTORY = 'what this computer has on record'
+
+function commsState({ id, why, data, notice = '', stateName, itemCount, quiet = false, unreadable = false, badge = '' }) {
+  const channels = data?.channels?.ok && Array.isArray(data.channels.value) ? data.channels.value : []
+  const first = channels[0] || null
+  /* Exactly the view's rule: the per-channel and per-board empty lines are off
+     while the notice above the card (or the quiet notice) explains the whole
+     page, and the topic bar draws nothing when there is no channel. */
+  const emptyHidden = Boolean(notice) || quiet || unreadable
+  const slots = [
+    { name: 'the title', subject: INVENTORY, tone: 'note', text: COMMS_NAME },
+    { name: 'the line under the title', subject: INVENTORY, tone: unreadable ? 'unavailable' : 'note', text: unreadable ? UNREADABLE_SUB : (data ? inventoryLine(data) : '') },
+    { name: 'the word beside the dot', subject: INVENTORY, tone: 'note', text: readStateWord(stateName) },
+  ]
+  if (badge) slots.push({ name: 'the example badge', subject: INVENTORY, tone: 'note', text: badge })
+  if (notice) slots.push({ name: 'the notice under the header', subject: MESSAGES, tone: 'refused', text: notice })
+  if (unreadable) {
+    const absent = hostAbsentNotice(LOAD_FAILED('no reason given'))
+    slots.push({ name: 'the notice under the header', subject: INVENTORY, tone: 'unavailable', text: `${absent.title} ${absent.reason} ${absent.body}` })
+  }
+  if (first) slots.push({ name: 'the topic bar', subject: MESSAGES, tone: 'note', text: describe(first) })
+  /* while the first read is in flight the one pending tile carries the loading line as its topic */
+  if (!data && !unreadable) slots.push({ name: 'the topic bar', subject: MESSAGES, tone: 'note', text: LOADING_LINE })
+  if (first && itemCount === 0 && !emptyHidden) slots.push({ name: 'the empty line in a channel', subject: MESSAGES, tone: 'note', text: emptyLine() })
+  if (!first && !emptyHidden && data) slots.push({ name: 'the empty line on the board', subject: MESSAGES, tone: 'note', text: boardEmptyLine() })
+  if (quiet) slots.push({ name: 'the quiet notice', subject: MESSAGES, tone: 'note', text: commsQuietNotice().body })
+  return {
+    panel: 'agent-comms',
+    state: id,
+    why,
+    slots,
+    list: { name: 'the message log', itemCount },
+  }
+}
+
+/* A report with the live reader's own channel and nothing else on record: what
+   a fresh install that can read its journal actually hands the page. */
+const bareReport = (messages) => ({
+  declaredServices: [],
+  channels: { ok: true, reason: null, observedAt: null, value: [{ id: 'agent-tree', name: 'agents on this computer', state: 'healthy', observedAt: null, detail: `${messages.ok ? messages.value.length : 0} messages between agents on this computer's tree` }] },
+  mcp: { ok: false, reason: 'the services on record could not be read', observedAt: null, value: null },
+  messages,
+})
+
+export function agentCommsPanels() {
+  const sample = sampleOpsEnvelope(Date.parse('2026-08-20T12:00:00.000Z'))
+  const firstSampleCount = sample.messages.value.filter(m => m.channelId === sample.channels.value[0].id).length
+  return [
+    commsState({
+      id: 'loading',
+      why: 'the first read has not answered yet',
+      data: null,
+      stateName: 'loading',
+      itemCount: 0,
+    }),
+    commsState({
+      id: 'ready',
+      why: 'the report and the messages both read; channels with traffic',
+      data: sample,
+      stateName: 'ready',
+      itemCount: firstSampleCount,
+    }),
+    commsState({
+      id: 'partial',
+      why: 'the report read but the message reader refused: one notice above the card, no sentence inside it',
+      data: { ...sample, messages: { ok: false, reason: READER_REFUSALS.NO_READER, observedAt: null, value: null } },
+      notice: READER_REFUSALS.NO_READER,
+      stateName: 'partial-unavailable',
+      itemCount: 0,
+    }),
+    commsState({
+      id: 'unreadable',
+      why: 'the whole read failed: no tiles, no rail rows, the host-absent notice once, and no count anywhere',
+      data: null,
+      stateName: 'unavailable',
+      itemCount: 0,
+      unreadable: true,
+    }),
+    commsState({
+      id: 'example',
+      why: 'the example source: the same sample report, badged',
+      data: sample,
+      stateName: 'simulated',
+      itemCount: firstSampleCount,
+      badge: EXAMPLE_BADGE,
+    }),
+    commsState({
+      id: 'quiet',
+      why: 'a fresh install whose journal reads fine and is empty: the quiet notice explains, the empty lines stay off',
+      data: bareReport({ ok: true, reason: null, observedAt: null, value: [] }),
+      stateName: 'ready',
+      itemCount: 0,
+      quiet: true,
+    }),
   ]
 }
 
 export async function composedPanels() {
-  return [...(await cloudPanels()), ...ledgerPanels()]
+  return [...(await cloudPanels()), ...ledgerPanels(), ...agentCommsPanels()]
 }

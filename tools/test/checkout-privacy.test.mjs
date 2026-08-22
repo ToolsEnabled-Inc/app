@@ -175,6 +175,7 @@ test('a served catalogue is the only thing that turns the surface on', async () 
   const available = await probeCheckoutSurface({
     fetchImpl: async () => ({ ok: true, headers: { get: () => 'application/json; charset=utf-8' } }),
     dispatch: null,
+    hosted: () => true,
   })
   assert.equal(available, true)
   assert.equal(checkoutSurfaceAvailable(), true)
@@ -192,7 +193,7 @@ test('every way the probe can fail leaves the surface off', async () => {
   ]
   for (const [why, fetchImpl] of refusals) {
     __setCheckoutSurfaceForTest(true, true)
-    const available = await probeCheckoutSurface({ fetchImpl, dispatch: null })
+    const available = await probeCheckoutSurface({ fetchImpl, dispatch: null, hosted: () => true })
     assert.equal(available, false, `the surface survived ${why}`)
     assert.equal(checkoutSurfaceAvailable(), false, `the surface survived ${why}`)
     assert.equal(checkoutSurfaceSettled(), true, `${why} left the router waiting forever`)
@@ -205,9 +206,107 @@ test('a probe that never answers is a closed door rather than an open one', asyn
     fetchImpl: () => new Promise(() => {}),
     timeoutMs: 30,
     dispatch: null,
+    hosted: () => true,
   })
   assert.equal(available, false)
   assert.equal(checkoutSurfaceSettled(), true)
+})
+
+/* ---------- the probe is only made on a copy the desktop shell hosts ---------- */
+
+/* MEASURED ON toolsenabled.ai/app/: every page load asked the website for
+   data/purchase-catalog.json and was answered 404. The surface was off, but by
+   accident of the 404, and the site saw a request for a file it has never held.
+   The discriminator is onDesktop() from src/data-source.js -- the preload's
+   getBridgeProof, which the site's host bridge withholds on purpose -- and the
+   test spells each window shape out because "site-shaped" is the one that used
+   to fool nothing and now has to be refused by decision rather than by luck. */
+
+function servedCatalogue() {
+  const calls = []
+  const fetchImpl = async (...args) => {
+    calls.push(args)
+    return { ok: true, headers: { get: () => 'application/json; charset=utf-8' } }
+  }
+  return { calls, fetchImpl }
+}
+
+async function withWindow(shape, run) {
+  const had = Object.prototype.hasOwnProperty.call(globalThis, 'window')
+  const before = globalThis.window
+  if (shape === undefined) delete globalThis.window
+  else globalThis.window = shape
+  try {
+    return await run()
+  } finally {
+    if (had) globalThis.window = before
+    else delete globalThis.window
+  }
+}
+
+test('a copy with no window at all is never asked for a list', async () => {
+  await withWindow(undefined, async () => {
+    __setCheckoutSurfaceForTest(true, false)
+    const { calls, fetchImpl } = servedCatalogue()
+    const available = await probeCheckoutSurface({ fetchImpl, dispatch: null })
+    assert.equal(calls.length, 0, 'the probe fetched on a copy nothing hosts')
+    assert.equal(available, false)
+    assert.equal(checkoutSurfaceAvailable(), false)
+    assert.equal(checkoutSurfaceSettled(), true, 'a skipped probe must settle exactly like a failed one')
+  })
+})
+
+test('the public origin -- a site-shaped window with an endpoint but no proof -- is never asked', async () => {
+  // The website's host bridge defines mcShell too (endpoint + relay transport);
+  // what it deliberately lacks is getBridgeProof. That absence is the decision.
+  const siteShaped = { mcShell: { getBridgeEndpoint: () => 'http://127.0.0.1:0' } }
+  await withWindow(siteShaped, async () => {
+    __setCheckoutSurfaceForTest(true, false)
+    const { calls, fetchImpl } = servedCatalogue()
+    const available = await probeCheckoutSurface({ fetchImpl, dispatch: null })
+    assert.equal(calls.length, 0, 'the probe asked the public origin for data/purchase-catalog.json')
+    assert.equal(available, false)
+    assert.equal(checkoutSurfaceAvailable(), false)
+    assert.equal(checkoutSurfaceSettled(), true)
+  })
+})
+
+test('a desktop-shaped window is asked, and a served list turns the surface on', async () => {
+  const desktopShaped = { mcShell: { getBridgeEndpoint: () => 'http://127.0.0.1:0', getBridgeProof: () => 'proof' } }
+  await withWindow(desktopShaped, async () => {
+    __setCheckoutSurfaceForTest(false, false)
+    const { calls, fetchImpl } = servedCatalogue()
+    const available = await probeCheckoutSurface({ fetchImpl, dispatch: null })
+    assert.equal(calls.length, 1, 'the desktop copy was not asked')
+    assert.equal(available, true)
+    assert.equal(checkoutSurfaceAvailable(), true)
+    assert.equal(checkoutSurfaceSettled(), true)
+  })
+})
+
+test('a hosting discriminator that throws or answers oddly is treated as not hosted', async () => {
+  for (const [why, hosted] of [
+    ['throws', () => { throw new Error('no shell') }],
+    ['answers a truthy non-boolean', () => 1],
+    ['is not a function', 'yes'],
+  ]) {
+    __setCheckoutSurfaceForTest(true, false)
+    const { calls, fetchImpl } = servedCatalogue()
+    const available = await probeCheckoutSurface({ fetchImpl, dispatch: null, hosted })
+    assert.equal(calls.length, 0, `the probe fetched when the discriminator ${why}`)
+    assert.equal(available, false, `the surface survived a discriminator that ${why}`)
+    assert.equal(checkoutSurfaceSettled(), true)
+  }
+})
+
+test('the visibility module imports exactly the desktop discriminator and nothing else', () => {
+  // The gate is meant to ride on onDesktop() rather than on a second, drifting
+  // copy of "is there a shell behind this page" -- and it must not grow a
+  // dependency that pulls a cycle through data-source.js.
+  const source = readFileSync(path.join(REPO_ROOT, 'src', 'checkout-visibility.js'), 'utf8')
+  const imports = [...source.matchAll(/^import\s[^'"]*['"]([^'"]+)['"]/gm)].map(match => match[1])
+  assert.deepEqual(imports, ['./data-source.js'])
+  assert.match(source, /import \{ onDesktop \} from '\.\/data-source\.js'/)
 })
 
 /* ---------- asar reading, same format as tools/check-asar-manifest.mjs ---------- */

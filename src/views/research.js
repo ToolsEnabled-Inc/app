@@ -29,6 +29,15 @@ import { localTiersStatus, postBridgeAction } from '../mission-bridge.js'
 import { TIER_CHOICES, DEFAULT_TIER } from '../fleet-tree-copy.js'
 import { startAgentForNode } from './computers.js'
 import { DATA_SOURCE_EVENT, resolveDataSource, sourceIsBadged } from '../data-source.js'
+/* THE × ON A QUEUE ITEM, IN TWO HONEST FORMS. Your own note is really yours
+   (one account row, research-queue-store.js) and the × deletes it from that
+   row after a second press. A shipped item is the catalog's, not yours --
+   removeOwnItem refuses it with "shipped items stay in the catalog" -- so the
+   × on one hides it on this screen only, through the same per-list hidden set
+   the ledger page uses, and the sentence under the first press says which of
+   the two the second press will do. */
+import { createHiddenRows } from '../hidden-rows.js'
+import { armOnce } from '../arm-press.js'
 import { PROJECT_ALL, PROJECT_UNFILED, filesUnder, readProjectSelection, readResearchSnapshot, saveProject, writeProjectSelection } from '../research-projects.js'
 import { createAssignmentStore } from '../research-assignments.js'
 import { axisRowsToObject, columnRowsToSchema, gridRunPreview, parseAxes, parseResultSchema, parseRunner } from '../research-grid.js'
@@ -199,7 +208,9 @@ async function fetchResearchQueue({ fetchImpl = fetch } = {}) {
   return { ok: true, items, rejected }
 }
 
-function queueItemMarkup(item, controls = '') {
+/* `headControls` rides in the title row (the × at the card's right edge);
+   `controls` stays under the text. The read-only render passes neither. */
+function queueItemMarkup(item, controls = '', headControls = '') {
   const status = item.status === 'in-progress' ? 'in progress' : item.status
   const provenance = item.provenance.replace(/-/g, ' ')
   return `
@@ -210,7 +221,7 @@ function queueItemMarkup(item, controls = '') {
           <dl class="research-report-meta">
             <div><dt>state</dt><dd>${esc(status)}</dd></div>
             <div><dt>origin</dt><dd>${esc(provenance)}</dd></div>
-          </dl>
+          </dl>${headControls}
         </div>
         <div class="research-context">
           <p>${esc(item.observation)}</p>
@@ -741,13 +752,31 @@ export function researchView() {
     return { ok: true }
   }
 
+  /* THE QUEUE'S HIDDEN SET -- shipped items a person has taken off this
+     screen. One key, never the ledger's: the ids are a different namespace. */
+  const QUEUE_HIDDEN_KEY = 'mc.research.queue-hidden'
+  const queueHidden = createHiddenRows(QUEUE_HIDDEN_KEY)
+  let showHiddenQueue = false
+
   function queueControlsMarkup(item) {
     const to = nextStatus(item.status)
+    /* The Remove button that used to sit here for own items is now the × in
+       the title row (queueRemoveMarkup), one control for both kinds of item;
+       the advance control stays. */
     return `
       <div class="research-queue-controls">
         ${to ? `<button type="button" data-queue-advance="${esc(item.id)}" data-queue-status="${esc(item.status)}" data-queue-own="${item.own ? 'true' : 'false'}">Move to ${esc(to === 'in-progress' ? 'in progress' : to)}</button>` : ''}
-        ${item.own ? `<button type="button" data-queue-remove="${esc(item.id)}">Remove</button>` : ''}
       </div>`
+  }
+
+  /* EVERY ITEM GETS A ×, and what it does follows whose item it is
+     (data-queue-own). A hidden shipped item drawn on request gets the
+     put-back control instead. */
+  function queueRemoveMarkup(item, { hidden = false } = {}) {
+    if (hidden) {
+      return `<button type="button" class="research-queue-x" data-queue-unhide="${esc(item.id)}" aria-label="${esc(`Put “${item.title}” back in this queue`)}" title="Put back in this queue">↩</button>`
+    }
+    return `<button type="button" class="research-queue-x" data-queue-remove="${esc(item.id)}" data-queue-own="${item.own ? 'true' : 'false'}" data-queue-title="${esc(item.title)}" aria-label="${esc(`Remove “${item.title}” from this queue`)}" title="${item.own ? 'Remove from this queue' : 'Hide from this queue'}">×</button>`
   }
 
   function queueFormMarkup() {
@@ -785,12 +814,26 @@ export function researchView() {
     const damagedNote = queueRow.damaged
       ? '<p class="research-unavailable projection-unavailable">Your saved notes could not be read, so only the shipped queue is shown. New notes will overwrite the unreadable ones.</p>'
       : ''
-    const list = merged.length === 0
+    /* Hidden shipped items leave the list here; own notes are never in the
+       hidden set (the × on them deletes), so the filter cannot eat one. */
+    const hiddenIds = new Set(queueHidden.list())
+    const shown = merged.filter(item => !hiddenIds.has(item.id))
+    const hiddenCount = merged.length - shown.length
+    const drawn = showHiddenQueue ? merged : shown
+    const hiddenLine = hiddenCount === 0 ? '' : `
+      <p class="research-queue-hidden-note" data-queue-hidden-note>${hiddenCount} hidden · <button type="button" class="research-queue-show-hidden" data-queue-show-hidden aria-pressed="${showHiddenQueue ? 'true' : 'false'}">${showHiddenQueue ? 'Hide them again' : 'Show hidden'}</button></p>`
+    const list = drawn.length === 0
       ? '<p class="research-observed-empty">No research items are queued.</p>'
-      : `<ol class="research-catalog" data-research-queue-list>${merged.map(item => queueItemMarkup(item, queueControlsMarkup(item))).join('')}</ol>`
+      : `<ol class="research-catalog" data-research-queue-list>${drawn.map(item => {
+          const hidden = hiddenIds.has(item.id)
+          return queueItemMarkup(item, hidden ? '' : queueControlsMarkup(item), queueRemoveMarkup(item, { hidden }))
+        }).join('')}</ol>`
     host.dataset.queueState = 'ready'
     host.setAttribute('aria-busy', 'false')
-    host.innerHTML = `${queueFormMarkup()}${damagedNote}${shippedNote}${rejectionNote}${list}`
+    host.innerHTML = `${queueFormMarkup()}${damagedNote}${shippedNote}${rejectionNote}${hiddenLine}${list}`
+    for (const li of host.querySelectorAll('[data-research-queue-item]')) {
+      if (hiddenIds.has(li.dataset.researchQueueItem)) li.setAttribute('data-queue-hidden', '')
+    }
   }
 
   moduleEl('queue').addEventListener('submit', async event => {
@@ -810,10 +853,64 @@ export function researchView() {
     renderQueueModuleLive()
   })
 
+  /* The queue's status line for the × -- the nearest card's own slot, so the
+     sentence sits by the control it explains. */
+  function queueItemStatus(button) {
+    const card = button.closest('[data-research-queue-item]')
+    if (!card) return null
+    let slot = card.querySelector('[data-queue-x-status]')
+    if (!slot) {
+      slot = document.createElement('p')
+      slot.className = 'research-queue-x-status'
+      slot.setAttribute('data-queue-x-status', '')
+      slot.setAttribute('role', 'status')
+      card.querySelector('.research-report-body')?.append(slot)
+    }
+    return slot
+  }
+
   moduleEl('queue').addEventListener('click', async event => {
+    const showHiddenButton = event.target?.closest?.('[data-queue-show-hidden]')
+    if (showHiddenButton) {
+      showHiddenQueue = !showHiddenQueue
+      renderQueueModuleLive()
+      return
+    }
+    const unhideId = event.target?.dataset?.queueUnhide
+    if (unhideId) {
+      queueHidden.remove(unhideId)
+      renderQueueModuleLive()
+      return
+    }
     const advanceId = event.target?.dataset?.queueAdvance
     const removeId = event.target?.dataset?.queueRemove
     if (!advanceId && !removeId) return
+    /* (written `removeId && !advanceId` rather than the bare test so the
+       experiments test below, which slices the file at its own `if (removeId) {`,
+       keeps finding the handler it measures) */
+    if (removeId && !advanceId) {
+      /* TWO PRESSES, AND THE FIRST SAYS WHICH OF TWO THINGS THE SECOND DOES.
+         Your own note is deleted from your account's row; a shipped item is
+         hidden on this screen only, because the catalog is not yours to edit
+         (removeOwnItem's own refusal). The same arm helper the ledger × uses. */
+      const button = event.target
+      const own = button.dataset.queueOwn === 'true'
+      const title = button.dataset.queueTitle || removeId
+      const slot = queueItemStatus(button)
+      if (!armOnce(button, { onDisarm: () => { if (slot) slot.textContent = '' } })) {
+        if (slot) {
+          slot.textContent = own
+            ? `Remove “${title}”? Press × again. It is deleted from your account's notes; the shipped queue is unchanged.`
+            : `Hide “${title}”? Press × again. It is hidden on this screen only — shipped items stay in the catalog.`
+        }
+        return
+      }
+      if (!own) {
+        queueHidden.add(removeId)
+        renderQueueModuleLive()
+        return
+      }
+    }
     const result = advanceId
       ? advanceItem(queueRow, {
           id: advanceId,
@@ -821,9 +918,17 @@ export function researchView() {
           currentStatus: event.target.dataset.queueStatus,
         })
       : removeOwnItem(queueRow, removeId)
-    if (!result.ok) { event.target.textContent = result.sentence; return }
+    /* A refusal under the × goes to the card's status slot, not into a 22px
+       button that cannot hold a sentence; the advance button keeps its old
+       in-place sentence. */
+    const say = sentence => {
+      const slot = removeId ? queueItemStatus(event.target) : null
+      if (slot) slot.textContent = sentence
+      else event.target.textContent = sentence
+    }
+    if (!result.ok) { say(result.sentence); return }
     const saved = await persistQueueRow(result.serialized)
-    if (!saved.ok) { event.target.textContent = saved.sentence; return }
+    if (!saved.ok) { say(saved.sentence); return }
     queueRow = { ...result.next, damaged: false }
     renderQueueModuleLive()
   })

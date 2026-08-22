@@ -72,7 +72,13 @@
   grid-template-columns: 28px minmax(190px, 230px) minmax(210px, 1fr) max-content;
   align-items: center;
   gap: 0 var(--s3);
-  padding: 9px 10px;
+  /* PADDING, NOT A FIFTH TRACK, MAKES ROOM FOR THE ×. The grid's four tracks
+     are read down as columns and adding a max-content track would have moved
+     every metadata rail left by the control's width on every breakpoint (five
+     places to keep in step). The control is absolutely placed in the 42px of
+     right padding instead: the columns never move, and the control's fixed
+     22px box can never widen over `.ledger-meta`. */
+  padding: 9px 42px 9px 10px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -81,11 +87,86 @@
   text-align: left;
   cursor: pointer;
 }
+/* The R row is a plain div now -- it expands to nothing, so it is nothing to
+   press -- and must not promise a press with the pointer. */
+div.ledger-row { cursor: default; }
 .ledger-row:focus-visible,
-.ledger-root-toggle:focus-visible {
+.ledger-root-toggle:focus-visible,
+.ledger-hide:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
 }
+
+/* THE × AT THE ROW'S RIGHT EDGE. Decorative grey at rest (the same rule as
+   .ledger-root-toggle: an affordance, not information, so it recedes until
+   the cursor or focus is on the row), ink on hover, and the ARMED state --
+   the first of its two presses -- is full ink on a visible hairline so the
+   row that is one press from leaving looks different from its neighbours.
+   Fixed 22×22: it never grows with its label, so it can never widen over the
+   metadata it sits beside. */
+.ledger-hide {
+  position: absolute;
+  z-index: 2;
+  right: 10px;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  transform: translateY(-50%);
+  background: transparent;
+  color: var(--ink-4);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease);
+}
+.ledger-record:hover .ledger-hide,
+.ledger-row:focus-visible ~ .ledger-hide { color: var(--ink-2); }
+.ledger-hide:hover,
+.ledger-hide:focus-visible { color: var(--ink); border-color: var(--line-2); }
+.ledger-hide[data-armed="true"] { color: var(--ink); border-color: var(--ink-3); }
+/* A hidden row shown on request: dimmed, with the put-back control. */
+.ledger-record[data-hidden] .ledger-row { opacity: .55; }
+/* Under the row, after the first press: what the second will do. Indented to
+   the title's x so it reads as the row's own sentence, not the register's. */
+.ledger-row-hint {
+  margin: 0;
+  padding: 0 42px 8px 252px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+.ledger-row-hint[hidden] { display: none; }
+/* The toolbar's note about the last hide or put-back, and the small text
+   controls beside the counter (Show hidden / Hide them again / Undo). A text
+   button, not a boxed one: these sit inside a mono counter line and a box
+   there would read as a third segmented control. */
+.ledger-hidden-note {
+  margin: 0 0 var(--s3);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
+  max-width: 72ch;
+}
+.ledger-hidden-note[hidden] { display: none; }
+.ledger-hidden-toggle {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.ledger-hidden-toggle:hover { color: var(--ink); }
+.ledger-hidden-toggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.ledger-hidden-toggle[hidden] { display: none; }
 
 .ledger-state {
   width: 20px;
@@ -340,6 +421,8 @@
   .ledger-branch-count, .ledger-agent, .ledger-age, .ledger-gate { grid-column: auto; }
   .ledger-branch-count { padding-right: 0; }
   .ledger-age { text-align: left; }
+  /* a wrapping run must stay inside the column, not under the × */
+  .ledger-meta { max-width: 100%; }
   .ledger-answer { grid-template-columns: 28px 190px minmax(0, 1fr); }
   .ledger-detail {
     display: flex;
@@ -357,11 +440,13 @@
   .ledger-stat-value { font-size: 25px; }
   .ledger-stat-note { letter-spacing: 0; text-transform: none; }
   .ledger-toolbar { align-items: flex-start; flex-direction: column; gap: var(--s3); }
-  .ledger-row { grid-template-columns: 26px 152px minmax(140px, 1fr); gap: 0 var(--s2); padding-inline: var(--s2); }
+  .ledger-row { grid-template-columns: 26px 152px minmax(140px, 1fr); gap: 0 var(--s2); padding-left: var(--s2); padding-right: calc(var(--s2) + 32px); }
+  .ledger-hide { right: var(--s2); }
   .ledger-root-toggle { left: 32px; }
   .ledger-answer { grid-template-columns: 26px 152px minmax(0, 1fr); gap: 0 var(--s2); padding-inline: var(--s2); }
   /* --s2 + 26 + --s2 + 152 + --s2 = the title's x at this step (was 194) */
   .ledger-detail { padding-left: 202px; padding-right: var(--s2); }
+  .ledger-row-hint { padding-left: 202px; padding-right: calc(var(--s2) + 32px); }
   .ledger-meta { gap: var(--s2); }
 }
 

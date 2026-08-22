@@ -144,12 +144,14 @@ const INHERITED_ENVIRONMENT_KEYS = Object.freeze([
  * the chosen setup profile, the close warning -- and its keys are `mc.*`. The
  * other candidate, shell/product-settings.cjs, is the payload's settings
  * registry, and its own header states the rule this decision obeys: a registry
- * row without a control in the software is a lie. There is no Settings control
- * for this switch yet and the read side is what was asked for, so adding a
- * registry row here would create exactly the half-setting that file exists to
- * prevent. renderer-prefs also happens to be the store the eventual prompt can
- * write from the window, which is where the owner said the question gets
- * asked.
+ * row without a control in the software is a lie. The control is not a
+ * registry row: it is the switch in the connect section of Settings
+ * (src/connect-computer-settings.js, labelled by WEB_DRIVE_CONTROL_LABEL in
+ * src/device-claim-flow.js), which writes this key over `mc-prefs:write` from
+ * the window -- where the owner said the question gets asked, at the moment
+ * the computer lands on an account. The key and the value are repeated in
+ * that ESM module because it cannot import this one; the parity is pinned in
+ * tools/test/relay-supervisor.test.mjs.
  *
  * FAIL CLOSED IS STRUCTURAL, NOT INCIDENTAL. Four separate ways of not knowing
  * -- no store, a store that throws, a damaged record, a value that is not

@@ -77,6 +77,10 @@ test('a rank under one parent is packed under it, not smeared across the canvas'
     ...['a', 'b', 'c', 'd'].map(key => ({
       id: `manager-${key}`, name: `Manager ${key.toUpperCase()}`, role: 'manager', parentId: 'root', bornAt: 1,
     })),
+    // Two of the managers own a worker: the subtree pass must keep every
+    // property above AND put each worker straight under its own manager.
+    { id: 'worker-a', name: 'Worker A', role: 'default', parentId: 'manager-a', bornAt: 1 },
+    { id: 'worker-b', name: 'Worker B', role: 'default', parentId: 'manager-b', bornAt: 1 },
   ]
   const narrow = layoutTree({ nodes: family, W: 840, H: 700 })
   const wide = layoutTree({ nodes: family, W: 1260, H: 700 })
@@ -90,6 +94,115 @@ test('a rank under one parent is packed under it, not smeared across the canvas'
   // ...and it stays centred on its own parent.
   const mid = (wide.slots.get('manager-a').x + wide.slots.get('manager-d').x) / 2
   assert.ok(Math.abs(mid - wide.slots.get('root').x) < 2, `${mid} vs ${wide.slots.get('root').x}`)
+  // A worker sits directly under its manager at either width, so the
+  // connector is a vertical line. The per-rank cursor put worker-b 154px
+  // right of manager-b at W=840 (493 vs 339): the two single-child families
+  // were separated by the between-family gap instead of sharing the root's.
+  for (const result of [narrow, wide]) {
+    for (const key of ['a', 'b']) {
+      const dx = Math.abs(result.slots.get(`worker-${key}`).x - result.slots.get(`manager-${key}`).x)
+      assert.ok(dx < 1.5, `worker-${key} sits ${dx}px off its manager; the drop should be vertical`)
+    }
+  }
+})
+
+/* THE OWNER'S SCREENSHOT, AS ARITHMETIC (P-O3). Three roots A/B/C (r39,
+   78px claim), D2 under A, one child slot under each root (r34 unnamed, 68px
+   claim), and the new-tree slot S. Canvas ≈ 900px. The per-rank packer put
+   the child row at 89/230/536/842 under a root row at 236/382/528: B's slot
+   154px right of B, C's 314px right of C, on elbows that should have been
+   straight drops. With the subtree pass, air 68 fits (forest 642 ≤ 852):
+   row0 A 238.5 / B 450 / C 596 / S 737; row1 D2 168 / sA 309 / sB 450 /
+   sC 596. */
+const screenshotSlot = (id, parentId) => ({
+  id, name: '', role: 'default', parentId, r: 34, cullable: true, cullRank: 9000, orderHint: 1,
+})
+const screenshot = [
+  { id: 'A', name: 'Agent A', role: 'default', bornAt: 1 },
+  { id: 'B', name: 'Agent B', role: 'default', bornAt: 1 },
+  { id: 'C', name: 'Agent C', role: 'default', bornAt: 1 },
+  { id: 'D2', name: 'Agent D2', role: 'default', parentId: 'A', bornAt: 1 },
+  screenshotSlot('empty-A', 'A'),
+  screenshotSlot('empty-B', 'B'),
+  screenshotSlot('empty-C', 'C'),
+  screenshotSlot('new-tree'),
+]
+const xOf = (result, id) => result.slots.get(id).x
+
+test('parents make room for their subtrees; children sit straight under them', () => {
+  const result = layoutTree({ nodes: screenshot, W: 900, H: 700 })
+  const x = (id) => xOf(result, id)
+  assert.equal(result.culled.size, 0)
+  assert.equal(result.drillRequired, false)
+  // Single children hang straight down from their parent.
+  assert.ok(Math.abs(x('empty-B') - x('B')) < 0.5, `B's slot ${x('empty-B')} vs B ${x('B')}`)
+  assert.ok(Math.abs(x('empty-C') - x('C')) < 0.5, `C's slot ${x('empty-C')} vs C ${x('C')}`)
+  // A is centred over its two children, and the agent comes before the slot.
+  assert.ok(Math.abs((x('D2') + x('empty-A')) / 2 - x('A')) < 1, `A ${x('A')} is not over the D2/slot midpoint`)
+  assert.ok(x('D2') < x('empty-A'))
+  // A's family takes more room than a bare root, so B stands further off.
+  assert.ok(x('B') - x('A') > 146, `B - A = ${x('B') - x('A')}; A made no room for its subtree`)
+  // The new-tree slot trails the roots.
+  assert.ok(x('new-tree') > x('C'))
+  // The worked example's numbers, to the half pixel.
+  const expected = { A: 238.5, B: 450, C: 596, 'new-tree': 737, D2: 168, 'empty-A': 309, 'empty-B': 450, 'empty-C': 596 }
+  for (const [id, want] of Object.entries(expected)) {
+    assert.ok(Math.abs(x(id) - want) <= 0.5, `${id} at ${x(id)}, expected ${want}`)
+  }
+  // No overlap within a row, and everything inside the canvas.
+  for (const row of result.rowYs) {
+    const inRow = [...result.slots].filter(([, slot]) => slot.y === row).sort((l, r) => l[1].x - r[1].x)
+    for (let index = 1; index < inRow.length; index += 1) {
+      const [leftId, left] = inRow[index - 1]
+      const [rightId, right] = inRow[index]
+      assert.ok(right.x - left.x >= result.radii.get(leftId) + result.radii.get(rightId), `${leftId} and ${rightId} overlap`)
+    }
+    for (const [id, slot] of inRow) {
+      assert.ok(slot.x - result.radii.get(id) >= 0 && slot.x + result.radii.get(id) <= 900, `${id} outside the canvas`)
+    }
+  }
+})
+
+test('a narrow canvas shrinks the air before it gives up the under-parent placement', () => {
+  // 520px: the forest fits at air 25; children are still straight under
+  // their parents and nothing is culled.
+  const narrow = layoutTree({ nodes: screenshot, W: 520, H: 700 })
+  assert.equal(narrow.culled.size, 0)
+  assert.ok(Math.abs(xOf(narrow, 'empty-B') - xOf(narrow, 'B')) < 0.5)
+  assert.ok(Math.abs(xOf(narrow, 'empty-C') - xOf(narrow, 'C')) < 0.5)
+  assert.ok(Math.abs((xOf(narrow, 'D2') + xOf(narrow, 'empty-A')) / 2 - xOf(narrow, 'A')) < 1)
+  // 400px: no rung fits the forest, so the per-rank geometry stands. The
+  // numbers pinned here were read off the packer BEFORE the subtree pass
+  // existed; neither path culls anything at this width.
+  const tight = layoutTree({ nodes: screenshot, W: 400, H: 700 })
+  assert.equal(tight.culled.size, 0)
+  assert.equal(tight.drillRequired, false)
+  const fallback = { A: 73, B: 161, C: 249, 'new-tree': 332, D2: 83, 'empty-A': 160, 'empty-B': 240, 'empty-C': 320 }
+  for (const [id, want] of Object.entries(fallback)) {
+    assert.equal(xOf(tight, id), want, `${id}: the 400px fallback drifted from the per-rank geometry`)
+  }
+})
+
+test('the subtree pass is deterministic, honours orderHint, and keeps strays on their rank', () => {
+  const forest = [
+    { id: 'root', name: 'Coordinator', role: 'coordinator', bornAt: 1 },
+    // Ids chosen so id order alone would put the slot FIRST; orderHint 1 must
+    // still put it last in its family.
+    { id: 'zeta', name: 'Zeta', role: 'default', parentId: 'root', bornAt: 1 },
+    { id: 'alpha-slot', name: '', role: 'default', parentId: 'root', r: 34, cullable: true, cullRank: 9000, orderHint: 1 },
+    // A stray: it names root as its parent but an explicit tierRank keeps it
+    // on root's own rank, so no placed ancestor is shallower than it.
+    { id: 'stray', name: 'Stray', role: 'default', parentId: 'root', tierRank: 0, bornAt: 1 },
+  ]
+  const first = layoutTree({ nodes: forest, W: 1000, H: 600 })
+  const second = layoutTree({ nodes: forest, W: 1000, H: 600 })
+  assert.deepEqual([...first.slots], [...second.slots])
+  assert.deepEqual([...first.labels], [...second.labels])
+  assert.ok(first.slots.get('zeta').x < first.slots.get('alpha-slot').x, 'the empty slot must come last in its family')
+  assert.equal(first.slots.get('stray').y, first.slots.get('root').y, 'a stray keeps its rank')
+  assert.ok(first.slots.get('stray').x > first.slots.get('root').x, 'a stray trails the forest')
+  assert.ok(first.slots.get('stray').x + first.radii.get('stray') <= 1000)
+  assert.equal(first.culled.size, 0)
 })
 
 test('a canvas too short for the tiers shrinks the circles instead of overlapping them', () => {

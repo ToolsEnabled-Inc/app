@@ -554,23 +554,65 @@ function validAuditReceipt(value) {
 
 const ARCHIVE_REQUEST_ID_RE = /^R[0-9]{1,4}(?:\.[0-9]{1,4})?$/
 
-function validArchiveCandidate(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)
-      || Reflect.ownKeys(value).some(key => !['id', 'reasonCode', 'reason', 'supersedingRequestIds'].includes(key))
-      || !['id', 'reasonCode', 'reason'].every(key => Object.hasOwn(value, key))
-      || !ARCHIVE_REQUEST_ID_RE.test(String(value.id || ''))
-      || !['completed', 'fully-superseded'].includes(value.reasonCode)
-      || typeof value.reason !== 'string' || value.reason.length === 0 || value.reason.length > 300
-      || /[\r\n]/.test(value.reason)) return false
-  const superseding = value.supersedingRequestIds === undefined ? [] : value.supersedingRequestIds
-  return Array.isArray(superseding)
-    && new Set(superseding).size === superseding.length
-    && superseding.every(id => ARCHIVE_REQUEST_ID_RE.test(id))
-    && (value.reasonCode === 'fully-superseded' ? superseding.length > 0 : superseding.length === 0)
+/* THE RECEIPT SHAPE IS THE ENGINE'S, READ OFF THE ENGINE. Before this was
+   rewritten the verifier below demanded candidates as {id, reasonCode,
+   reason:string} and a movedIds/movedCount pair -- a shape
+   capability/src/lib/mission-bridge/actions.js never produces.
+   normalizedLedgerArchiveResult there (the one source of every receipt)
+   freezes candidates as {targetKind:'request', requestId, reason:{code,
+   detail, supersedingRequestIds}} beside `restorables`, `appliedTarget` and
+   `changedCount`, and the action spreads exactly that into the receipt. So
+   every real preview failed verification here and "Preview cleanup" refused
+   with BRIDGE_LEDGER_ARCHIVE_PREVIEW_INVALID before any confirm -- the row's
+   only control never once worked, and the refusal it printed blamed a receipt
+   that was in fact well-formed. Each check below mirrors the engine's own
+   normaliser line for line, so the two cannot drift apart without one of them
+   being edited in plain sight. */
+function validArchiveTarget(value) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    && Reflect.ownKeys(value).every(key => ['targetKind', 'requestId', 'ruleKey'].includes(key))
+    && ['targetKind', 'requestId'].every(key => Object.hasOwn(value, key))
+    && ['request', 'rule'].includes(value.targetKind)
+    && ARCHIVE_REQUEST_ID_RE.test(String(value.requestId || ''))
+    && (value.targetKind === 'request'
+      ? !Object.hasOwn(value, 'ruleKey')
+      : typeof value.ruleKey === 'string' && value.ruleKey.length > 0 && value.ruleKey.length <= 200)
 }
 
-/** Validate the bounded canonical archive receipt before the UI reports a move. */
-export function verifiedLedgerArchiveReceipt(result, dryRun) {
+function sameArchiveTarget(left, right) {
+  if (!validArchiveTarget(left) || !validArchiveTarget(right)) return false
+  return left.targetKind === right.targetKind && left.requestId === right.requestId
+    && (left.targetKind === 'request' || left.ruleKey === right.ruleKey)
+}
+
+function validArchiveCandidate(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+      || Reflect.ownKeys(value).some(key => !['targetKind', 'requestId', 'reason'].includes(key))
+      || !['targetKind', 'requestId', 'reason'].every(key => Object.hasOwn(value, key))
+      || value.targetKind !== 'request'
+      || !ARCHIVE_REQUEST_ID_RE.test(String(value.requestId || ''))) return false
+  const reason = value.reason
+  if (!reason || typeof reason !== 'object' || Array.isArray(reason)
+      || Reflect.ownKeys(reason).some(key => !['code', 'detail', 'supersedingRequestIds'].includes(key))
+      || !['code', 'detail', 'supersedingRequestIds'].every(key => Object.hasOwn(reason, key))
+      || !['completed', 'fully-superseded'].includes(reason.code)
+      || typeof reason.detail !== 'string' || reason.detail.length === 0 || reason.detail.length > 300
+      || /[\r\n]/.test(reason.detail)) return false
+  const superseding = reason.supersedingRequestIds
+  return Array.isArray(superseding)
+    && new Set(superseding).size === superseding.length
+    && superseding.every(id => ARCHIVE_REQUEST_ID_RE.test(String(id || '')))
+    && ((reason.code === 'fully-superseded') === (superseding.length > 0))
+}
+
+/**
+ * Validate the bounded canonical archive receipt before the UI reports a move.
+ *
+ * A dry run carries no applied target and changed nothing; a confirmation
+ * carries exactly the one target it was sent, changed exactly one thing, and
+ * has the intent receipt a real write is always preceded by.
+ */
+export function verifiedLedgerArchiveReceipt(result, dryRun, target = null) {
   const receipt = result?.receipt
   if (result?.ok !== true
       || !receipt || typeof receipt !== 'object' || Array.isArray(receipt)
@@ -579,7 +621,9 @@ export function verifiedLedgerArchiveReceipt(result, dryRun) {
       || !canonicalIso(receipt.at)
       || !/^[a-f0-9]{64}$/.test(String(receipt.planSha256 || ''))
       || !Array.isArray(receipt.candidates) || !receipt.candidates.every(validArchiveCandidate)
-      || new Set(receipt.candidates.map(candidate => candidate.id)).size !== receipt.candidates.length
+      || new Set(receipt.candidates.map(candidate => candidate.requestId)).size !== receipt.candidates.length
+      || !Array.isArray(receipt.restorables) || !receipt.restorables.every(validArchiveTarget)
+      || new Set(receipt.restorables.map(item => JSON.stringify(item))).size !== receipt.restorables.length
       || !Array.isArray(receipt.inconsistencies)
       || !receipt.inconsistencies.every(issue => issue && typeof issue === 'object' && !Array.isArray(issue)
         && Reflect.ownKeys(issue).length === 3
@@ -589,13 +633,12 @@ export function verifiedLedgerArchiveReceipt(result, dryRun) {
         && typeof issue.reason === 'string' && issue.reason.length > 0 && issue.reason.length <= 300)
       || !Number.isSafeInteger(receipt.activeCount) || receipt.activeCount < 0
       || !Number.isSafeInteger(receipt.archiveCount) || receipt.archiveCount < 0
-      || !Array.isArray(receipt.movedIds)
-      || !Number.isSafeInteger(receipt.movedCount) || receipt.movedCount !== receipt.movedIds.length
+      || !Number.isSafeInteger(receipt.changedCount) || receipt.changedCount < 0
+      || !Object.hasOwn(receipt, 'appliedTarget')
       || !validAuditReceipt(receipt.audit)) return false
-  const candidateIds = receipt.candidates.map(candidate => candidate.id)
-  if (dryRun) return receipt.movedCount === 0
-  return receipt.movedCount === candidateIds.length
-    && JSON.stringify(receipt.movedIds) === JSON.stringify(candidateIds)
+  if (dryRun) return receipt.appliedTarget === null && receipt.changedCount === 0
+  return receipt.changedCount === 1
+    && sameArchiveTarget(receipt.appliedTarget, target)
     && validAuditReceipt(receipt.intentAudit)
 }
 
@@ -610,7 +653,7 @@ function archiveControlState(phase, enabled, label, note, message, code = null) 
 }
 
 function archivePreviewMessage(receipt) {
-  const candidates = receipt.candidates.map(candidate => `${candidate.id} - ${candidate.reason}`).join('; ')
+  const candidates = receipt.candidates.map(candidate => `${candidate.requestId} - ${candidate.reason.detail}`).join('; ')
   const issues = receipt.inconsistencies.map(issue => `${issue.id} - ${issue.reason}`).join('; ')
   return [
     candidates ? `Preview: ${candidates}.` : 'Preview: no requests currently qualify.',
@@ -727,45 +770,89 @@ export function createLedgerArchiveController({
     return state
   }
 
+  /* ONE TARGET PER CONFIRMATION, BECAUSE THAT IS THE ONLY CONFIRMATION THE
+     ENGINE ACCEPTS. actions.js refuses {dryRun:false} with no target as
+     BRIDGE_LEDGER_ARCHIVE_CONFIRMATION_REQUIRED (409), and its admitted
+     preview is keyed to the target too: each confirm must follow its own
+     dry-run for that exact target. So the confirm press walks the submitted
+     preview's candidates one at a time -- dry-run with target, check the
+     candidate list still equals what the person read, confirm with target,
+     verify -- and reports which were archived and which were left where they
+     were, with the engine's own reason for each.
+
+     The list is compared, NOT planSha256: the plan hash covers the overlay
+     (every archive appends to it) and the `restorables` list grows by one
+     with each success, so after the first archive the hash can never match
+     the preview that was read. The candidates are what the person looked at
+     and agreed to; that is the thing held constant. */
   const execute = async () => {
     const submittedPreview = preview
-    publish(archiveControlState(
-      'pending-move', false, 'Archiving', 'Pending',
-      'Archive request pending. No move has been confirmed.',
-    ))
-    let result
-    try { result = await postAction('ledger-archive', { operation: 'archive', dryRun: false }) }
-    catch (error) {
-      result = { ok: false, code: 'BRIDGE_REQUEST_FAILED', reason: error?.message || 'archive request failed' }
-    }
-    /* THERE IS NO `if (destroyed) return` HERE, and its absence is the fix. This
-       is the real move: by the time this line runs, requests have either changed
-       durable ledgers or they have not, and which of the two it was is the only
-       thing the person needs. Returning early here made those two outcomes
-       byte-for-byte identical on screen. */
-    const exactPreview = verifiedLedgerArchiveReceipt(result, false)
-      && result.receipt.planSha256 === submittedPreview?.planSha256
-      && JSON.stringify(result.receipt.candidates) === JSON.stringify(submittedPreview?.candidates)
     preview = null
-    if (!exactPreview) {
-      const code = refusalCodeOf(result) || 'BRIDGE_LEDGER_ARCHIVE_RECEIPT_INVALID'
-      /* The remedy is written here rather than taken from the table because this
-         control knows something the table cannot: a mismatched receipt means
-         what moved is NOT KNOWN from this screen, so the next act is to look,
-         not to retry. */
+    const candidates = Array.isArray(submittedPreview?.candidates) ? submittedPreview.candidates : []
+    if (candidates.length === 0) {
+      /* Refused locally: nothing to send, so nothing is sent. */
+      publish(archiveControlState('idle', true, 'Preview cleanup', 'Nothing eligible',
+        'Nothing moved: the preview had no requests to archive. Press Preview cleanup to read the current list.'))
+      return state
+    }
+    const archived = []
+    const refused = []
+    const post = async (body, failReason) => {
+      try { return await postAction('ledger-archive', body) }
+      catch (error) { return { ok: false, code: 'BRIDGE_REQUEST_FAILED', reason: error?.message || failReason } }
+    }
+    for (const [index, candidate] of candidates.entries()) {
+      const target = { targetKind: 'request', requestId: candidate.requestId }
+      publish(archiveControlState(
+        'pending-move', false, 'Archiving', 'Pending',
+        `Archiving ${candidate.requestId} (${index + 1} of ${candidates.length}). ${archived.length ? `Archived so far: ${archived.join(', ')}. ` : ''}No further move has been confirmed.`,
+      ))
+      /* (a) the per-target dry run the engine's confirm is keyed to */
+      const rehearsal = await post({ operation: 'archive', dryRun: true, target }, 'preview failed')
+      if (!verifiedLedgerArchiveReceipt(rehearsal, true)
+          || JSON.stringify(rehearsal.receipt.candidates) !== JSON.stringify(candidates)) {
+        const code = refusalCodeOf(rehearsal) || 'BRIDGE_LEDGER_ARCHIVE_PREVIEW_CHANGED'
+        refused.push({ id: candidate.requestId, code, sentence: refusalSentence(
+          { code, reason: rehearsal?.reason },
+          { fallback: 'the list of requests that qualify changed after you read it' },
+        ) })
+        continue
+      }
+      /* (b) the confirmation, always with its target */
+      const result = await post({ operation: 'archive', dryRun: false, target }, 'archive request failed')
+      if (!verifiedLedgerArchiveReceipt(result, false, target)) {
+        const code = refusalCodeOf(result) || 'BRIDGE_LEDGER_ARCHIVE_RECEIPT_INVALID'
+        refused.push({ id: candidate.requestId, code, sentence: refusalSentence(
+          { code, reason: result?.reason },
+          { fallback: 'the archive result did not match the request that was confirmed' },
+        ) })
+        continue
+      }
+      archived.push(candidate.requestId)
+    }
+    /* THERE IS NO `if (destroyed) return` ABOVE, and its absence is the fix.
+       This is the real move: by the time this line runs, requests have either
+       changed the durable overlay or they have not, and which of the two it
+       was is the only thing the person needs. settleMove files the outcome
+       before asking whether its own screen survived. */
+    const left = refused.map(entry => `${entry.id} was not archived: ${entry.sentence}`).join(' ')
+    if (archived.length === 0) {
       return settleMove(archiveControlState(
         'idle', true, 'Preview current state', 'No move confirmed',
-        refusalSentence({ code, reason: result?.reason }, {
-          fallback: 'The archive result did not match the confirmed preview.',
-          remedy: 'Nothing is confirmed moved and what did move is not known from this screen. Preview again before any retry, and read that preview before confirming it.',
-        }),
-        code,
+        `Nothing was archived. ${left} Preview again before any retry, and read that preview before confirming it.`,
+        refused[0]?.code || 'BRIDGE_LEDGER_ARCHIVE_RECEIPT_INVALID',
       ), 'refused')
     }
-    const ids = result.receipt.movedIds.join(', ')
+    /* WHAT "ARCHIVED" MEANS, SAID PLAINLY. capability/tools/ledger-archive.js
+       retires a request to COOLING, not out of the list: it stays in every
+       projected register until COLD_EXPOSURE_QUORUM (3) separate sessions
+       have seen it without objection, and this page's list is a generated
+       projection that changes only when it is next generated. A sentence
+       that said "moved out of the list" would be contradicted by the very
+       next load. */
     return settleMove(archiveControlState(
-      'success', true, 'Preview cleanup', 'Archived',
-      `Archive verified for ${ids || 'no requests'}. The durable active and archive ledgers match the confirmed preview.`,
+      'success', true, 'Preview cleanup', refused.length ? 'Archived, with exceptions' : 'Archived',
+      `Archived ${archived.join(', ')}. ${left ? `${left} ` : ''}Each is recorded as finished and cooling. It stays on every list for now, including this one, until three separate sessions have seen it without objection. This page's list changes only when its data is next generated.`,
     ), 'confirmed')
   }
 

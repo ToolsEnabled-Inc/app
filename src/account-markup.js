@@ -36,6 +36,7 @@ import {
   GOOGLE_SIGNIN_SCOPE_NOTE,
   MIN_PASSWORD_LENGTH,
 } from './account-state.js'
+import { checkoutSurfaceAvailable } from './checkout-visibility.js'
 import {
   BACKUP_NOTICE,
   DELETE_BUTTON,
@@ -325,16 +326,37 @@ function dateText(atMs) {
  *
  * Exported so the suite can render it on its own; it takes no arguments because
  * there is no state it is entitled to read.
+ *
+ * THE DOOR IS DRAWN ONLY WHERE THE ROOM EXISTS. #/subscribe is an in-app hash
+ * route, so the link can never 404 -- but the route behind it is a stop on the
+ * ring only while checkoutSurfaceAvailable() (src/checkout-visibility.js) says
+ * TRUE, and on the public origin (toolsenabled.ai/app/, no shell, no purchase
+ * list) it never does. Measured there: a button that went nowhere on the very
+ * screen a new account lands on. So the anchor is gated on the same predicate
+ * the router uses, and nothing else: this is not a subscription state, it is
+ * whether THIS COPY offers the page at all, which is the one fact the row is
+ * entitled to know. Fail-closed like the ring -- false, not measured yet, or
+ * anything odd all leave the door undrawn. The row stays, because the sentence
+ * about what is and is not switched off is true on every copy.
  */
 export function subscriptionMarkup() {
+  const offered = checkoutSurfaceAvailable() === true
+  // No pointer at all when there is no page: the copy must not name a place
+  // this copy cannot take the person to (the rule is "publish the safer claim").
+  const where = offered
+    ? ' What the plans are, and what each one costs, is on its own page.'
+    : ''
+  const control = offered
+    ? `<div class="settings-control fleet-inline-control">
+      <a class="ctl-btn" href="#/subscribe" data-account-subscribe-link>See the plans and prices</a>
+    </div>`
+    : ''
   return `<article class="settings-row" data-account-subscription>
     <div class="settings-copy">
       <div class="settings-name">Subscriptions</div>
-      <div class="settings-desc">This screen does not check what you have paid for, and nothing on it is switched off because you have not. A subscription pays for the parts of the product that run on our computers instead of yours. What the plans are, and what each one costs, is on its own page.</div>
+      <div class="settings-desc">This screen does not check what you have paid for, and nothing on it is switched off because you have not. A subscription pays for the parts of the product that run on our computers instead of yours.${where}</div>
     </div>
-    <div class="settings-control fleet-inline-control">
-      <a class="ctl-btn" href="#/subscribe" data-account-subscribe-link>See the plans and prices</a>
-    </div>
+    ${control}
   </article>`
 }
 

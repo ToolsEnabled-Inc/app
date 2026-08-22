@@ -106,4 +106,13 @@ test('the view wires the row the store names, and the two halves fail independen
   assert.match(view, /data-queue-remove/, 'the remove control is gone')
   assert.match(view, /Sign in to write notes here/, 'signed-out lost its stated sentence')
   assert.match(view, /New notes will overwrite the unreadable ones/, 'a damaged row lost its stated consequence')
+  /* THE × ON EVERY QUEUE ITEM (plan P-O6): two presses, and the first says
+     which of two things the second does -- your own note is deleted from your
+     account's row, a shipped item is hidden on this screen only, through its
+     own hidden set. */
+  assert.match(view, /research-queue-x/, 'the × control is gone from the queue')
+  assert.match(view, /mc\.research\.queue-hidden/, 'shipped items have nowhere to be hidden')
+  assert.match(view, /Press × again/, 'the first press no longer says what the second does')
+  assert.match(view, /deleted from your account's notes; the shipped queue is unchanged/, 'an own note must be told it is really deleted')
+  assert.match(view, /hidden on this screen only — shipped items stay in the catalog/, 'a shipped item must be told it is only hidden')
 })

@@ -123,7 +123,12 @@ const REASONS = Object.freeze({
   [CODES.OUTPUT_TOO_LARGE]: 'The connection step produced far more output than an answer, so it was stopped.',
   [CODES.NAME_INVALID]: 'That is not a name this computer can be listed under. Use up to 64 ordinary characters.',
   [CODES.GONE]: 'That code is no longer open. It expired, or it was already used. Start again to get a new one.',
-  [CODES.ALREADY_CONNECTED]: 'This computer is already connected to an account. Remove it on the account page first.',
+  /* "Remove it on the account page first" came off this one. Removing the
+     computer there does not clear the credential this machine holds (it is the
+     engine's, and no forget path exists yet), so that advice sent people to do
+     a thing that does not cure the refusal. The diagnosis stays; the remedy is
+     the flow's (src/device-claim-flow.js, ALREADY_CONNECTED_REMEDY). */
+  [CODES.ALREADY_CONNECTED]: 'This computer already holds a connection to an account, so it cannot take a new code.',
   [CODES.UNREACHABLE]: 'The account service did not answer. Check this computer’s internet connection and try again.',
   [CODES.CREDENTIAL_INVALID]: 'What this computer holds for its account is not readable. Connect this computer again.',
   [CODES.REFUSED]: 'The account service refused the request.',

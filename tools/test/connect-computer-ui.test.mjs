@@ -33,6 +33,7 @@ import {
   ACCOUNT_PAGE_HOST,
   CONNECT_SECTION,
   CONNECT_SETTING_ID,
+  WEB_DRIVE_CONTROL_LABEL,
   clockShouldRun,
   defaultDeviceName,
   initialState,
@@ -486,6 +487,13 @@ test('an already-connected computer shows the state instead of the button, and w
   assert.equal(/press the button/.test(html), false,
     'the row still describes a control that is not on the screen')
   assert.match(html, /already joined/)
+  /* THE ONE CONTROL A JOINED COMPUTER HAS is the web-drive switch, and the
+     row's own sentence now points at it rather than claiming there is nothing
+     to set. The refusal a browser meets names this label; it must be here. */
+  assert.match(html, new RegExp(WEB_DRIVE_CONTROL_LABEL), 'the switch the refusal sentence names is not drawn')
+  assert.match(html, /whether a signed-in browser may drive it/)
+  assert.match(html, /Taking it off there does not change what this computer holds/,
+    'removing it on the account page does not clear the credential, and the screen must say so')
   rig.controller.destroy()
 })
 

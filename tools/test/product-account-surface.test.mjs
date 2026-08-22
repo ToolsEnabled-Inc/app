@@ -46,6 +46,7 @@ import {
   signedInMarkup,
   subscriptionMarkup,
 } from '../../src/account-markup.js'
+import { __setCheckoutSurfaceForTest } from '../../src/checkout-visibility.js'
 import { MIN_PASSWORD_LENGTH as SHELL_MIN_PASSWORD_LENGTH } from '../../shell/product-account.cjs'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -464,7 +465,7 @@ const REGISTERED_CLAIMS = Object.freeze([
        on the screen that already goes to three states rather than two about a
        card for exactly that reason. */
     claim: 'nothing on it is switched off because you have not',
-    stillTrueBecause: 'no account module reads an entitlement, a licence or a paid tier. The subscription row is a link to the plans page and nothing else, and it branches on no state at all -- subscriptionMarkup() takes no arguments, so there is nothing it could branch on.',
+    stillTrueBecause: 'no account module reads an entitlement, a licence or a paid tier. The subscription row is a link to the plans page and nothing else, and it branches on no subscription state -- subscriptionMarkup() takes no arguments, so there is nothing about the person it could branch on. The one thing it does read is checkoutSurfaceAvailable(), which is a fact about THIS COPY (does it offer the plans page at all), not about what anyone has paid: on the public origin the route behind the link is suppressed, so the door is not drawn there.',
     pin() {
       /* CODE-SHAPED PATTERNS, MATCHED AGAINST THE RAW SOURCE, and both halves
          of that are deliberate. A bare /licen[cs]e/ over stripped source flags
@@ -490,8 +491,37 @@ const REGISTERED_CLAIMS = Object.freeze([
          thing this build has no evidence for. */
       assert.equal(subscriptionMarkup.length, 0,
         'subscriptionMarkup now takes an argument, so it can branch on a subscription state this build cannot know')
-      assert.ok(subscriptionMarkup().includes('href="#/subscribe"'),
-        'the subscription row no longer offers a way to the plans page, which is the only reason it exists')
+      /* THE DOOR IS GATED ON THE ROOM. Measured on toolsenabled.ai/app/: the
+         link went to #/subscribe, an in-app hash route that cannot 404, but the
+         ring only carries that stop while checkoutSurfaceAvailable() is true,
+         and on the public origin it never is -- so a new account landed on a
+         button that did nothing. The row must draw the link exactly when the
+         router would honour it, and fail closed (unmeasured counts as no). */
+      try {
+        __setCheckoutSurfaceForTest(true, true)
+        const offered = subscriptionMarkup()
+        assert.ok(offered.includes('href="#/subscribe"') && offered.includes('data-account-subscribe-link'),
+          'the subscription row no longer offers a way to the plans page on a copy that has one, which is the only reason it exists')
+        assert.ok(offered.includes('See the plans and prices'), 'the door lost its label')
+        assert.ok(offered.includes('nothing on it is switched off because you have not'), 'the promise left the row')
+        for (const [why, available, settled] of [
+          ['measured: no checkout on this copy', false, true],
+          ['not measured yet', false, false],
+        ]) {
+          __setCheckoutSurfaceForTest(available, settled)
+          const withheld = subscriptionMarkup()
+          assert.ok(!withheld.includes('#/subscribe') && !withheld.includes('data-account-subscribe-link'),
+            `the row draws a door to a suppressed room when the surface is ${why}`)
+          assert.ok(!withheld.includes('See the plans and prices'),
+            `the row still says "See the plans and prices" with nowhere to go (${why})`)
+          assert.ok(!/is on its own page/.test(withheld),
+            `the row points at "its own page" when this copy has no such page (${why})`)
+          assert.ok(withheld.includes('nothing on it is switched off because you have not'),
+            `the promise left the row when the door was withheld (${why})`)
+        }
+      } finally {
+        __setCheckoutSurfaceForTest(false, false)
+      }
     },
   },
   {

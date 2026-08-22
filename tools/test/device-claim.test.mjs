@@ -646,6 +646,19 @@ test('every refusal this module can produce is a member of the closed set and ha
   }
 })
 
+/* "Remove it on the account page first" came off ALREADY_CONNECTED: removing
+   the computer there does not clear the credential this machine holds (it is
+   the engine's; no forget path exists), so the advice sent people to do a thing
+   that does not cure the refusal. The diagnosis stays; the remedy belongs to
+   src/device-claim-flow.js, which knows what this screen can and cannot do. */
+test('the already-connected sentence diagnoses and does not prescribe a cure that is not one', () => {
+  const sentence = REASONS[CODES.ALREADY_CONNECTED]
+  assert.match(sentence, /already holds a connection to an account/)
+  assert.match(sentence, /cannot take a new code/)
+  assert.equal(/Remove it on the account page/.test(sentence), false,
+    'removing it on the account page leaves what this computer holds untouched')
+})
+
 test('no refusal sentence carries a path, a key name or a stack', () => {
   for (const [code, sentence] of Object.entries(REASONS)) {
     assert.equal(/[A-Za-z]:\\/.test(sentence), false, `${code} names a Windows path`)

@@ -91,15 +91,24 @@ test('three runs that all failed are not reported as three runs that are fine', 
      "All 3 runs still check out" -- and a person reading it had no way to learn
      that nothing had worked. The record really was intact; that was never the
      question being asked. */
+  const sessions = readLocalSessions(historyReplyWithOutcomes(['refused', 'refused', 'refused']))
   const view = describeHome({
     fleetConfigured: false,
-    sessions: readLocalSessions(historyReplyWithOutcomes(['refused', 'refused', 'refused'])),
+    sessions,
     engine: readAgentEngine({ ok: true }),
     nowMs: NOW,
   })
 
-  assert.match(view.panel.footer, /none of them started/i, 'the failure has to be stated, not implied')
-  assert.doesNotMatch(view.panel.footer, /all 3 runs still check out/i)
+  /* THE FAILURE IS STATED ON EACH ROW, NOT IN A PARAGRAPH UNDER THE LIST. The
+     footer that used to carry "none of them started" is gone on every healthy
+     record (owner: "this little dialog box is kind of pointless"), so the
+     row's own verdict is the whole of the statement and the footer is null --
+     never the reassuring integrity sentence. */
+  assert.equal(view.panel.footer, null, 'a healthy record grew a footer paragraph again')
+  for (const run of sessions.runs) {
+    const row = describeRun(run, null, NOW)
+    assert.equal(row.resultWord, 'did not start', 'the failure has to be stated, not implied')
+  }
 
   /* And the count is of RUNS. An outcome is a second ledger line, so a reply
      carrying 3 runs and 3 outcomes is 6 records -- reporting 6 would trade one
@@ -117,13 +126,24 @@ test('a run says what it did, and says nothing when nobody wrote it down', () =>
   assert.equal(COPY.runResult(undefined), '')
   assert.equal(COPY.runResult('anything else'), '')
 
+  const mixedSessions = readLocalSessions(historyReplyWithOutcomes(['started', 'refused', null]))
   const mixed = describeHome({
     fleetConfigured: false,
-    sessions: readLocalSessions(historyReplyWithOutcomes(['started', 'refused', null])),
+    sessions: mixedSessions,
     engine: readAgentEngine({ ok: true }),
     nowMs: NOW,
   })
-  assert.match(mixed.panel.footer, /1 of 3 did not start/i)
+  /* Per row now, and no aggregate paragraph: started, did not start, and the
+     unrecorded one says nothing. */
+  assert.equal(mixed.panel.footer, null)
+  assert.deepEqual(
+    mixedSessions.runs.map(run => describeRun(run, null, NOW).resultWord),
+    ['started', 'did not start', ''],
+  )
+  /* The aggregate sentence still exists for the metrics page, and still says
+     nothing invented. */
+  assert.match(COPY.runOutcomes(1, 1, 3), /1 of 3 did not start/i)
+  assert.equal(COPY.runOutcomes(0, 0, 3), null)
 
   /* A ledger with no outcomes at all -- every record written before this
      existed -- gains no summary rather than an invented one. */
@@ -133,7 +153,7 @@ test('a run says what it did, and says nothing when nobody wrote it down', () =>
     engine: readAgentEngine({ ok: true }),
     nowMs: NOW,
   })
-  assert.doesNotMatch(legacy.panel.footer, /started|did not start/i)
+  assert.equal(legacy.panel.footer, null)
 })
 
 const SESSION_INPUTS = [
@@ -448,8 +468,9 @@ const COPY_SAMPLES = new Map([
   ['COPY.runDid', [{ turns: 4, model: 'Sonnet', tokens: 18412, unfinished: 1 }]],
   ['COPY.runOutcomes', [2, 1, 3]],
   ['COPY.chatboxAgentsHeld', [2]],
-  ['COPY.composerSample', ['coordinator']],
   ['COPY.composerLive', ['coordinator']],
+  ['COPY.turnAgent', ['helper']],
+  ['COPY.threadLabel', ['codex']],
 ])
 
 function everyCopyString(value, path = 'COPY') {
@@ -752,8 +773,48 @@ test('no run claims a duration or a finished state, because no ending is recorde
     engine: readAgentEngine({ ok: true }),
     nowMs: NOW,
   })
-  assert.ok(view.panel.footer.includes(COPY.runEndingsNotKept),
-    'the list never tells a person that no ending is written down, so the missing duration reads as an omission')
+  /* And the list no longer explains the omission in a paragraph under itself:
+     the owner called that paragraph pointless, and it is gone on every record
+     that checks out. No sentence on the screen claims a length either way. */
+  assert.equal(view.panel.footer, null, 'a healthy record grew a footer paragraph again')
+  for (const sentence of view.statements) {
+    assert.doesNotMatch(sentence, /how long a run took|\bduration\b/i)
+  }
+})
+
+/* ------------------------------------------------------------------
+   THE LINES BETWEEN THE QUESTION AND THE ANSWER, for the row's open body.
+   The saved transcript is the whole conversation; the row already prints
+   its first line as "Asked:" and its last agent line as "Said back:", so
+   describeRun trims exactly those two and no others.
+   ------------------------------------------------------------------ */
+
+test('the lines between drop the brief and the answer, which the row already prints', () => {
+  const turns = [
+    { who: 'you', text: 'Assist the coordinator and check in first.', at: 1 },
+    { who: 'action', text: 'read the plan', at: 2 },
+    { who: 'agent', text: 'Checking in before I start.', at: 3 },
+    { who: 'agent', text: 'Done. Two files changed.', at: 4 },
+  ]
+  const said = describeRun(RUN(), SAVED({ reply: 'Done. Two files changed.', turns }), NOW)
+  assert.deepEqual(said.turns.map(line => [line.who, line.text]), [
+    ['action', 'read the plan'],
+    ['agent', 'Checking in before I start.'],
+  ])
+  assert.match(said.said, /Two files changed/)
+  assert.equal(said.asked, 'Assist the coordinator and check in first.')
+
+  /* A leading you-line that is NOT the brief is a real line and stays. */
+  const different = describeRun(RUN(), SAVED({ turns: [{ who: 'you', text: 'Something else entirely.' }, { who: 'agent', text: 'Right.' }] }), NOW)
+  assert.deepEqual(different.turns.map(line => line.text), ['Something else entirely.'])
+
+  /* No transcript, no lines, and never an invented one. */
+  assert.deepEqual(describeRun(RUN(), SAVED(), NOW).turns, [])
+  assert.deepEqual(describeRun(RUN(), null, NOW).turns, [])
+  assert.deepEqual(describeRun(RUN(), SAVED({ turns: 'not a list' }), NOW).turns, [])
+  /* Every line is labelled by one of the three speakers the record allows. */
+  const odd = describeRun(RUN(), SAVED({ turns: [{ who: 'someone', text: 'a line' }, { who: 'agent', text: 'the answer' }] }), NOW)
+  assert.deepEqual(odd.turns.map(line => line.who), ['agent'])
 })
 
 test('the copy that does not come from the decision follows the same rules', () => {
@@ -848,7 +909,10 @@ test('a screen with nothing to count shows no clock at all', () => {
 test('the composer exists only where a message actually goes somewhere', () => {
   for (const { label, input } of ALL) {
     const view = describeHome(input)
-    const canGoSomewhere = view.mode === HOME_MODES.SAMPLE || view.mode === HOME_MODES.FLEET
+    /* FLEET only. The example used to fake its replies from a written bag; a
+       LOCAL run has no receiver here -- its real chat is the tree rail and the
+       agent page, reached through the door on the row. */
+    const canGoSomewhere = view.mode === HOME_MODES.FLEET
     assert.equal(view.composer, canGoSomewhere, `composer offered pointlessly with ${label}`)
   }
 })
@@ -856,6 +920,22 @@ test('the composer exists only where a message actually goes somewhere', () => {
 /* ------------------------------------------------------------------
    5. A sample is unmistakable; real data is never badged as one.
    ------------------------------------------------------------------ */
+
+test('the example is the same card with its own title, and no conversation half of its own', () => {
+  const view = describeHome({
+    sample: true,
+    sessions: readLocalSessions(historyReply(2)),
+    engine: readAgentEngine({ ok: true }),
+    nowMs: NOW,
+  })
+  assert.equal(view.mode, HOME_MODES.SAMPLE)
+  assert.equal(view.panel.title, 'Activity in this example fleet')
+  assert.equal(view.panel.kind, 'none', 'the example brought a separate written transcript back')
+  assert.equal(view.panel.context, false)
+  assert.equal(view.panel.runs, true)
+  assert.equal(view.panel.footer, null)
+  assert.equal(view.composer, false, 'the example composer faked its replies; it is gone')
+})
 
 test('only a demonstration carries a badge, and a demonstration always does', () => {
   for (const { label, input } of ALL) {
@@ -944,17 +1024,13 @@ test('what the local record proves is stated exactly, and its failure is not hid
     engine: readAgentEngine({ ok: true }),
     nowMs: NOW,
   })
-  /* "still checks out" rather than "check out": the sentence was reworded so
-     its subject is the RECORD. It used to read "All 3 runs still check out"
-     directly under "3 agent runs on this computer", which is a true statement
-     about a hash chain that every reader took as a statement about their
-     agents -- and it was printed after three runs that all refused to start. */
-  assert.match(intact.panel.footer, /the record of all 3 runs still checks out/i)
-  assert.doesNotMatch(
-    intact.panel.footer,
-    /all 3 runs still check out/i,
-    'the old wording made an integrity result read as a statement about the agents',
-  )
+  /* A RECORD THAT CHECKS OUT SAYS NOTHING. The integrity sentence used to sit
+     under every healthy list; it was read as a statement about the agents (it
+     once sat under three runs that all refused to start), and the owner,
+     reading the whole paragraph: "this little dialog box is kind of pointless".
+     So the footer is null on a healthy record, and only a record that NO
+     LONGER checks out speaks. */
+  assert.equal(intact.panel.footer, null, 'a healthy record grew a footer paragraph again')
 
   const broken = describeHome({
     fleetConfigured: false,
@@ -1027,7 +1103,7 @@ test('the runs list is fed by the agent event stream, not by a poll', () => {
     'the stream listener is never detached, so a retired home view is kept alive by every agent that keeps talking')
   /* The three shared readers, and no fourth opinion about a packet this view
      does not own. */
-  for (const reader of ['sessionEventText', 'sessionEventTurnId', 'sessionTurnStatus']) {
+  for (const reader of ['sessionEventText', 'sessionEventTurnId', 'sessionTurnStatus', 'sessionMessageBoundary']) {
     assert.ok(body.includes(reader), `the view stopped reading packets through ${reader}`)
   }
   /* And no fourth opinion of its own: the session id is the one field this view
@@ -1036,6 +1112,43 @@ test('the runs list is fed by the agent event stream, not by a poll', () => {
      belongs to src/agent-session-events.js. */
   assert.doesNotMatch(body, /packet\.event/,
     'the view reads the raw packet shape again, so it holds a second opinion about a wire it does not own')
+})
+
+test('one card: every row folds, remembers, and the example goes through the same rows', () => {
+  const body = code(HOME_JS)
+  /* The fold is a native details, pressed through the shared owned gesture and
+     remembered through the shared memory -- the chat's own pair, not a copy. */
+  assert.match(HOME_JS, /<details class="run-fold">/, 'the run row is no longer a disclosure')
+  assert.match(body, /openMemory\(/, 'the row open state is not remembered through the shared memory')
+  assert.match(body, /ownDisclosure\(/, 'the row press is not owned; a press beside the triangle opens nothing')
+  /* The example feeds the same list: its own conversations and turn figures
+     through the same joins, and no second renderer. */
+  assert.match(body, /sampleConversations\(/, 'the example no longer has conversations of its own for the rows')
+  assert.match(body, /sampleUsageRaw\(/, 'the example no longer has turn figures of its own for the rows')
+  for (const gone of ['makeBag', 'scheduleArrival', 'drawReply', 'ARRIVALS', 'REPLY_ACTS']) {
+    assert.ok(!body.includes(gone), `the second renderer is back: ${gone}`)
+  }
+  /* The message seam reader sits beside the other three. */
+  assert.ok(body.includes('sessionMessageBoundary'), 'the view stopped reading message boundaries, so two messages in one turn join bare')
+  /* The markup the open body needs. */
+  for (const cls of ['run-brief', 'run-turns', 'run-door']) {
+    assert.ok(HOME_JS.includes(cls), `the row lost its ${cls}`)
+    assert.ok(HOME_CSS.includes(cls), `${cls} reaches the screen with no style of its own`)
+  }
+  /* The door to the subscription page is drawn only where the room exists. */
+  assert.match(body, /checkoutSurfaceAvailable\(\)/, 'the plans door is unconditional again; on the public origin it leads to a suppressed route')
+  assert.match(body, /removeEventListener\(CHECKOUT_SURFACE_EVENT/, 'the door listener outlives the view')
+})
+
+test('the scrollbar is hidden and the region still scrolls', () => {
+  /* Owner (verbatim): "i would want to scroll bar gone (not visible, it can
+     still function)". Hidden on the one scroll region, and the region keeps
+     overflow-y: auto so wheel, touch and keys still move it. */
+  const log = HOME_CSS.slice(HOME_CSS.indexOf('.home .session-log {'), HOME_CSS.indexOf('.home .session-log:focus-visible'))
+  assert.match(log, /scrollbar-width: none/, 'the scrollbar is visible again')
+  assert.match(log, /\.home \.session-log::-webkit-scrollbar \{ display: none; \}/, 'the Chromium scrollbar is visible again')
+  assert.match(log, /overflow-y: auto/, 'the region no longer scrolls at all, which is not what was asked')
+  assert.doesNotMatch(log, /scrollbar-width: thin/)
 })
 
 test('nothing in the view polls either signed record', () => {
@@ -1116,7 +1229,7 @@ test('what an agent said reaches the glass through the copy module like every ot
   ]) assert.match(body, call, why)
   /* The lines that must exist in the markup so a live word lands on a span
      rather than rebuilding the list under a reader. */
-  for (const cls of ['run-said', 'run-did', 'run-gap', 'run-live']) {
+  for (const cls of ['run-said', 'run-did', 'run-gap', 'run-live', 'run-brief', 'run-turns', 'run-door']) {
     assert.ok(HOME_JS.includes(cls), `the row lost its ${cls} line`)
     assert.ok(HOME_CSS.includes(cls), `${cls} reaches the screen with no style of its own`)
   }

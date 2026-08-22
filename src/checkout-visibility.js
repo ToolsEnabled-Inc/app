@@ -30,6 +30,23 @@
 // one. Hiding a door does not protect anything on its own; the protection is
 // that the bytes are not in the payload. This decides whether the product
 // OFFERS the screen, so that a copy with no list has no empty shop on its ring.
+//
+// THE SECOND MEASUREMENT: THE SAME PAGE SERVED FROM A PUBLIC ORIGIN. This
+// renderer is vendored onto toolsenabled.ai as /app/, where there is no shell
+// and no install data directory, so the probe above asked the website for
+// data/purchase-catalog.json on every load and got a 404 back -- a request the
+// site had no reason to see and a log line naming a file the site does not
+// hold. The answer was always "unavailable", so the ring was right, but it was
+// right by accident of a 404 rather than by decision. The decision is made
+// here now: only a copy hosted by the desktop shell is asked at all, and the
+// discriminator is the one the rest of the renderer already trusts,
+// onDesktop() in src/data-source.js (the preload's getBridgeProof, which the
+// site's host bridge deliberately withholds). A skipped probe resolves exactly
+// like a failed one -- unavailable, settled, event dispatched -- so nothing
+// downstream can tell the two apart, which is the point: "not hosted" and
+// "hosted with no list" are both "there is no checkout on this copy".
+
+import { onDesktop } from './data-source.js'
 
 export const CHECKOUT_SURFACE_EVENT = 'mc:checkout-surface'
 
@@ -64,10 +81,16 @@ export async function probeCheckoutSurface({
   url = CHECKOUT_CATALOG_URL,
   timeoutMs = 4000,
   dispatch = typeof window === 'undefined' ? null : window,
+  hosted = onDesktop,
 } = {}) {
   let answer = false
   try {
-    answer = await measure(fetchImpl, url, timeoutMs)
+    // `hosted` is asked first and the fetch is never started unless it said
+    // TRUE -- not truthy, and not "did not throw". A discriminator that threw
+    // or returned something odd is a copy whose hosting is unknown, and a copy
+    // whose hosting is unknown is not sent looking for a list on somebody
+    // else's origin.
+    answer = safe(hosted) === true && await measure(fetchImpl, url, timeoutMs)
   } catch {
     answer = false
   }
@@ -77,6 +100,15 @@ export async function probeCheckoutSurface({
     dispatch?.dispatchEvent?.(new CustomEvent(CHECKOUT_SURFACE_EVENT, { detail: { available } }))
   } catch { /* a window without CustomEvent is a test harness; the value is still set */ }
   return available
+}
+
+/** Call a predicate and let it be wrong: anything but a clean boolean is `false`. */
+function safe(predicate) {
+  try {
+    return typeof predicate === 'function' ? predicate() === true : false
+  } catch {
+    return false
+  }
 }
 
 async function measure(fetchImpl, url, timeoutMs) {

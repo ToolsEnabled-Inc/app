@@ -395,6 +395,42 @@
 }
 .research-queue-controls button:hover { color: var(--ink); border-color: var(--ink-3); }
 
+/* THE × IN A QUEUE CARD'S TITLE ROW, shaped like the metrics page's .m-x so
+   one glyph means "take this off the screen" everywhere. The head is made
+   relative and given 32px of right room so the control sits at the card's
+   edge without pushing the meta <dl> about; its ARMED state (first of two
+   presses) is full ink on a darker hairline, the same signal the ledger ×
+   gives. A hidden shipped item shown on request is dimmed. */
+.research-report-head { position: relative; padding-right: 32px; }
+.research-queue-x {
+  position: absolute;
+  right: 0;
+  top: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  padding: 0;
+  color: var(--ink-3);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 14px; line-height: 1; font-family: var(--font-ui);
+  transition: color .22s var(--ease), border-color .22s var(--ease);
+}
+.research-queue-x:hover { color: var(--ink); border-color: var(--ink-3); }
+.research-queue-x:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.research-queue-x[data-armed="true"] { color: var(--ink); border-color: var(--ink-3); }
+.research-report[data-queue-hidden] .research-report-body > :not(.research-report-head) { opacity: .55; }
+.research-report[data-queue-hidden] h3 { opacity: .55; }
+.research-queue-x-status { margin: 6px 0 0; font-size: 12.5px; color: var(--ink-3); }
+.research-queue-x-status:empty { display: none; }
+.research-queue-hidden-note { margin: 0 0 8px; font-size: 12.5px; color: var(--ink-3); }
+.research-queue-show-hidden {
+  padding: 0; border: 0; background: transparent; color: var(--ink-2);
+  font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+}
+.research-queue-show-hidden:hover { color: var(--ink); }
+
 /* ---------- the experiment bench: designer tiers, run board, results ---------- */
 .research-designer-tiers { display: flex; flex-wrap: wrap; gap: 6px 16px; }
 .research-designer-tiers .research-popover-row { font-size: 12.5px; }

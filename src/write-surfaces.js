@@ -203,14 +203,14 @@ async function prepareSurface(surface) {
   }
   populateRoots(surface, Array.isArray(result.roots) ? result.roots : [])
   surface.dataset.bridgeState = 'ready'
-  const discord = result.channels?.discord
-  /* "audited bridge ready · discord channel unavailable" said two things a
-     person does not have and one they do. The connection is this product's own,
-     started with the window, so "Ready" is the whole of the good news; the
-     Discord half is a real limit and now says what it costs. */
-  actionState(status, 'ready', discord?.ok === false
-    ? 'Ready. One message channel is offline, so a message sent to Discord will not arrive.'
-    : 'Ready. Everything you do here is written down on this computer as it happens.')
+  /* "audited bridge ready · <channel> unavailable" said two things a person
+     does not have and one they do. The connection is this product's own,
+     started with the window, so "Ready" is the whole of the good news. This
+     used to add a second sentence when one named outside message channel was
+     offline; that channel was removed from the product (owner ruling,
+     2026-08-22: no need for it or to mention it), so the one sentence is the
+     whole of the state. */
+  actionState(status, 'ready', 'Ready. Everything you do here is written down on this computer as it happens.')
   for (const control of surface.querySelectorAll('button, input, textarea, select')) control.disabled = false
   configureQueueSnapshots(surface, result.queues)
   return result

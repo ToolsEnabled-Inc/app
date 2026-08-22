@@ -117,7 +117,7 @@ import { WRITE_OUTCOME_KEYS, recordUndeliveredWrite } from '../write-outcomes.js
 /* The readers that decide what a session event is allowed to put on a screen.
    Same set the agent page uses; a second reading of the same stream is how one
    surface comes to be wrong without anybody noticing. */
-import { createActionBuffer, completionSettlesOpenTurn, sessionActivityEvent, sessionEventText, sessionEventTurnId, sessionTurnFailureText, sessionTurnStatus, sessionTurnSucceeded, sessionUsageEvent } from '../agent-session-events.js'
+import { createActionBuffer, completionSettlesOpenTurn, sessionActivityEvent, sessionEventText, sessionEventTurnId, sessionMessageBoundary, sessionTurnFailureText, sessionTurnStatus, sessionTurnSucceeded, sessionUsageEvent } from '../agent-session-events.js'
 import { parseSlashCommand, requestUsageSentence, requestConfirmationSentence } from '../slash-commands.js'
 /* The frame-batched appender the Controls panel already streams through --
    measured there, reused here so the rail's "What it said" moves while the
@@ -6814,6 +6814,17 @@ export function computersView({ initialComputer = null, navigate }) {
      (the same pair the agent page uses), touches only sessions this tree
      started (sessionNodeIds), and detaches with the view via unsubs. */
   if (typeof window !== 'undefined' && window.mcAgent && typeof window.mcAgent.onEvent === 'function') {
+    /* WHERE ONE MESSAGE ENDS INSIDE A TURN, per session. The owner read "Said
+       back: ...now.I couldn't" off the home card, and this accumulator has the
+       same seam: words only ever arrive as deltas and are joined bare, which is
+       right for the tokens of one message and wrong when an engine says two
+       whole messages in one turn (answer, tool, answer). The engine marks the
+       seam (sessionMessageBoundary, read below beside the usage event); it is
+       remembered here and spent on the NEXT word, so a break is only written
+       between two pieces of text and never at the end of a turn. A flag left
+       over after a turn settles is harmless: it is spent against an emptied
+       accumulator, which writes nothing. */
+    const sessionBreakPending = new Set()
     unsubs.push(window.mcAgent.onEvent(packet => {
       if (destroyed) return
       const sessionId = packet && typeof packet.sessionId === 'string' ? packet.sessionId : ''
@@ -6827,6 +6838,12 @@ export function computersView({ initialComputer = null, navigate }) {
            turn's first word was appended to the last turn's answer inside the
            same bubble -- the owner's "combine into each other". */
         settleTurnBoundary(sessionId, sessionEventTurnId(packet, sessionId))
+        /* The paragraph break between two messages of one turn, if one is
+           owed, before the new words. The open rail streams the same break. */
+        if (sessionBreakPending.delete(sessionId) && sessionTurnText.get(sessionId)) {
+          sessionTurnText.set(sessionId, sessionTurnText.get(sessionId) + '\n\n')
+          if (railSaid && railSaid.nodeId === sessionNodeIds.get(sessionId)) railSaid.appender.push('\n\n')
+        }
         sessionTurnText.set(sessionId, (sessionTurnText.get(sessionId) || '') + text)
         /* The open rail streams the same delta it buffers. The waiting line
            leaves on the first word -- "no answer yet" beside an answer is the
@@ -6849,6 +6866,8 @@ export function computersView({ initialComputer = null, navigate }) {
         scheduleChipRefresh(sessionNodeIds.get(sessionId))
         return
       }
+      /* A message ended; the next word of this turn starts a new paragraph. */
+      if (sessionMessageBoundary(packet, sessionId)) sessionBreakPending.add(sessionId)
       const used = sessionUsageEvent(packet, sessionId)
       if (used) {
         sessionUsage.set(sessionId, used.usage)

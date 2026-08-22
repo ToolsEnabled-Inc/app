@@ -112,6 +112,16 @@ export function readSessionRoles(storage = (typeof window === 'undefined' ? null
         asked: node.message,
         reply: typeof node.reply === 'string' ? node.reply : '',
         said: saved ? lastAgentLine(saved[node.id]) : '',
+        /* THE LINES BETWEEN, for the one card that draws them. The home
+           activity card now folds each run open to show what was said in it,
+           not only the first ask and the last answer; the owner asked for "the
+           informative aspect" of the transcript inside the live list. An
+           absent or damaged transcript reads as no lines, which costs a row
+           its fold and nothing else. `[]` when transcripts were not asked for,
+           so every existing reader of role/asked/reply/said is unchanged. */
+        turns: saved && saved[node.id] && Array.isArray(saved[node.id].lines)
+          ? saved[node.id].lines.map((line) => ({ who: line.who, text: line.text, at: line.at }))
+          : [],
         status: node.status,
         statusNote: typeof node.statusNote === 'string' ? node.statusNote : '',
         tier: typeof node.tier === 'string' ? node.tier : '',

@@ -20,6 +20,12 @@ import assert from 'node:assert/strict'
 const { startRefusalSentence, START_REFUSAL } = await import(
   new URL('../../src/fleet-tree-copy.js', import.meta.url).href
 )
+const { CONNECT_SECTION, WEB_DRIVE_CONTROL_LABEL } = await import(
+  new URL('../../src/device-claim-flow.js', import.meta.url).href
+)
+const { createConnectComputerSettings, forgetRememberedClaim } = await import(
+  new URL('../../src/connect-computer-settings.js', import.meta.url).href
+)
 
 const REFUSED = { ok: false, code: 'MC_AGENT_PRINCIPAL_READ_ONLY' }
 
@@ -49,4 +55,61 @@ test('it says why the remedy is there, because that is the whole design', () => 
     /password|on purpose|itself/i.test(said),
     'a permission you cannot grant from here reads as a bug unless the reason is given',
   )
+})
+
+/* DRIFT LOCK. Before 2026-08-22 the sentence said "turn on being driven from
+   the web" and no control by any name existed (Findings: zero writers of the
+   key in src/). The sentence and the screen now read the same two constants,
+   and this holds them together: the refusal names the section and the control,
+   and the connected screen draws that control under that name. */
+test('the sentence names the switch, and the switch exists under that name', async () => {
+  const said = startRefusalSentence(REFUSED)
+  assert.ok(said.includes('Settings'), said)
+  assert.ok(said.includes(CONNECT_SECTION), `the section is not named: ${said}`)
+  assert.ok(said.includes(WEB_DRIVE_CONTROL_LABEL), `the control is not named: ${said}`)
+
+  forgetRememberedClaim()
+  const connected = createConnectComputerSettings({
+    now: () => 0,
+    schedule: () => ({}),
+    cancelTimer: () => {},
+    resolveBridge: () => ({
+      status: async () => ({ ok: true, connected: true, name: 'Desk', deviceId: 'd', pairId: 'p' }),
+      begin: async () => ({ ok: false }),
+      poll: async () => ({ ok: true, state: 'none' }),
+      cancel: async () => ({ ok: true }),
+    }),
+    readWebDrive: () => false,
+    writeWebDrive: () => {},
+  })
+  await connected.checkStatus()
+  const html = connected.markup()
+  assert.ok(html.includes(WEB_DRIVE_CONTROL_LABEL), 'the connected screen must draw the control the sentence names')
+  assert.ok(html.includes(CONNECT_SECTION))
+  assert.match(html, /data-connect-field="web-drive"/)
+  connected.destroy()
+
+  /* And a computer that is not on an account draws neither the switch nor
+     the question: there is no browser that could drive it yet. */
+  forgetRememberedClaim()
+  for (const bridge of [null, {
+    status: async () => ({ ok: true, connected: false }),
+    begin: async () => ({ ok: false }),
+    poll: async () => ({ ok: true, state: 'none' }),
+    cancel: async () => ({ ok: true }),
+  }]) {
+    const idle = createConnectComputerSettings({
+      now: () => 0,
+      schedule: () => ({}),
+      cancelTimer: () => {},
+      resolveBridge: () => bridge,
+      readWebDrive: () => false,
+      writeWebDrive: () => {},
+    })
+    await idle.checkStatus()
+    const drawn = idle.markup()
+    assert.equal(drawn.includes(WEB_DRIVE_CONTROL_LABEL), false, `${idle.getState().phase} drew the switch`)
+    assert.equal(/data-connect-field="web-drive"|One question/.test(drawn), false)
+    idle.destroy()
+  }
 })

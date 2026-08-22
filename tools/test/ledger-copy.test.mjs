@@ -36,6 +36,7 @@ import { visibleTextFrom } from '../lib/user-visible-strings.mjs'
 import {
   DECISION_FORM,
   DECISION_OFF,
+  HIDE_ROW,
   LEDGER_EMPTY,
   LEDGER_LOADING,
   LEDGER_UNREADABLE,
@@ -191,6 +192,34 @@ test('the view and the surface read their words from here rather than keeping th
   assert.ok(!viewSays.includes('the questions could not be read'), 'the questions half still has its own accent')
   assert.ok(!surfaceSays.includes('its number, as shown in the list'), 'the old placeholder is still drawn by the surface')
   assert.ok(!surfaceSays.includes('Observed queue SHA-256'), 'the hash field is still asking a person to read a hash')
+})
+
+/* THE × ON A ROW HIDES IT ON THIS SCREEN, AND EVERY WORD AROUND IT SAYS SO.
+   Plan O6 measured the three lists for an honest "delete" and found none (an
+   append-only overlay; a planning file with no writer), so the control's copy
+   must never promise more than a hide and must never be painted as a failure
+   -- the :214-219 rule one level down. */
+test('the hide-row copy is exported, says it is a hide on this screen only, and is never a failure', () => {
+  assert.ok(HIDE_ROW && Object.isFrozen(HIDE_ROW), 'HIDE_ROW must be exported and frozen')
+  assert.equal(HIDE_ROW.tone, 'note', 'a row a person hid is not a failure')
+  const spoken = [
+    HIDE_ROW.aria('R3'), HIDE_ROW.title, HIDE_ROW.putBack('R3'), HIDE_ROW.putBackTitle,
+    HIDE_ROW.armed('R3'), HIDE_ROW.hiddenR('R3'), HIDE_ROW.hiddenQ('Q7'), HIDE_ROW.restored('R3'),
+    HIDE_ROW.count(2), HIDE_ROW.show, HIDE_ROW.hideAgain, HIDE_ROW.undo,
+  ]
+  for (const sentence of spoken) {
+    assert.equal(typeof sentence, 'string')
+    assert.ok(sentence.length > 0)
+    assert.ok(!FAILURE_WORDS.test(sentence), `reads as a failure: ${sentence}`)
+    assert.ok(!/(delete|deleted|removed|remove)/i.test(sentence), `promises a delete it cannot keep: ${sentence}`)
+  }
+  assert.equal(HIDE_ROW.aria('R3'), 'Hide R3 from this list')
+  assert.match(HIDE_ROW.armed('R3'), /^Hide R3\? Press × again\./, 'the first press must name the second')
+  assert.match(HIDE_ROW.armed('R3'), /hidden on this screen only; nothing else changes/)
+  assert.match(HIDE_ROW.hiddenR('R3'), /^R3 hidden\./)
+  assert.match(HIDE_ROW.hiddenR('R3'), /still in your records/, 'an R row is still in the records')
+  assert.match(HIDE_ROW.hiddenQ('Q7'), /still in the work list/, 'a Q row is still in the work list')
+  assert.equal(HIDE_ROW.count(2), '2 hidden')
 })
 
 /* THE ANCHORS BELOW USED TO POINT AT THE SIMULATED RENDER, which is gone: one

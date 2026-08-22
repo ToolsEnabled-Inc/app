@@ -132,9 +132,6 @@
     "src/views/checkout.js\tlong-sentence\tIf it were put through the spend ledger today it would be refused on its own while the cheaper lines in the same batch were recorded — so it would look like a partial success rather than a failure.",
     "src/views/checkout.js\tlong-sentence\tIt is not an audit record and it is not proof of anything: this page wrote it, so anyone with developer tools on this machine could alter it.",
     "src/views/checkout.js\tlong-sentence\tNo single line is over the cap, so each would be checked on its own; the cap applies per amount, and a day's spending accumulates against it.",
-    "src/views/comms.js\tdead-end\tops projection request failed:",
-    "src/views/comms.js\tjargon\tOps projection",
-    "src/views/comms.js\tjargon\tops projection request failed:",
     "src/views/computers.js\tdead-end\tResume unavailable: nothing can be paused, so nothing can be resumed.",
     "src/views/computers.js\tdead-end\taction bridge unreachable",
     "src/views/computers.js\tjargon\tPause unavailable: the audited bridge has no pause action, and a running lane cannot be suspended.",
@@ -159,5 +156,5 @@
     "src/views/research.js\tjargon\tCorpus catalog",
     "src/views/subscribe.js\tlong-sentence\tsubscribe Plans cannot be shown right now This page will not guess what a plan costs or what it includes, so it is showing you nothing rather than showing you something it cannot stand behind."
   ],
-  "updated": "2026-08-22T12:35:02.140Z"
+  "updated": "2026-08-22T19:44:12.447Z"
 }

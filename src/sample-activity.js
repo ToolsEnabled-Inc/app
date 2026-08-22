@@ -149,12 +149,87 @@ export function sampleSessionsRaw(nowMs = Date.now()) {
   }
 }
 
-/** What the example was asked, keyed by sessionId, for surfaces that name it. */
-export function sampleAskFor(sessionId) {
-  if (typeof sessionId !== 'string') return null
-  const match = /^sample\/([^/]+)\/(\d+)$/.exec(sessionId)
-  if (!match) return null
-  const index = Number(match[2]) - 1
-  if (!Number.isInteger(index) || index < 0) return null
-  return SAMPLE_ASKS[index % SAMPLE_ASKS.length]?.ask ?? null
+/* WHAT THE EXAMPLE FLEET SAID BACK, one reply per ask, in the same order as
+ * SAMPLE_ASKS. The home card shows a run's question, the lines between, and
+ * its answer; the demonstration used to fake its answers at random from a
+ * separate sample transcript, which the owner asked to fold into the live
+ * card's one renderer. So the example's answers are written down here, beside
+ * its questions, and read through the same join a real machine's are. Kept to
+ * the demonstration's own world (lanes, gates, sweeps) for the reason
+ * SAMPLE_ASKS gives. */
+const SAMPLE_REPLIES = Object.freeze([
+  'Claimed phase 2. Evidence: the checks lane passes 18 of 18, written to the evidence tree; nothing here is a plan.',
+  'Spot-checked four claims against the files they name. Three hold; one path had moved and is corrected in the hand-back.',
+  'Fanned out after the ack. Three lanes are running and each one names its files, so no two can collide.',
+  'Re-reviewed the evidence tree. Accept: 11 of 11 criteria pass and every path in it resolves.',
+  'Every heartbeat is under a minute old. One lane went quiet for ninety seconds earlier and recovered on its own.',
+  'Written. The status row is in durable storage and reads back the same.',
+  'Drained the queue. Two questions are open: one about the fence and one about who reviews the review.',
+  'Checkpointed at phase 3. Resumed after the re-read and found nothing changed underneath it.',
+  'Flushed. 212 buffered audit records are on disk and the chain still verifies.',
+  'Claimed the lease and started the sweep. Four of nine hosts checked so far, all answering.',
+  'Ran the checks from the root. 41 of 41 pass, 2m10s.',
+  'Re-pinned the territory map. Every lane is file-disjoint again; the one overlap was a shared fixture, now owned by one lane.',
+])
+
+/* THE LINES BETWEEN THE QUESTION AND THE ANSWER: what the agent did on the way,
+ * in the register the real transcript uses (an action line is a tool that ran;
+ * an agent line is something said before the answer). Zero to two per run, so
+ * the rows vary the way real ones do. Refused runs have none: nothing ran. */
+const SAMPLE_TURNS = Object.freeze([
+  [{ who: 'action', text: 'read sample/evidence/phase-2.md' }, { who: 'agent', text: 'Reading the evidence tree before claiming anything.' }],
+  [{ who: 'action', text: 'ran the checks from the workspace root' }],
+  [],
+  [],
+  [{ who: 'action', text: 'read the heartbeat table' }],
+  [{ who: 'action', text: 'wrote sample/status/lane-1.json' }],
+  [{ who: 'agent', text: 'Seven questions in the queue; five are answered by the territory map already.' }, { who: 'action', text: 'read sample/questions/open.md' }],
+  [{ who: 'action', text: 'wrote the phase 3 checkpoint' }],
+  [],
+  [],
+  [{ who: 'action', text: 'ran the checks from the workspace root' }, { who: 'agent', text: 'One check was slow; it passed on the same run.' }],
+  [{ who: 'action', text: 'read the territory map' }],
+])
+
+/**
+ * The example fleet's saved conversations, keyed by sessionId, in the shape
+ * src/session-roles.js readSessionRoles() answers for a real computer -- so the
+ * home card joins the example exactly the way it joins a real record and no
+ * second renderer exists for it. Walks the same starts, refusals and gaps as
+ * sampleSessionsRaw, so the two halves of the example cannot disagree: a
+ * refused run has no reply and no lines between, because nothing ran.
+ *
+ * DETERMINISTIC, like everything else in this file: same nowMs, same map.
+ */
+export function sampleConversations(nowMs = Date.now()) {
+  const found = new Map()
+  AGO_MINUTES.forEach((minutes, index) => {
+    const atMs = nowMs - minutes * 60_000
+    const pick = SAMPLE_ASKS[index % SAMPLE_ASKS.length]
+    const refused = REFUSED_AT[index] !== undefined
+    const reply = refused ? '' : SAMPLE_REPLIES[index % SAMPLE_REPLIES.length]
+    const between = refused ? [] : SAMPLE_TURNS[index % SAMPLE_TURNS.length]
+    /* The transcript as the real store keeps it: the question first, the work
+       and the words on the way, then the answer. The join trims the first and
+       last of these back out of the middle (describeRun), so this is the whole
+       conversation and not a pre-cut one. */
+    const turns = [
+      { who: 'you', text: pick.ask, at: atMs },
+      ...between.map((line, offset) => ({ who: line.who, text: line.text, at: atMs + 20_000 * (offset + 1) })),
+      ...(reply ? [{ who: 'agent', text: reply, at: atMs + 20_000 * (between.length + 1) }] : []),
+    ]
+    found.set(`sample/${pick.agent}/${String(index + 1).padStart(2, '0')}`, {
+      role: pick.agent,
+      asked: pick.ask,
+      reply,
+      said: '',
+      status: refused ? 'failed' : 'finished',
+      statusNote: '',
+      tier: '',
+      nodeId: null,
+      computerId: 'sample',
+      turns,
+    })
+  })
+  return found
 }

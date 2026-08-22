@@ -246,3 +246,42 @@ export function decisionOff(register) {
   if (register.kind === 'live' && (register.items || []).length === 0) return DECISION_OFF.empty
   return null
 }
+
+/* ------------------------------------------------------- hiding a row -- */
+
+/* THE × ON A ROW, AND EVERY WORD AROUND IT.
+ *
+ * WHAT THE CONTROL REALLY DOES, which is what the words must say. Three lists
+ * were looked at for "delete" (plan O6) and none of them has an honest one: an
+ * owner request lives in an append-only, hash-chained ledger that is never
+ * shortened, an archived request still reaches every projected list until
+ * three separate sessions have seen it, and an owner question is parsed out of
+ * a planning file the app has no writer for. So a × here hides the row on this
+ * screen, in this copy's own storage, and changes nothing else anywhere. Every
+ * sentence below says so, because a × that looked like a delete and was not
+ * would be the register's old defect again: chrome saying one thing, the facts
+ * another.
+ *
+ * TONE 'note', NEVER RED. The :214-219 rule above applies one level down: a
+ * row that is gone because the person hid it is not a failure and must not be
+ * painted as one. Nothing in this table uses a failure word. */
+export const HIDE_ROW = Object.freeze({
+  tone: 'note',
+  /* the control's accessible name and its tooltip */
+  aria: id => `Hide ${id} from this list`,
+  title: 'Hide from this list',
+  /* the control on a row that is already hidden and shown on request */
+  putBack: id => `Put ${id} back in this list`,
+  putBackTitle: 'Put back in this list',
+  /* under the row, after the first press */
+  armed: id => `Hide ${id}? Press × again. It is hidden on this screen only; nothing else changes.`,
+  /* in the toolbar note, after the second press */
+  hiddenR: id => `${id} hidden. It is still in your records — only this list stops showing it.`,
+  hiddenQ: id => `${id} hidden. It is still in the work list — only this list stops showing it.`,
+  restored: id => `${id} is back in this list.`,
+  /* the counter's tail and the toggle beside it */
+  count: n => `${n} hidden`,
+  show: 'Show hidden',
+  hideAgain: 'Hide them again',
+  undo: 'Undo',
+})

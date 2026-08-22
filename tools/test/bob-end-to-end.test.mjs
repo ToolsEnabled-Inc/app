@@ -133,9 +133,16 @@ function browserBinding(origin, token) {
 async function standUp({ mayWrite }) {
   const record = []
   const surface = createAgentCommandSurface(machineDeps(record))
+  /* mayWrite may be a function so a test can flip the switch between calls,
+     the way the owner's switch is read per command in shell/main.cjs. */
   const facade = createAgentFacade({
     surface,
-    principalForRelay: () => ({ kind: 'relay', owner: 'relay-principal', mayWrite, label: 'web (relay)' }),
+    principalForRelay: () => ({
+      kind: 'relay',
+      owner: 'relay-principal',
+      mayWrite: typeof mayWrite === 'function' ? mayWrite() : mayWrite,
+      label: 'web (relay)',
+    }),
     log: (...parts) => {
       if (!process.env.BOB_E2E_DEBUG) return
       for (const part of parts) {
@@ -182,6 +189,50 @@ test('web-drive OFF is the whole difference: reads answer, writes refuse', async
 
     assert.ok(!bob.record.some(c => c.name === 'recordSpawnIntent'),
       'the refusal happened AFTER the handler ran -- nothing may be recorded for a refused write')
+  } finally { await bob.facade.close() }
+})
+
+/* THE SWITCH IS READ PER CALL, NOT CAPTURED AT CONNECT. The owner turns it
+   off on the machine and the very next command from an already-connected
+   browser is refused -- no relaunch, no new lease. This is what lets "turn it
+   off" mean something while a tab is still open. */
+test('turning the switch off between calls refuses the next write and still answers reads', async () => {
+  let on = true
+  const bob = await standUp({ mayWrite: () => on })
+  try {
+    const started = await bob.mcAgent.start({ tier: 'luna' })
+    assert.ok(started.sessionId, 'start with the switch on returned no session')
+
+    on = false
+    await assert.rejects(
+      () => bob.mcAgent.send({ sessionId: started.sessionId, text: 'hello' }),
+      (error) => {
+        assert.equal(error.code, 'MC_AGENT_PRINCIPAL_READ_ONLY',
+          `a write after the switch went off refused as ${error.code}`)
+        return true
+      })
+    const availability = await bob.mcAgent.availability()
+    assert.equal(availability.ok, true, 'reads keep answering with the switch off')
+  } finally { await bob.facade.close() }
+})
+
+/* THE ONE WAY A BROWSER MUST NEVER BE ABLE TO MOVE THE SWITCH. There is no
+   prefs route on the facade; the switch is written only from the window on
+   the machine, over mc-prefs:write. A route appearing here would let a stolen
+   session grant itself the permission the switch exists to withhold. */
+test('there is no route through the facade that could write a preference', async () => {
+  const bob = await standUp({ mayWrite: true })
+  try {
+    for (const route of ['/v1/prefs/write', '/v1/prefs', '/v1/settings/write']) {
+      const response = await fetch(bob.origin + route, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${bob.token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ key: 'mc.relay.web-drive', value: 'on' }),
+      })
+      assert.equal(response.status, 404, `${route} answered ${response.status}`)
+      const body = await response.json()
+      assert.equal(body.error.code, 'AGENT_FACADE_UNKNOWN_ROUTE')
+    }
   } finally { await bob.facade.close() }
 })
 

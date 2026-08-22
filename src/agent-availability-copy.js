@@ -29,6 +29,12 @@
    imports nothing. See the note at the head of src/refusal-copy.js for why the
    dependency is not mutual. */
 import { refusalRemedy } from './refusal-copy.js'
+/* The section and the control the web-drive refusal walks a person to, read
+   from the module that owns them rather than spelled here: a sentence that
+   names a switch is only correct while the switch is called that, and the
+   drift lock in tools/test/web-drive-refusal.test.mjs holds the two together.
+   device-claim-flow.js imports only refusal-copy.js, so there is no cycle. */
+import { CONNECT_SECTION, WEB_DRIVE_CONTROL_LABEL } from './device-claim-flow.js'
 
 /* The two commands that clear the two blockers a person can actually clear,
    written once so the disabled control, the home screen and the setup screen
@@ -172,8 +178,14 @@ export const UNAVAILABLE_TEXT = Object.freeze({
      no exit, and closing the app is the one thing that guarantees failure,
      because a closed app cannot be reached at all.
      So this sentence does not offer a remedy here. It says where the remedy
-     is, and why it is there. */
-  MC_AGENT_PRINCIPAL_READ_ONLY: 'this computer has not been told it may be driven from a browser, so it will show you anything and change nothing. That permission is given on the computer itself, on purpose: it is what stops someone who has your password from driving your machine. Open ToolsEnabled on that computer and turn on being driven from the web',
+     is, and why it is there.
+     AND NOW IT NAMES THE CONTROL. "turn on being driven from the web" was
+     written before any control existed -- Findings 2026-08-22: zero writers of
+     the switch anywhere in src/, so the sentence pointed at a place nobody
+     could find. The switch lives in the connect section of Settings; the
+     section title and the control's label are read from the module that owns
+     them so this sentence cannot drift from the screen it describes. */
+  MC_AGENT_PRINCIPAL_READ_ONLY: `this computer has not been told it may be driven from a browser, so it will show you anything and change nothing. That permission is given on the computer itself, on purpose: it is what stops someone who has your password from driving your machine. On that computer, open ToolsEnabled, go to Settings, open “${CONNECT_SECTION}” under Start here, and turn on “${WEB_DRIVE_CONTROL_LABEL}”`,
   MC_AGENT_SESSION_LIMIT: 'this copy is already running as many agents at once as it allows, so it did not start another. Wait for one to finish, or stop one in the tree, and then start this again',
   MC_AGENT_SESSION_EXISTS: 'an agent is already open under that name in this copy, so nothing new was started. Open the one that is already running, or start a fresh agent from another spot in the tree',
   /* A start that cannot be written down does not happen -- the same rule the

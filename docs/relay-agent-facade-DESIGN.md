@@ -436,18 +436,22 @@ records), **`profileRemove`**.
 Design position: the sealed session *is* Bob, so no per-command second factor
 is added — with one gate:
 
-- **A machine-local standing consent to remote drive.** A row in the
-  installation's own enforcement settings (the `mcSettings`/
-  `shell/product-settings.cjs` family — the store that already decides
-  whether unattended work may run): *"This computer may be driven from the
-  web."* The facade refuses every **write** route (`start`, `send`,
+- **A machine-local standing consent to remote drive.** As built: a switch
+  in the connect section of Settings (`src/connect-computer-settings.js`,
+  labelled *"Let a signed-in browser drive this computer"*), stored in
+  `shell/renderer-prefs.cjs` under `mc.relay.web-drive` and read per command
+  by `webDriveMayWrite()` in `shell/relay-supervisor.cjs` — not a
+  `product-settings.cjs` registry row, since the switch has no meaning until
+  the computer is on an account and a registry row without a control is the
+  half-setting that file forbids. The question is asked once, on the
+  computer, at the moment the claim lands; "Not now" writes nothing. The
+  facade refuses every **write** route (`start`, `send`,
   `approval-answer`, `rewind`, `effort`, `close`, `request`,
   `profile-remove`, all `/v1/org/*` writes) with
-  `AGENT_FACADE_REMOTE_DRIVE_OFF` while it is off; reads stay served so the
-  web can honestly show state and say *why* commands are refused. Where the
-  default sits — off until the person flips it at the machine, or set during
-  the pairing flow as part of enrolment consent — **is the owner's call**
-  (§11). The conservative default is off; the Bob-scenario default is
+  `MC_AGENT_PRINCIPAL_READ_ONLY` while it is off; reads stay served so the
+  web can honestly show state and say *why* commands are refused, and the
+  refusal sentence names the switch. The default is off, as ruled (§11); the
+  original framing of that ruling follows. The conservative default is off; the Bob-scenario default is
   set-at-enrolment. The mechanism is identical either way, so the decision
   does not block the build.
 - `answerApproval` needs nothing extra *today* (`approvalPolicy` is `'never'`

@@ -5,7 +5,14 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
+import os from 'node:os'
+import { randomUUID } from 'node:crypto'
 import relaySupervisor from '../../shell/relay-supervisor.cjs'
+import rendererPrefs from '../../shell/renderer-prefs.cjs'
+import {
+  WEB_DRIVE_ON as RENDERER_WEB_DRIVE_ON,
+  WEB_DRIVE_PREF_KEY as RENDERER_WEB_DRIVE_PREF_KEY,
+} from '../../src/device-claim-flow.js'
 
 const {
   INHERITED_ENVIRONMENT_KEYS,
@@ -15,6 +22,7 @@ const {
   RESTART_FLOOR_MS,
   STABLE_AFTER_MS,
   STOP_TIMEOUT_MS,
+  WEB_DRIVE_ON,
   WEB_DRIVE_PREF_KEY,
   createRelaySupervisor,
   webDriveMayWrite,
@@ -629,6 +637,35 @@ test('a malformed record cannot grant write access', () => {
 test('a store that cannot be read grants nothing', () => {
   const throwing = { snapshot: () => { throw new Error('EBUSY') } }
   assert.equal(webDriveMayWrite(throwing), false)
+})
+
+/* THE WRITER AND THE READER SPELL THE KEY THE SAME WAY. The switch in the
+   connect section (src/connect-computer-settings.js) writes through
+   src/device-claim-flow.js's constants, because an ES module cannot import
+   this CommonJS one; a drift between the two spellings would be a switch that
+   saves and a reader that never sees it -- fail-closed, silent, and permanent. */
+test('the renderer spells the key and the value exactly as this reader does', () => {
+  assert.equal(RENDERER_WEB_DRIVE_PREF_KEY, WEB_DRIVE_PREF_KEY)
+  assert.equal(RENDERER_WEB_DRIVE_ON, WEB_DRIVE_ON)
+})
+
+/* THE REAL STORE, END TO END: what the connect section's writer does to a
+   real renderer-prefs file is what this reader answers on the next command.
+   set 'on' → true; remove → false; any other spelling → false. */
+test('a real renderer-prefs store written the way the switch writes it is read the way the relay reads it', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'te-web-drive-'))
+  try {
+    const prefs = rendererPrefs.createRendererPrefs({ directory, fs, path, randomUUID })
+    assert.equal(webDriveMayWrite(prefs), false, 'unset is off')
+    assert.equal(prefs.set(RENDERER_WEB_DRIVE_PREF_KEY, RENDERER_WEB_DRIVE_ON).ok, true)
+    assert.equal(webDriveMayWrite(prefs), true, 'the switch turned on is read as on, with no restart')
+    assert.equal(prefs.remove(RENDERER_WEB_DRIVE_PREF_KEY).ok, true)
+    assert.equal(webDriveMayWrite(prefs), false, 'the switch turned off removes the key, and that reads as off')
+    assert.equal(prefs.set(RENDERER_WEB_DRIVE_PREF_KEY, 'true').ok, true)
+    assert.equal(webDriveMayWrite(prefs), false, 'a different spelling of on is off')
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true })
+  }
 })
 
 test('a damaged settings record grants nothing, even if a value survived in it', () => {

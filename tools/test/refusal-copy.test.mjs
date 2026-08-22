@@ -145,6 +145,22 @@ test('no refusal from the launch record reaches a person as "close and reopen th
   }
 })
 
+/* THE ENGINE'S OWN ARCHIVE CODES reach this table unchanged (typedError keeps
+   a well-formed code), and every one of them means the request was left where
+   it was. The floor must say so, and must say the one thing a person can do
+   about a row that will not archive -- hide it on the Ledger page. Without it
+   these fell to GENERIC_REMEDY and "close ToolsEnabled and open it again". */
+test('a request the archive will not take is answered with where it is and what to do instead, not with a restart', () => {
+  for (const code of ['LEDGER_ARCHIVE_TARGET_INELIGIBLE', 'LEDGER_ARCHIVE_EXPOSURE_INSUFFICIENT', 'LEDGER_ARCHIVE_PROTECTED_REQUEST', 'LEDGER_ARCHIVE_VETOED']) {
+    assert.ok(!Object.hasOwn(REFUSAL_REMEDY, code), `${code} was curated; this test measures the family floor`)
+    const remedy = refusalRemedy(code)
+    assert.notEqual(remedy, GENERIC_REMEDY, `${code} fell to the generic remedy`)
+    assert.match(remedy, /^Nothing was moved\./)
+    assert.match(remedy, /hide it from the Ledger page instead/)
+    assertActionable(refusalSentence({ ok: false, code }), `refusalSentence(${code})`)
+  }
+})
+
 test('a full pool is answered as capacity, not as something the person set up wrong', () => {
   /* BRIDGE_ALL_SEATS_BUSY is raised when every agent in the level's pool is
      already carrying a lane. Telling that reader to change what they chose sends

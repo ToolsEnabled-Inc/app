@@ -495,6 +495,28 @@ test('a connected computer with no name still says where to take it off', async 
   nameless.controller.destroy()
 })
 
+/* ---------- a computer that already holds a credential is told the truth ---------- */
+
+test('an already-connected refusal does not send somebody to do a thing that cannot cure it', () => {
+  /* The shared DEVICE_CLAIM_ floor ends "a new code comes from this screen",
+     and the shell's old sentence said "Remove it on the account page first".
+     Neither is true here: the credential is the engine's, nothing in this
+     window can clear it, and removing the computer on the account page leaves
+     it untouched. */
+  const state = reduce(
+    reduce(initialState({ name: 'Desk' }), { type: 'begin-requested' }),
+    { type: 'begin-result', result: { ok: false, code: 'DEVICE_CLAIM_ALREADY_CONNECTED', reason: 'This computer already holds a connection to an account, so it cannot take a new code.' } },
+  )
+  assert.equal(state.phase, 'idle')
+  assert.equal(state.refusalCode, 'DEVICE_CLAIM_ALREADY_CONNECTED')
+  assert.match(state.refusal, /does not clear what this computer holds/)
+  assert.match(state.refusal, /nothing in this window can clear it yet/)
+  assert.equal(/a new code comes from this screen/.test(state.refusal), false,
+    'the floor sentence promises the one thing this computer cannot do')
+  assert.equal(/Remove it on the account page first/.test(state.refusal), false)
+  assertHumanSentence(state.refusal, 'the already-connected refusal')
+})
+
 /* ---------- the search box stops hiding this section from the people looking ---------- */
 
 test('the search box finds this section by what a stuck person actually types', () => {
@@ -511,6 +533,13 @@ test('the search box finds this section by what a stuck person actually types', 
     'add this computer to my account',
     'account code',
     'TC-',
+    /* The switch lives here and nowhere else, so the words a person would
+       type looking for it have to land here too. */
+    'browser',
+    'signed-in browser',
+    'web drive',
+    'remote',
+    'let a signed-in browser drive this computer',
   ]) {
     assert.equal(rig.controller.matches(typed), true, `"${typed}" does not find this section`)
   }

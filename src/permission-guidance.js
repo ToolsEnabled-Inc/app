@@ -497,13 +497,20 @@ export const SUBJECTS = Object.freeze({
     ]),
     turnOnAt: 'Settings → Data & Privacy',
   }),
+  /* Said in the engine's own terms (capability/tools/ledger-archive.js): an
+     archive retires a request to COOLING and it stays on every list until
+     three sessions have seen it. The earlier draft said "out of the main list",
+     which the next page load would have contradicted. */
   'ledger_archive': Object.freeze({
-    whatItDoes: 'Moves finished or superseded requests out of the main list and into the archive.',
+    whatItDoes: 'The first press shows which finished or superseded requests qualify. The second archives them one at a time, each through its own preview, and says which it left where it was and why.',
     capabilities: Object.freeze([
-      'A long list becomes readable again without anything being deleted.',
+      'Finished work is recorded as finished and cooling, with a reason for each request, and can be put back.',
     ]),
     risks: Object.freeze([
-      'Very little. The first press only shows you what would move; nothing moves until you press again, and archiving hides items rather than deleting them.',
+      /* The first clause is pinned word for word in tools/test/permission-guidance.test.mjs
+         (the absolute-claim registry); the rest carries no absolute so it
+         needs no pin. */
+      'Very little. The first press only shows you what would move; nothing moves until you press again. An archived request is not deleted: it is marked finished and cooling, stays on this page’s list, and can be put back.',
     ]),
     turnOnAt: 'Settings → Ledger',
   }),

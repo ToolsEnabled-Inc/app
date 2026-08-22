@@ -1087,18 +1087,30 @@ export class StaticTreeGraph {
 
   /* A SLOT NEVER COSTS AN AGENT ITS PLACE.
      The rank packer culls to keep what is left readable, and it is told to drop
-     slots first — but "first" is not "only". Two ranks are packed by two
-     different routines here (see packGroupedXs and packedXs in
-     src/tree-layout.js), and the cull path is entered on a count-based test
-     that slots contribute to: a rank of eight agents packs without a murmur,
-     and the same eight agents plus eight slots trip the readability test and
-     send the WHOLE rank — agents included — through the culler. An agent that
-     was on the canvas a moment ago vanishing so that an empty circle can be
-     drawn is the worst trade this feature could make, and to a person watching
-     it is indistinguishable from an agent having died.
+     slots first — but "first" is not "only". A rank is packed by one of two
+     routines (see packGroupedXs and packedXs in src/tree-layout.js), and the
+     cull path is entered on a count-based test that slots contribute to: a
+     rank of eight agents packs without a murmur, and the same eight agents
+     plus eight slots trip the readability test and send the WHOLE rank —
+     agents included — through the culler. An agent that was on the canvas a
+     moment ago vanishing so that an empty circle can be drawn is the worst
+     trade this feature could make, and to a person watching it is
+     indistinguishable from an agent having died.
      So the offer is withdrawn wholesale and the fleet is drawn exactly as it
      would have been drawn if this feature did not exist. Fewer places to press
-     is a disappointment; a disappeared agent is a lie. */
+     is a disappointment; a disappeared agent is a lie.
+     WHERE THE X VALUES COME FROM NOW. After the rank packer has decided who
+     fits, layoutTree measures the surviving forest from the leaves up and
+     places it from the roots down (packSubtreeXs in src/tree-layout.js), so a
+     parent stands over the room its own children need and a child's connector
+     is a straight drop — _elbowRoute already collapses to a vertical line when
+     the centres are within 1.5px, so no connector code changed for this. The
+     rank packer remains the only thing that culls; the subtree pass moves
+     what fits and never removes. The two passes below are unchanged: the slot
+     pass spaces parents WIDER than the fleet-only pass, because each parent now
+     makes room for the slot hanging under it — that is the point, not a
+     drift — and the displacement check above still compares who is present,
+     never where they stand. */
   _slotsDisplaceAnAgent(agents, fleetLayout, withSlots) {
     return agents.some(agent =>
       fleetLayout.slots.has(agent.id) && !withSlots.slots.has(agent.id))

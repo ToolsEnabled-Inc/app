@@ -269,7 +269,13 @@ export const SETTINGS = [
   { id: 'reduce_motion', section: 'Motion & Effects', name: 'Reduce motion', desc: 'Turn animation off: things move instantly and nothing pulses in the background.', depth: 1, type: 'toggle', def: false },
   { id: 'glow', section: 'Motion & Effects', name: 'Glow intensity', desc: 'How brightly the glowing status lights shine.', depth: 1, type: 'range', min: 0, max: 200, step: 1, unit: '%', def: 100 },
 
-  { id: 'ledger_archive', section: 'Ledger', name: 'Archive finished requests', desc: 'The first click only shows which completed or superseded requests would be archived. A second click moves exactly that list into the archive — nothing is moved without the preview.', depth: 1, type: 'action', def: null },
+  /* WHAT THIS CONTROL DOES, IN THE ENGINE'S OWN TERMS. Its first draft said a
+     second click "moves exactly that list into the archive"; the engine
+     (capability/tools/ledger-archive.js) archives one target per confirmation
+     and retires it to COOLING, where it stays on every list until three
+     sessions have seen it. So the sentence says one at a time, says what was
+     refused and why, and says nothing is deleted -- because nothing is. */
+  { id: 'ledger_archive', section: 'Ledger', name: 'Archive finished requests', desc: 'The first press shows which finished or superseded requests qualify. The second archives them one at a time, each through its own preview, and says which it left where it was and why. Nothing is deleted: an archived request is marked finished and cooling, stays on this page’s list, and can be put back.', depth: 1, type: 'action', def: null },
 
   /* 'offline_fallback' was removed 2026-08-13 rather than left as a row: it was
      declared here and read by NOTHING in the tree, so the toggle moved and
@@ -1126,8 +1132,16 @@ export function settingsView({ query: routeQuery = null } = {}) {
   sectionsNode.addEventListener('change', event => {
     const input = event.target.closest('.settings-toggle input')
     if (!input) return
+    /* A TOGGLE THAT IS NOT A REGISTRY ROW. The research and chatbox sections
+       draw `.settings-toggle` switches of their own (research-settings.js,
+       chatbox-settings.js) inside this same node, with no [data-setting-id]
+       row around them; without this guard their change event reached
+       applyValue(undefined) and threw on `setting.id`. The same guard
+       syncSetting() already applies (`if (!setting) return`). */
     const row = input.closest('[data-setting-id]')
-    applyValue(byId.get(row.dataset.settingId), input.checked)
+    const setting = row ? byId.get(row.dataset.settingId) : null
+    if (!setting) return
+    applyValue(setting, input.checked)
   })
 
   searchInput.addEventListener('input', () => {

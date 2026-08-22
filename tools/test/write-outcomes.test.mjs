@@ -178,9 +178,15 @@ async function armedCloudController(launchReply) {
   return controller
 }
 
+/* THE ENGINE'S RECEIPT SHAPE (capability/src/lib/mission-bridge/actions.js
+   normalizedLedgerArchiveResult): candidates carry a target and a structured
+   reason, a confirm carries the one target it applied. The fixture this file
+   used to hold (candidates {id, reasonCode, reason}, movedIds/movedCount) was
+   a shape the engine never produced. */
 const ARCHIVE_PLAN = 'a'.repeat(64)
+const ARCHIVE_TARGET = { targetKind: 'request', requestId: 'R54' }
 const ARCHIVE_CANDIDATES = [
-  { id: 'R54', reasonCode: 'completed', reason: 'status done and every declared gate is met:true' },
+  { targetKind: 'request', requestId: 'R54', reason: { code: 'completed', detail: 'status done and every declared gate is met:true', supersedingRequestIds: [] } },
 ]
 
 function archiveReceipt(dryRun, overrides = {}) {
@@ -192,12 +198,13 @@ function archiveReceipt(dryRun, overrides = {}) {
       at: '2026-08-07T12:00:00.000Z',
       planSha256: ARCHIVE_PLAN,
       candidates: ARCHIVE_CANDIDATES,
+      restorables: dryRun ? [] : [ARCHIVE_TARGET],
       inconsistencies: [],
-      activeCount: dryRun ? 474 : 473,
+      activeCount: 474,
       archiveCount: dryRun ? 0 : 1,
       dryRun,
-      movedIds: dryRun ? [] : ARCHIVE_CANDIDATES.map(candidate => candidate.id),
-      movedCount: dryRun ? 0 : ARCHIVE_CANDIDATES.length,
+      appliedTarget: dryRun ? null : ARCHIVE_TARGET,
+      changedCount: dryRun ? 0 : 1,
       ...(dryRun ? {} : { intentAudit: { sequence: 40, eventHash: 'b'.repeat(64) } }),
       audit: { sequence: dryRun ? 39 : 41, eventHash: 'c'.repeat(64) },
       ...overrides,
@@ -291,12 +298,12 @@ test('LEDGER ARCHIVE: a real move whose answer lands after the view closes is re
   await moving
 
   const missed = undeliveredWrite(WRITE_OUTCOME_KEYS.LEDGER_ARCHIVE)
-  assert.ok(missed, 'requests actually moved between two durable ledgers; that must not vanish')
-  assert.match(missed.message, /Archive verified for R54/)
+  assert.ok(missed, 'a disposition was appended to the durable overlay; that must not vanish')
+  assert.match(missed.message, /^Archived R54\./)
   assert.equal(missed.tone, 'confirmed')
 
   const next = createLedgerArchiveController({ postAction: async () => ({ ok: false }) })
-  assert.match(next.getState().message, /^While you were on another screen: Archive verified for R54/)
+  assert.match(next.getState().message, /^While you were on another screen: Archived R54\./)
   assert.equal(next.getState().note, 'Result you did not see')
 })
 
@@ -321,7 +328,9 @@ test('LEDGER ARCHIVE: a move whose receipt did not match the preview is restated
   await controller.click()
   const moving = controller.click()
   controller.destroy()
-  gate.settle(archiveReceipt(false, { planSha256: 'd'.repeat(64) }))
+  /* The applied target is the thing held against the confirm -- not the plan
+     hash, which changes with every append to the overlay. */
+  gate.settle(archiveReceipt(false, { appliedTarget: { targetKind: 'request', requestId: 'R999' } }))
   await moving
   const missed = undeliveredWrite(WRITE_OUTCOME_KEYS.LEDGER_ARCHIVE)
   assert.match(missed.message, /Preview again before any retry/)

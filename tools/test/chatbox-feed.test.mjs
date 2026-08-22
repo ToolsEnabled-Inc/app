@@ -284,7 +284,11 @@ test('nothing the person switched off ever appears', () => {
 test('a conversation is only ever offered where there is one', () => {
   for (const { label, input } of ALL) {
     const view = describeHome(input)
-    const couldTalk = view.mode === HOME_MODES.SAMPLE || view.mode === HOME_MODES.FLEET
+    /* Only a reachable coordinator has a conversation to show. The example
+       used to bring a written transcript of its own into this half; it now
+       shows the same run rows a real machine does, with its own asks, lines
+       and answers folded into each row, and no separate conversation. */
+    const couldTalk = view.mode === HOME_MODES.FLEET
     if (!couldTalk) assert.equal(view.panel.context, false, `context claimed with ${label}`)
     /* The demonstration is a labelled example. This pinned panel.runs === false
        here -- the honesty rule ("this computer's record never appears inside a
@@ -315,6 +319,8 @@ test("the example's record is its own: this computer's record cannot reach it", 
     "an unverifiable real record changed the example's rendering; the substitution is not holding")
   assert.equal(quietMachine.mode, HOME_MODES.SAMPLE)
   assert.equal(quietMachine.panel.badge, 'Example, not your data')
+  /* And the card names whose list it is, beside the badge. */
+  assert.equal(quietMachine.panel.title, 'Activity in this example fleet')
 })
 
 test('a box asked to show nothing says so, and offers the way back', () => {
@@ -327,22 +333,25 @@ test('a box asked to show nothing says so, and offers the way back', () => {
 })
 
 test('being filtered to nothing is never reported as nobody talking', () => {
-  const filtered = describeHome({
-    sample: true,
+  /* On a fleet with a reachable coordinator -- the one place a conversation
+     half exists now that the example has no transcript of its own. */
+  const fleet = {
+    fleetConfigured: true,
+    fleetHealth: { available: true, atMs: NOW - minutes(2), total: 2, ok: 2, down: 0, unknown: 0 },
     sessions: readLocalSessions(historyReply(2)),
     engine: readAgentEngine({ ok: true }),
-    chatbox: { runsMode: 'with', selection: { mode: 'chosen', ids: ['nobody-here'] }, agentsInSource: ['codex'] },
     nowMs: NOW,
+  }
+  const filtered = describeHome({
+    ...fleet,
+    chatbox: { runsMode: 'with', selection: { mode: 'chosen', ids: ['nobody-here'] }, agentsInSource: ['codex'] },
   })
   assert.ok(filtered.panel.contextEmpty, 'the screen says the agents talking are switched off')
   assert.equal(filtered.panel.context, true, 'and the conversation half is still the half that is on')
 
   const quiet = describeHome({
-    sample: true,
-    sessions: readLocalSessions(historyReply(2)),
-    engine: readAgentEngine({ ok: true }),
+    ...fleet,
     chatbox: { runsMode: 'with', selection: { mode: 'all', ids: [] }, agentsInSource: [] },
-    nowMs: NOW,
   })
   assert.equal(quiet.panel.contextEmpty, null, 'and nobody talking is not reported as a filter')
 })
@@ -407,11 +416,11 @@ test('the box never complains about a filter over a conversation it is not showi
 
 /* TWO REPRESENTATIONS OF ONE FACT, AND NOTHING WAS HOLDING THEM TOGETHER.
  *
- * `panel.kind` says WHICH conversation to load ('sample', 'conversation', or
+ * `panel.kind` says WHICH conversation to load ('conversation' or
  * 'none'); `panel.context` says WHETHER the conversation half is on screen.
  * They are the same fact wearing two names, and src/views/home.js reads them in
- * different places: renderContext() switches on `kind` to seed the sample or
- * fetch the thread, and everything else branches on `context`.
+ * different places: renderContext() switches on `kind` to fetch the thread or
+ * not, and everything else branches on `context`.
  *
  * Let them drift and the failure is silent in both directions -- a thread
  * fetched for a half that will not be drawn, or a held conversation cleared
@@ -423,7 +432,8 @@ test('the box never complains about a filter over a conversation it is not showi
  * GENERATES a state and asserts nothing about it is indistinguishable from not
  * covering it. The walk below has been producing all 432 of these all along. */
 test('what the box loads and what the box shows are the same fact, always', () => {
-  const KINDS = new Set(['sample', 'conversation', 'none'])
+  /* Two kinds, not three: the example no longer loads a transcript of its own. */
+  const KINDS = new Set(['conversation', 'none'])
   for (const { label, input } of ALL) {
     const { panel } = describeHome(input)
     assert.ok(KINDS.has(panel.kind), `unknown panel kind ${JSON.stringify(panel.kind)} with ${label}`)

@@ -140,3 +140,13 @@ test('every timestamp derives from nowMs, in the past, newest-last', () => {
   /* The zero-argument form stays usable, mirroring sample-activity.js. */
   assert.equal(sampleOpsEnvelope().messages.ok, true)
 })
+
+test('no sample message opens with an UPPERCASE key', () => {
+  /* "BLOCKER: …" was the one line on the example board written like a log
+     level rather than a sentence a person would say; the rest of the sample
+     fleet's prose is plain speech. A shouted key teaches the reader that the
+     board is console output. */
+  for (const message of sampleOpsEnvelope(NOW).messages.value) {
+    assert.doesNotMatch(message.text, /^[A-Z]{2,}:/, `${message.id} opens with an uppercase key`)
+  }
+})

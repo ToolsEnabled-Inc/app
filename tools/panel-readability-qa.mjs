@@ -206,6 +206,26 @@ const READ_LEDGER = `(() => {
     counter: text(page.querySelector('[data-visible-count]')),
     totals: [...page.querySelectorAll('[data-summary]')].map(node => node.textContent),
     rows: page.querySelectorAll('.ledger-record').length,
+    /* THE × ON EVERY ROW (plan P-O6), measured rather than assumed: one per
+       row, never a button inside a button (the Q row is itself a button, so
+       the × must be its sibling), and the first and last ×'s hit box must be
+       inside the viewport at every width this harness drives -- at 390px the
+       control sits at about x=380. hiddenNote is the toolbar sentence after
+       a hide. */
+    xCount: page.querySelectorAll('.ledger-hide').length,
+    nestedButtons: page.querySelectorAll('button button').length,
+    xHit: [...page.querySelectorAll('.ledger-hide')].filter((node, index, all) => index === 0 || index === all.length - 1)
+      .map(node => {
+        const box = node.getBoundingClientRect()
+        const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+        return Boolean(hit && (hit === node || node.contains(hit)))
+      }),
+    xInView: [...page.querySelectorAll('.ledger-hide')].filter((node, index, all) => index === 0 || index === all.length - 1)
+      .map(node => {
+        const box = node.getBoundingClientRect()
+        return box.width >= 20 && box.height >= 20 && box.left >= 0 && box.right <= window.innerWidth
+      }),
+    hiddenNote: text(page.querySelector('[data-hidden-note]')),
     door: text(register?.querySelector('.host-absent-action')),
     surface: {
       present: Boolean(surface),

@@ -37,11 +37,15 @@
  */
 
 import { FLEET_PROFILE_RESOLUTION } from './fleet-profile.js'
+import { toggleStateSentence } from './settings-presentation.js'
 import {
   ACCOUNT_PAGE_HOST,
   CONNECT_SECTION,
   CONNECT_SETTING_ID,
   MAX_DEVICE_NAME,
+  WEB_DRIVE_CONTROL_LABEL,
+  WEB_DRIVE_ON,
+  WEB_DRIVE_PREF_KEY,
   clockShouldRun,
   defaultDeviceName,
   initialState,
@@ -165,7 +169,12 @@ function statusLine(state) {
     return {
       tone: '',
       title: name ? `This computer is joined as ${name}` : 'This computer is joined to an account',
-      detail: `${joined} That is read from this computer's own record, and it is the only thing this screen can check. Sign in at ${ACCOUNT_PAGE_HOST} and open your account page to see whether it is still listed there, or to take it off.`,
+      /* THE LAST SENTENCE SAYS WHAT TAKING IT OFF DOES NOT DO. The credential
+         is the engine's and nothing in this window can clear it yet, so a
+         computer removed on the account page comes back to this screen still
+         reading "joined" -- and the next code it asks for is refused. Saying
+         so here is cheaper than letting somebody discover it. */
+      detail: `${joined} That is read from this computer's own record, and it is the only thing this screen can check. Sign in at ${ACCOUNT_PAGE_HOST} and open your account page to see whether it is still listed there, or to take it off. Taking it off there does not change what this computer holds, so this screen will keep saying it is joined.`,
     }
   }
   if (phase === 'unknown') {
@@ -222,7 +231,7 @@ function statusLine(state) {
  * defect as a switch that does nothing; it just fails quietly. */
 function rowDetail(state) {
   if (state.phase === 'connected') {
-    return 'This computer is already joined, so there is nothing to press here and nothing is sent from this screen. Removing it is done on your account page in a browser.'
+    return 'This computer is already joined. The one thing to set here is whether a signed-in browser may drive it, below. Removing it is done on your account page in a browser.'
   }
   if (state.phase === 'waiting' || state.phase === 'orphaned') {
     return 'Type the code into your browser, on your account page. Your password never passes through this window.'
@@ -470,14 +479,114 @@ function buttonMarkup(state) {
    state. Everything a given state needs and nothing it does not: no element is
    ever shipped carrying `hidden`, so the trap src/styles.css documents at
    .ctl-btn[hidden] has nothing to catch here. */
-function bodyMarkup(state, nowMs) {
+/* THE SWITCH, AND THE SENTENCE THAT SAYS WHAT IT IS SET TO.
+ *
+ * This is the only control in the product that writes `mc.relay.web-drive`,
+ * the key shell/relay-supervisor.cjs reads per command to decide whether a
+ * browser may change anything on this machine. It is drawn in the connected
+ * branch only: a computer that is not on an account has no browser that could
+ * drive it, and a switch for a situation that cannot arise is the half-setting
+ * shell/product-settings.cjs exists to forbid.
+ *
+ * IT IS A `.toggle` AND DELIBERATELY NOT A `.settings-toggle`. src/views/
+ * settings.js listens for `change` on `.settings-toggle input` and looks the
+ * row up in the catalogue by its setting id; this row's id names a section
+ * controller, not a catalogue entry, so that handler would reach
+ * applyValue(undefined) and throw. Leaving the second class off is what keeps
+ * the page's handler from ever seeing this input; handleChange() below is the
+ * only listener it has.
+ *
+ * `webDrive` is the store's answer at paint time -- true, false, or null when
+ * this window has no durable store to write to. Null draws the sentence and no
+ * control: a switch whose press cannot be saved is a switch that lies. */
+function webDriveMarkup(webDrive) {
+  if (webDrive === null) {
+    return `<div class="settings-copy">
+      <div class="settings-name" id="connect-web-drive-label">${esc(WEB_DRIVE_CONTROL_LABEL)}</div>
+      <div class="settings-desc" data-connect-web-drive-state>This window cannot save that choice, so driving from a browser stays off.</div>
+    </div>`
+  }
+  const truth = toggleStateSentence({ value: webDrive, def: false, acts: true })
+  return `<div class="settings-copy">
+      <div class="settings-name" id="connect-web-drive-label">${esc(WEB_DRIVE_CONTROL_LABEL)}</div>
+      <div class="settings-desc" data-connect-web-drive-state>${esc(truth)} On means anyone signed in to your account in a browser can start agents on this computer and change its organisation from there. Off means a browser can see what is here and change nothing. This is set here, on this computer, on purpose; a browser cannot turn it on.</div>
+    </div>
+    <label class="toggle"><input type="checkbox" data-connect-field="web-drive" aria-labelledby="connect-web-drive-label" ${webDrive ? 'checked' : ''}/><i></i></label>`
+}
+
+/* THE QUESTION, ASKED ONCE, AT THE MOMENT IT BECOMES MEANINGFUL.
+ *
+ * The owner's ruling: the prompt belongs at the moment the switch starts to
+ * matter, which is the moment this computer lands on an account. That moment
+ * is precisely located -- `serviceConfirmed` is true only in the controller
+ * that saw the poll come back `connected` (src/device-claim-flow.js), and every
+ * later visit to this screen is a vault read that sets it false. So "once" is
+ * structural rather than recorded: no flag is written for "Not now", and a
+ * machine that was already joined before this existed is never nagged. The
+ * refusal sentence a browser meets walks everyone else to the switch.
+ *
+ * It is a `.connect-note`, not an alert: nothing has gone wrong. A window with
+ * no store to save into gets no question either, because "turn it on below"
+ * would point at a switch that is not drawn. */
+function askMarkup(state, webDrive, asked) {
+  if (state.phase !== 'connected' || !state.serviceConfirmed || asked) return ''
+  if (webDrive === null) return ''
+  return `<div class="connect-note" data-connect-web-drive-ask>
+    <p><strong>One question, now that this computer is on your account.</strong> May a browser that is signed in to your account start agents on this computer and change its organisation from there? It is off. Turn it on below if you want that, or leave it off; this is the only time it is asked.</p>
+    <div class="fleet-profile-actions">
+      <button type="button" class="ctl-btn" data-connect-action="web-drive-later">Not now</button>
+    </div>
+  </div>`
+}
+
+/* A save that did not happen is said where the switch is, as a wall and out
+   loud: the switch has already sprung back to the store's truth by the time
+   this is read, and a person who saw it move has to be told why it moved. */
+function webDriveNoticeMarkup(notice) {
+  if (!notice) return ''
+  return `<p class="connect-refusal" data-connect-web-drive-notice role="alert">${esc(notice)}</p>`
+}
+
+/* THE DEFAULT READER AND WRITER GO THROUGH localStorage, AND THAT IS THE
+ * WHOLE ROUTE. public/durable-storage.js replaces localStorage in the desktop
+ * shell with a store whose every write goes over `mcPrefs.write` to
+ * `mc-prefs:write` in shell/main.cjs and lands in shell/renderer-prefs.cjs --
+ * the same record shell/relay-supervisor.cjs reads per command. No new IPC, no
+ * registry row. The key is outside `mc.set.`, so durable-storage never mirrors
+ * it to the account: the choice stays on the machine it was made on.
+ *
+ * GUARDED ON `window.mcPrefs.available === true`, which is the exact test
+ * durable-storage.js makes before installing itself. Without it localStorage
+ * is the browser's own, the relay would never see the write, and the switch
+ * would claim to have granted something it had not. So a window without the
+ * bridge reads null, and null draws no control. */
+function defaultReadWebDrive() {
+  if (globalThis.window?.mcPrefs?.available !== true) return null
+  return globalThis.localStorage?.getItem?.(WEB_DRIVE_PREF_KEY) === WEB_DRIVE_ON
+}
+
+function defaultWriteWebDrive(on) {
+  if (globalThis.window?.mcPrefs?.available !== true) throw new Error('no durable store in this window')
+  if (on) globalThis.localStorage.setItem(WEB_DRIVE_PREF_KEY, WEB_DRIVE_ON)
+  else globalThis.localStorage.removeItem(WEB_DRIVE_PREF_KEY)
+}
+
+const WEB_DRIVE_SAVE_FAILED = 'That choice could not be saved on this computer, so nothing changed. Try once more; if it still will not save, the settings file could not be written.'
+
+function bodyMarkup(state, nowMs, webDrive) {
   const phase = state.phase
   if (phase === 'absent' || phase === 'checking') return ''
   if (phase === 'connected') {
+    /* A NAMELESS CONNECTED MACHINE USED TO DRAW NO BODY AT ALL. It still
+       draws no name line, but the switch below belongs to every joined
+       computer whatever its record calls it, so the early return is gone. */
     const device = state.device
-    if (!device?.name) return ''
+    const known = device?.name
+      ? `<p class="connect-known">This computer's own record has it joined as <span class="connect-host">${esc(device.name)}</span>.</p>`
+      : ''
     return `<div class="fleet-profile-fields">
-      <p class="connect-known">This computer's own record has it joined as <span class="connect-host">${esc(device.name)}</span>.</p>
+      ${known}
+      ${webDriveMarkup(webDrive)}
     </div>`
   }
   if (phase === 'waiting') {
@@ -593,6 +702,8 @@ export function createConnectComputerSettings({
   schedule = (fn, ms) => setInterval(fn, ms),
   cancelTimer = handle => clearInterval(handle),
   resolveBridge = () => deviceClaimBridge(),
+  readWebDrive = defaultReadWebDrive,
+  writeWebDrive = defaultWriteWebDrive,
 } = {}) {
   let hostRoot = null
   let clock = null
@@ -600,6 +711,24 @@ export function createConnectComputerSettings({
   let asked = false
   let inFlight = false
   let copiedAtMs = 0
+  /* Whether the one-time question has been answered or dismissed on THIS
+     controller. Never written anywhere: see askMarkup() for why once is
+     structural. */
+  let webDriveAsked = false
+  let webDriveNotice = ''
+
+  /* THE STORE IS THE TRUTH, NEVER THE PRESS. The checkbox is redrawn from
+     this after every change, so a write that failed shows the old value
+     rather than the value somebody hoped for. A reader that throws reads as
+     "cannot save", which draws no control. */
+  function webDriveOn() {
+    try {
+      const value = readWebDrive()
+      return value === null || value === undefined ? null : value === true
+    } catch {
+      return null
+    }
+  }
   let state = initialState({
     name: defaultDeviceName({ profileLabel: profileLabel(), platform: currentPlatform() }),
     platform: currentPlatform(),
@@ -611,11 +740,19 @@ export function createConnectComputerSettings({
        a test, which is how this was caught: a markup() that asked Date.now()
        painted "run out" over a code with five minutes left. */
     const nowMs = now()
+    /* Read once per paint so the question and the switch agree. */
+    const webDrive = state.phase === 'connected' ? webDriveOn() : null
+    /* THE QUESTION SITS DIRECTLY UNDER THE STATUS LINE AND ABOVE THE ROW.
+       MEASURED at 1000x650: the row's box ends near y=620 of a 652px viewport,
+       so anything under it is off the glass; the status line is the one thing
+       a person is looking at when the claim lands, and the question goes right
+       beneath it. */
     return `<section class="settings-section connect-section" data-settings-section="${esc(CONNECT_SECTION)}" data-connect-settings data-connect-phase="${esc(state.phase)}">
       ${searchResult ? '<div class="settings-prefix">Connect this computer to your account</div>' : ''}
       <h2 class="settings-section-title">${esc(CONNECT_SECTION)}</h2>
       <p class="settings-section-note host-absent-body">You signed up on the website, and its account page asks for a code. This is the screen that gives you one.</p>
       ${statusMarkup(state)}
+      ${askMarkup(state, webDrive, webDriveAsked)}
       ${refusalHasABody(state) ? '' : refusalMarkup(state)}
       <div class="settings-section-rows">
         <article class="settings-row fleet-profile-block" data-connect-row data-setting-id="${esc(CONNECT_SETTING_ID)}">
@@ -623,7 +760,8 @@ export function createConnectComputerSettings({
             <div class="settings-name">Join this computer to your account</div>
             <div class="settings-desc">${esc(rowDetail(state))}</div>
           </div>
-          ${bodyMarkup(state, nowMs)}
+          ${bodyMarkup(state, nowMs, webDrive)}
+          ${state.phase === 'connected' ? webDriveNoticeMarkup(webDriveNotice) : ''}
         </article>
       </div>
     </section>`
@@ -897,6 +1035,27 @@ export function createConnectComputerSettings({
        claim that is still open has to be given up before another can be asked
        for, or the application is holding two. */
     else if (action === 'restart') void cancel({ thenBegin: true })
+    /* "Not now" writes NOTHING. The switch stays off because off is what the
+       store already says; the question goes because this controller has now
+       asked it, and no later controller can (askMarkup). */
+    else if (action === 'web-drive-later') { webDriveAsked = true; refresh() }
+  }
+
+  /* THE SWITCH MOVES THE STORE, THEN THE SCREEN IS REDRAWN FROM THE STORE.
+     Not from `checked`: the store is what the relay reads, so it is the only
+     thing worth showing. A write that throws leaves the record as it was and
+     says so beside the switch, which springs back on the repaint. */
+  function handleChange(event) {
+    const field = event.target.closest?.('[data-connect-field="web-drive"]')
+    if (!field || !hostRoot?.contains(field)) return
+    webDriveNotice = ''
+    try {
+      writeWebDrive(field.checked === true)
+    } catch {
+      webDriveNotice = WEB_DRIVE_SAVE_FAILED
+    }
+    webDriveAsked = true
+    refresh()
   }
 
   /* The typed name is filed and draws nothing: repaintNeeded() leaves `name`
@@ -941,6 +1100,7 @@ export function createConnectComputerSettings({
     const haystack = [
       'how do i connect this computer to my account code sign up signed up sign in website pair pairing join link add computer device claim my',
       `${ACCOUNT_PAGE_HOST} account page enter the code name for this computer get a code tc- new computer already connected`,
+      `browser web drive driven remote ${WEB_DRIVE_CONTROL_LABEL}`,
       statusLine(state).title,
       statusLine(state).detail,
       state.refusal,
@@ -955,6 +1115,7 @@ export function createConnectComputerSettings({
     root.addEventListener('click', handleClick)
     root.addEventListener('input', handleInput)
     root.addEventListener('focusin', handleFocusIn)
+    root.addEventListener('change', handleChange)
   }
 
   function afterRender(root = hostRoot) {
@@ -973,6 +1134,7 @@ export function createConnectComputerSettings({
       hostRoot.removeEventListener('click', handleClick)
       hostRoot.removeEventListener('input', handleInput)
       hostRoot.removeEventListener('focusin', handleFocusIn)
+      hostRoot.removeEventListener('change', handleChange)
     }
     hostRoot = null
   }

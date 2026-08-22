@@ -17,7 +17,8 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { sessionEventTurnId } from '../../src/agent-session-events.js'
+import { sessionEventTurnId, sessionMessageBoundary } from '../../src/agent-session-events.js'
+import { describeRun } from '../../src/local-activity.js'
 
 const here = fileURLToPath(import.meta.url)
 const SRC = join(dirname(dirname(dirname(here))), 'src')
@@ -95,7 +96,25 @@ test('the tree context is folded shut, and the closed line earns the press', () 
      the thread they are reading. A shared default is the thing being avoided. */
   assert.match(view, /openKey: typeof sessionId === 'string'/, 'the open state is not keyed to a conversation')
   assert.match(draw, /entry\.openKey/, 'the component ignores the key, so the memory is global')
-  assert.match(draw, /rememberContext\(key, wrap\.open\)/, 'opening it is forgotten the moment the panel rebuilds')
+  assert.match(draw, /contextOpen\.remember\(key, wrap\.open\)/, 'opening it is forgotten the moment the panel rebuilds')
+  assert.match(draw, /wrap\.open = contextOpen\.recall\(key\) === 'open'/, 'the remembered state is not read back on rebuild')
+  /* THE MEMORY IS THE SHARED ONE, not a private copy. The home card's run rows
+     fold and remember the same way ("collapse the context and such as it goes
+     like we do in chat"), so the memory was extracted to module level with the
+     same prefix and the same values, and this is the pin that it stayed one. */
+  assert.match(components, /export function openMemory\(prefix\)/, 'the open-state memory is no longer shared; home.js will grow a second copy')
+  assert.match(components, /const contextOpen = openMemory\('mc\.chat\.context-open:'\)/, 'the context fold stopped using the shared memory, or changed its key')
+  const memory = components.slice(components.indexOf('export function openMemory(prefix)'), components.indexOf('export function ownDisclosure'))
+  assert.match(memory, /value === 'open' \|\| value === 'closed' \? value : null/, 'recall no longer answers null for "nobody has said"')
+  assert.match(memory, /open \? 'open' : 'closed'/, 'remember writes a value recall cannot read back')
+  assert.match(memory, /catch \{ return null \}/, 'a storage that throws is no longer swallowed; a private window loses its folds')
+  /* THE OWNED PRESS, SHARED TOO, with the one narrowing the run rows need: a
+     press inside the open body (selecting text, following the door) is left
+     alone; a press on the summary, or whose target is the details itself (the
+     elementFromPoint case on a collapsed row), toggles. */
+  const gesture = components.slice(components.indexOf('export function ownDisclosure'), components.indexOf('export function buildChat'))
+  assert.match(gesture, /if \(within && event\.target !== details && !within\.contains\(event\.target\)\) return/, 'a press inside the open body folds the row, taking the text and the door away')
+  assert.match(gesture, /event\.preventDefault\(\)\s*\n\s*details\.open = !details\.open/, 'the native toggle is no longer cancelled and redone, so a summary press toggles twice')
 })
 
 test('the manager named in the brief is the name on the circle', () => {
@@ -264,6 +283,77 @@ test('the dead-session recovery matches the whole line, not a prefix of it', () 
   const block = recovery.slice(0, recovery.indexOf('const seeded ='))
   assert.match(block, /tail\.text\.length === TRANSCRIPT_LIMITS\.maxLineChars/, 'the only legitimate prefix -- a line the store truncated -- is no longer the only one admitted')
   assert.match(block, /tail\.text === text \|\| wasTruncated/, 'the whole-line comparison is gone')
+})
+
+/* ---------------------------------------------------------------
+   G. Two messages in one turn are two paragraphs, not one word.
+   --------------------------------------------------------------- */
+
+test('a message boundary is read off the wire, and only from the events that mark one', () => {
+  /* Owner, off the home card: "Said back: ...now.I couldn't". Words arrive as
+     deltas and were joined bare; the engine marks where a message ends. */
+  for (const type of ['assistant_text', 'tool_call', 'tool_result', 'approval_request']) {
+    assert.equal(sessionMessageBoundary({ sessionId: 's1', event: { type } }, 's1'), true, `${type} marks a message end`)
+  }
+  /* codex emits usage mid-message; a break there would split a sentence. */
+  assert.equal(sessionMessageBoundary({ sessionId: 's1', event: { type: 'usage' } }, 's1'), false)
+  assert.equal(sessionMessageBoundary({ sessionId: 's1', event: { type: 'assistant_text_delta', text: 'x' } }, 's1'), false)
+  /* The turn ending is the bigger seam and already owned by sessionTurnStatus. */
+  assert.equal(sessionMessageBoundary({ sessionId: 's1', event: { type: 'turn_completed' } }, 's1'), false)
+  /* Exact session, exact shape, false for everything else. */
+  assert.equal(sessionMessageBoundary({ sessionId: 's2', event: { type: 'assistant_text' } }, 's1'), false)
+  assert.equal(sessionMessageBoundary({ sessionId: 's1', event: null }, 's1'), false)
+  assert.equal(sessionMessageBoundary(null, 's1'), false)
+})
+
+test('the tree accumulator writes a paragraph break between two messages of one turn', () => {
+  const delta = view.slice(view.indexOf('const text = sessionEventText(packet, sessionId)'))
+  const settleAt = delta.indexOf('settleTurnBoundary(sessionId, sessionEventTurnId(packet, sessionId))')
+  const breakAt = delta.indexOf("sessionTurnText.set(sessionId, sessionTurnText.get(sessionId) + '\\n\\n')")
+  const accumulateAt = delta.indexOf("sessionTurnText.set(sessionId, (sessionTurnText.get(sessionId) || '') + text)")
+  assert.ok(breakAt !== -1, 'the accumulator no longer writes the break; two messages join as one word')
+  assert.ok(settleAt < breakAt && breakAt < accumulateAt, 'the break must land after the turn settles and before the new words')
+  assert.match(delta.slice(0, accumulateAt), /if \(sessionBreakPending\.delete\(sessionId\) && sessionTurnText\.get\(sessionId\)\)/, 'the break is written without a message having ended, or onto an empty accumulator')
+  /* The flag is raised where the boundary is read, beside the usage event, so
+     a boundary packet that carries no text still marks the seam. */
+  const markAt = delta.indexOf('if (sessionMessageBoundary(packet, sessionId)) sessionBreakPending.add(sessionId)')
+  const usedAt = delta.indexOf('const used = sessionUsageEvent(packet, sessionId)')
+  assert.ok(markAt !== -1, 'the tree ear no longer reads message boundaries')
+  assert.ok(markAt < usedAt, 'the boundary must be marked before the usage branch returns')
+  /* And the home card's live row does the same, through the same reader. */
+  const home = readFileSync(join(SRC, 'views', 'home.js'), 'utf8')
+  const ear = home.slice(home.indexOf('const onAgentPacket'), home.indexOf('const detachAgentEvents'))
+  assert.match(ear, /const boundary = sessionMessageBoundary\(packet, sessionId\)/)
+  assert.match(ear, /if \(live\.text && live\.breakPending\) live\.text \+= '\\n\\n'/, 'the home row joins two messages bare again')
+  assert.match(ear, /if \(boundary\) \{\s*\n\s*live\.breakPending = true/, 'the boundary is read but never remembered')
+})
+
+test('the joined words read as two sentences on the one-line row and as two paragraphs in the body', () => {
+  /* The accumulator rule, simulated exactly as both ears apply it: a break is
+     owed after a boundary and spent on the next word, never on an empty
+     accumulator and never at the end of a turn. */
+  const join = (events) => {
+    let text = ''
+    let breakPending = false
+    for (const event of events) {
+      if (event.text !== undefined) {
+        if (text && breakPending) text += '\n\n'
+        breakPending = false
+        text += event.text
+      }
+      if (event.boundary) breakPending = true
+    }
+    return text
+  }
+  const spoken = join([{ text: 'I checked the file' }, { text: ' just now.' }, { boundary: true }, { text: "I couldn't" }, { text: ' open it.' }])
+  assert.equal(spoken, "I checked the file just now.\n\nI couldn't open it.")
+  /* The home row clips to one line and the break becomes one space. */
+  const row = describeRun({ sequence: 1, atMs: 0, result: 'started', reason: null, sessionId: 's1' }, null, 1000, { live: { text: spoken, working: true } })
+  assert.equal(row.said, "I checked the file just now. I couldn't open it.")
+  /* Tokens of ONE message are not split: no boundary, no break. */
+  assert.equal(join([{ text: 'now.' }, { text: ' I' }]), 'now. I')
+  /* A boundary before any words writes nothing, and a trailing one is dropped. */
+  assert.equal(join([{ boundary: true }, { text: 'Hello.' }, { boundary: true }]), 'Hello.')
 })
 
 /* THE RUNTIME PROOF is tools/tree-chat-transcript-drive.mjs: a staged packaged

@@ -226,6 +226,10 @@
   flex-wrap: wrap;
   gap: 14px;
 }
+/* Drawn only where the room exists (home.js, checkoutSurfaceAvailable). The flex
+   above beats the user agent's [hidden]; re-asserted, the repository's
+   convention (styles.css .ctl-btn[hidden]). */
+.home .home-doors[hidden] { display: none; }
 .home .home-door {
   font-family: var(--font-ui);
   font-size: 12.5px;
@@ -271,13 +275,21 @@
 
 .home .session-view { position: relative; flex: 1; min-height: 0; }
 /* top padding gives the entry fade below somewhere to live that is not
-   glyphs; right padding keeps 13px mono clear of the scrollbar */
+   glyphs.
+   THE SCROLLBAR IS HIDDEN, NOT THE SCROLLING. The owner, with the card in
+   front of him (verbatim): "i would want to scroll bar gone (not visible, it
+   can still function)". So the region still scrolls by wheel, touch and the
+   keyboard (it is a tab stop, see the focus mark below), and only the bar is
+   gone -- the same idiom the metrics panels use (styles.css, the
+   scrollbar-width: none / ::-webkit-scrollbar pair). The 12px right padding
+   that kept text clear of the bar goes with it. */
 .home .session-log {
   height: 100%;
   overflow-y: auto;
-  scrollbar-width: thin;
-  padding: 16px 12px 4px 0;
+  scrollbar-width: none;
+  padding: 16px 0 4px 0;
 }
+.home .session-log::-webkit-scrollbar { display: none; }
 /* the log is a focusable scroll region (keyboard users page through history
    with it), so it needs a visible focus mark; --ink-derived so it holds on
    all three sheets without a per-theme override */
@@ -296,11 +308,11 @@
    13px monospace (the reasoning recorded for the old ticker's tail fade,
    still true). Full --bg at the very edge is right here where 58% was right
    for the tail: the top row is mid-scroll debris, not something being read.
-   Stops shy of the scrollbar so the gradient never tints the thumb. */
+   Edge to edge now that there is no scrollbar thumb to keep clear of. */
 .home .session-view::before {
   content: '';
   position: absolute;
-  left: 0; right: 12px; top: 0;
+  left: 0; right: 0; top: 0;
   height: 26px;
   z-index: 1;
   pointer-events: none;
@@ -605,25 +617,33 @@ a.home-fact:focus-visible {
   list-style: none;
   margin: 0; padding: 0;
 }
-/* TWO ROWS PER RUN, NOT ONE LINE.
-   The head is the run and its verdict; under it, what the agent was and what it
-   was asked, and -- for a refusal -- why it did not start. Every one of those
-   lines is omitted when the record does not carry it, so a row with nothing to
-   add is byte-for-byte the row this list always drew. */
+/* ONE LINE PER RUN, AND A FOLD UNDER IT.
+   The owner's words: "collapse the context and such as it goes like we do in
+   chat." The head is the run, its verdict, one clipped line of what it was
+   about and when; the body, one press away, is the question, the lines
+   between, what it did and what it said back. Every one of those lines is
+   omitted when the record does not carry it, so a row with nothing to add is
+   a head and nothing else. Native <details>, dressed like the chat's own
+   context block and action rows (styles.css .chat-context / .chat-action) so
+   the fold reads as the one a person already knows. */
 .home-run {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 2px 12px;
-  padding: 9px 0;
+  display: block;
+  padding: 0;
   border-bottom: 1px solid var(--line);
   font-size: 13px;
 }
 .home-run:last-child { border-bottom: 0; }
 .home-run .run-head {
-  grid-column: 1;
   display: flex; align-items: baseline; gap: 12px;
   min-width: 0;
+  padding: 9px 0;
+  cursor: pointer;
+  list-style: none;
 }
+.home-run .run-head::-webkit-details-marker { display: none; }
+/* The disclosure mark turns when the row is open, the way the chat's rows do
+   (styles.css .chat-action[open]). */
+.home-run .run-fold[open] .chat-action-mark svg { transform: rotate(90deg); }
 .home-run .run-what { color: var(--ink-2); }
 .home-run .run-agent,
 .home-run .run-asked,
@@ -631,17 +651,46 @@ a.home-fact:focus-visible {
 .home-run .run-said,
 .home-run .run-why,
 .home-run .run-gap {
-  grid-column: 1 / -1;
   min-width: 0;
   color: var(--ink-3);
   font-size: 12.5px;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
+/* The closed line's one clue: the brief (or the reason, or the gap), clipped to
+   what fits, and gone when the row is open and the full lines are below it. */
+.home-run .run-brief {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-3);
+  font-size: 12.5px;
+}
+.home-run .run-fold[open] .run-brief { display: none; }
 /* The agent's own role reads as its name, so it carries the ink the head does
    rather than the dim of the lines under it. */
-.home-run .run-agent { color: var(--ink-2); }
+.home-run .run-agent { flex: none; color: var(--ink-2); }
 .home-run .run-why { color: var(--c-failed, #c24b4b); }
+/* The open body: the lines in the order they happened, set in from the mark. */
+.home-run .run-body {
+  display: grid;
+  gap: 4px;
+  padding: 0 0 10px 21px;
+  min-width: 0;
+}
+/* The lines between the question and the answer, in the transcript's own
+   markup (.turn, shared with the coordinator thread above). A message break
+   inside one line is kept as a paragraph here; the one-line head flattens it. */
+.home-run .run-turns { display: grid; gap: 6px; }
+/* `[hidden] { display: none }` is the user agent's rule and the grid above
+   beats it, origin over specificity -- this repository's own convention
+   (styles.css .ctl-btn[hidden]; gate: tools/test/hidden-display-honesty.test.mjs). */
+.home-run .run-turns[hidden] { display: none; }
+.home-run .run-turns .turn { margin: 0; }
+.home-run .run-turns .turn-text,
+.home-run .run-said { white-space: pre-line; }
 /* WHAT IT DID and WHAT IT SAID, which are the two lines the owner's report was
    about. The answer carries the ink a person reads first, because it is the
    output; the turn line sits at the dim of the other supporting lines because
@@ -655,6 +704,11 @@ a.home-fact:focus-visible {
    not a fault, so it does not carry the failure colour, and it is not a fact
    about the agent, so it does not carry the ink of one. */
 .home-run .run-gap { font-style: italic; opacity: 0.85; }
+/* The door to the run's real chat, where one exists. It wears .home-next, whose
+   inline-flex would beat the user agent's [hidden]; re-asserted for the same
+   reason as .run-turns above. */
+.home-run .run-door { margin-top: 4px; justify-self: start; }
+.home-next[hidden] { display: none; }
 /* Live, and only while this window is actually watching the turn arrive. */
 .home-run .run-live {
   flex: none;
@@ -677,22 +731,31 @@ a.home-fact:focus-visible {
 /* The time sits at the right rail so a column of them scans as one list rather
    than as ragged prose. */
 .home-run .run-when {
-  grid-column: 2;
-  grid-row: 1;
+  margin-left: auto;
   flex: none;
   text-align: right;
   color: var(--ink-3);
   font-size: 12.5px;
 }
 
-/* One sentence stating what the record above is worth. Below the composer's
-   hairline is the wrong place for it -- it describes the log, not the box that
-   appends to it -- so it sits at the foot of the panel with its own rule. */
+/* The heading over the coordinator thread when it shares the card with the
+   run list. */
+.home .log-thread-head {
+  font-size: 12.5px;
+  font-weight: 640;
+  color: var(--ink-2);
+  padding: 12px 0 6px;
+}
+
+/* THE FOOT IS A WARNING OR NOTHING. It used to carry a paragraph under every
+   healthy list ("Written down on this computer as it happened, and the record
+   of all 19 runs still checks out..."); the owner, reading it: "this little
+   dialog box is kind of pointless". It is hidden on every healthy record now
+   and speaks only when the record no longer checks out, so it is set as a
+   quiet line with no rule of its own -- a rule under nothing is a gap. */
 .home .session-foot {
   flex: none;
-  margin-top: var(--s3);
-  padding-top: var(--s3);
-  border-top: 1px solid var(--line);
+  margin-top: var(--s2);
   font-size: 12px;
   line-height: 1.5;
   color: var(--ink-3);

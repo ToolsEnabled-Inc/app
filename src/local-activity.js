@@ -102,14 +102,6 @@ export const COPY = Object.freeze({
     title: 'Nothing has been said yet',
     body: 'When your coordinator starts talking, it appears here.',
   }),
-  sampleEmpty: Object.freeze({
-    title: 'This example has no conversation in it',
-    body: 'Nothing was written for this profile to show here.',
-  }),
-  /* IT USED TO STOP THERE. "This example has no reply written for that." is
-     true, and it leaves a person who has just typed something with nothing to
-     do about it. The second half is the whole repair. */
-  sampleNoReply: 'The example has no reply written for that one. Ask it something else, or turn the example off in Settings to use your own computer.',
   runLabel: (sequence) => `Agent run ${sequence}`,
   runWhenUnknown: 'at a time this record does not give',
   /* WHAT THE RUN DID, per row, and the empty string is load-bearing.
@@ -190,17 +182,31 @@ export const COPY = Object.freeze({
      state on the row that is not read back off a record. It says what is
      happening and never how long it has been happening. */
   runWorkingNow: 'Working now',
-  /* SAID ONCE, UNDER THE LIST, because it is true of every row and belongs to
-     the record rather than to any run. ToolsEnabled writes two lines per run:
-     what it was about to start, and whether the start took. There is no third
-     line for the ending, so a duration or a finished state on these rows could
-     only be this window guessing. */
-  runEndingsNotKept: 'Each start is written down and no ending is, so this list never says how long a run took.',
-  /* The aggregate, in the panel footer, under the record's own integrity line.
-     Returns null when the ledger says nothing either way, which is exactly the
-     state every record written before outcomes existed is in -- an older
-     ledger therefore reads as it always did rather than acquiring a made-up
-     summary. */
+  /* THE LINES BETWEEN THE QUESTION AND THE ANSWER, labelled by who said them.
+     The owner asked the home card to carry "the transcript turns, what was
+     asked, what was said back", the way the chat does. The person's own lines
+     are labelled "You"; an agent's are labelled with its role, or with this
+     word when the record never named one; an action line (a tool that ran) is
+     unlabelled, as it is in the transcript. */
+  turnYou: 'You',
+  turnAgent: (role) => role || 'The agent',
+  /* The heading over the coordinator thread when it shares the card with the
+     run list, so the two halves read as two things rather than as one list
+     that changes register halfway down. */
+  threadLabel: (target) => `Conversation with ${target}`,
+  /* THE DOOR FROM A RUN TO ITS REAL CHAT. The card shows a run; it does not take
+     messages for one, because the only audited way to speak to a running agent
+     is the tree rail on the computers page and the agent page. There is no
+     per-node deep link (the router knows #/computers and #/agent/<computer>/
+     <agent> and nothing finer), so the door opens the page and says so. */
+  runDoor: Object.freeze({ label: 'Open it on the computers page', href: '#/computers' }),
+  /* The aggregate of outcomes across the record. No longer printed on the home
+     card -- the owner, with the footer paragraph on screen: "this little dialog
+     box is kind of pointless" -- but src/local-metrics.js still reads it
+     verbatim for the metrics page, so it stays. Returns null when the ledger
+     says nothing either way, which is exactly the state every record written
+     before outcomes existed is in -- an older ledger therefore reads as it
+     always did rather than acquiring a made-up summary. */
   runOutcomes: (started, refused, total) => {
     const unknown = Math.max(0, total - started - refused)
     if (unknown === total) return null
@@ -227,7 +233,6 @@ export const COPY = Object.freeze({
     action: Object.freeze({ label: 'Pick which agents appear', href: '#/settings' }),
   }),
   chatboxAgentsHeld: (count) => `${count} ${String(count) === '1' ? 'agent is' : 'agents are'} being kept out of this box by your own choice.`,
-  composerSample: (target) => `Try writing to ${target}`,
   composerLive: (target) => `Message ${target}`,
   replyChecking: 'Checking whether replies can be sent',
   replyUnavailable: 'Replies cannot be sent right now',
@@ -240,7 +245,6 @@ export const COPY = Object.freeze({
      accepts nothing is worse than no input. */
   replyDisabled: 'Sending replies is switched off. Turn it on in Settings and this box will send and record them.',
   replyReady: 'Replies will be sent and recorded',
-  replyReadyOneChannelOffline: 'Replies will be sent and recorded. One message channel is offline.',
   replySending: 'Sending',
   replySent: 'Sent and recorded',
   replyRefused: 'That message was not sent. Nothing was recorded.',
@@ -499,8 +503,10 @@ export const ENGINE_REASON = Object.freeze({
  * the whole reason this is a join rather than a requirement.
  *
  * `conversations` is a Map (or any object with .get) from session id to
- * { role, asked }. The view builds it from what the person has saved; this
- * function neither reads storage nor knows where it came from.
+ * { role, asked, reply, said, ... } and, where the reader kept the transcript,
+ * `turns`: the saved lines as { who: 'you'|'agent'|'action', text, at }. The
+ * view builds it from what the person has saved; this function neither reads
+ * storage nor knows where it came from.
  */
 export const RUN_BRIEF_CHARS = 96
 
@@ -613,6 +619,26 @@ export function describeRun(run, conversations = null, nowMs = Date.now(), { wor
      turn in progress is not a turn nobody recorded. */
   const noWork = !did && !working && run.result === 'started' ? COPY.runNoTurns : ''
 
+  /* THE LINES BETWEEN, for the open row. The saved transcript carries the whole
+     conversation; the row already prints its first line as "Asked:" and its
+     last agent line as "Said back:", so those two are trimmed off here rather
+     than printed twice -- a leading 'you' line only when it IS the brief, and
+     a trailing 'agent' line always, because that is the answer by definition.
+     Anything else in the record is shown in the order it happened, and a
+     record with no transcript gives an empty list rather than an invented one. */
+  const asked = clip(said && typeof said.asked === 'string' ? said.asked : '')
+  const savedTurns = said && Array.isArray(said.turns)
+    ? said.turns.filter(line => line && typeof line === 'object' && typeof line.text === 'string' && line.text.trim())
+    : []
+  let first = 0
+  let last = savedTurns.length
+  if (first < last && savedTurns[first].who === 'you' && clip(savedTurns[first].text) === asked) first += 1
+  if (first < last && savedTurns[last - 1].who === 'agent') last -= 1
+  const turns = Object.freeze(savedTurns.slice(first, last).map(line => Object.freeze({
+    who: line.who === 'you' || line.who === 'action' ? line.who : 'agent',
+    text: line.text,
+  })))
+
   return Object.freeze({
     sequence: run.sequence,
     result: run.result,
@@ -621,8 +647,9 @@ export function describeRun(run, conversations = null, nowMs = Date.now(), { wor
     resultWord: COPY.runResult(run.result),
     why: run.result === 'refused' ? COPY.runReason(run.reason) : '',
     agent: clip(said && typeof said.role === 'string' ? said.role : ''),
-    asked: clip(said && typeof said.asked === 'string' ? said.asked : ''),
+    asked,
     said: answer,
+    turns,
     /* True only while this window is watching the stream carry that session.
        It is an observation, not a reading of a record, and it is the only
        liveness claim this row makes. */
@@ -952,8 +979,12 @@ export function describeHome(input) {
        input at all, so the composer exists only where it does something. A
        conversation the person has switched OFF for this box is one of the
        places it does nothing: the reply would be accepted, recorded, and never
-       appear. */
-    composer: (mode === HOME_MODES.SAMPLE || mode === HOME_MODES.FLEET) && panel.context,
+       appear. FLEET only, and no longer the demonstration: the thread reply is
+       the one audited sink (postBridgeAction, isWriteEnabled('thread-reply')),
+       the example composer faked its replies, and a LOCAL run has no receiver
+       here -- its real chat is the tree rail and the agent page, reached
+       through the door on the row. */
+    composer: mode === HOME_MODES.FLEET && panel.context,
     /* Every sentence this screen will print, flattened. The test walks this. */
     statements: Object.freeze([headline, ...facts.map(fact => fact.text), ...panelStatements(panel)].filter(Boolean)),
   })
@@ -1002,7 +1033,13 @@ function fleetHeadline(health) {
  * settings decide, out of what is available, what a person actually sees.
  */
 function describePanel(mode, sessions, engine, chatbox) {
-  const contextAvailable = mode === HOME_MODES.SAMPLE || mode === HOME_MODES.FLEET
+  /* A CONVERSATION IS ONLY THE COORDINATOR THREAD NOW. The demonstration used
+     to bring its own written transcript into this half; the owner asked for
+     one card with the live list as the foundation and the transcript's
+     substance folded into each run's row, so the example shows the same rows a
+     real machine does (with their own asks, lines and answers) and has no
+     separate conversation half. */
+  const contextAvailable = mode === HOME_MODES.FLEET
   /* Every mode now has runs to show, including the demonstration -- ITS OWN,
      never this computer's; see the substitution in describeHome. This read
      `mode !== SAMPLE`, which was the honesty rule ("mixing this computer's real
@@ -1021,7 +1058,7 @@ function describePanel(mode, sessions, engine, chatbox) {
   const panel = {
     /* Which conversation the renderer should load, or none. NOT "what is in the
        box": `runs` is its own flag now, because both can be true. */
-    kind: plan.showContext ? (mode === HOME_MODES.SAMPLE ? 'sample' : 'conversation') : 'none',
+    kind: plan.showContext ? 'conversation' : 'none',
     context: plan.showContext,
     runs: plan.showRuns,
     title: panelTitle(mode, plan),
@@ -1121,51 +1158,30 @@ function describePanel(mode, sessions, engine, chatbox) {
 
 function panelTitle(mode, plan) {
   if (plan.showContext && plan.showRuns) return 'Your coordinator, and what has run here'
-  if (plan.showContext) return mode === HOME_MODES.SAMPLE ? 'Example conversation' : 'Your coordinator'
+  if (plan.showContext) return 'Your coordinator'
+  /* The example's list is the example fleet's, not this computer's, and the
+     title says so beside the badge rather than borrowing the live one. */
+  if (mode === HOME_MODES.SAMPLE) return 'Activity in this example fleet'
   return 'Activity on this computer'
 }
 
-/* What the record is worth, said exactly and not one word further. It is signed
-   on this machine with a key held on this machine, so it proves the list has not
-   been quietly edited; it does not prove who ran anything, and this product has
-   no accounts, so it never will from here. Both halves ship or neither does. */
-/* TWO SENTENCES ABOUT TWO DIFFERENT THINGS, and running them together is what
- * made this footer mislead.
+/* THE FOOTER IS A WARNING OR NOTHING.
  *
- * "All 3 runs still check out" was never a claim about the agents. It is the
- * hash chain and the signatures verifying -- a statement about the RECORD. But
- * it sat directly under "3 agent runs on this computer", and a person reading
- * the two together was told, in the product's own voice, that their three runs
- * were fine. All three had refused to start. That is the worst way for a screen
- * to be wrong: it does not look broken, it looks reassuring, and it costs the
- * reader the one signal that would have sent them to fix it.
- *
- * So the integrity sentence now names its own subject -- "the record of all 3
- * still checks out" -- and the outcome gets a sentence of its own instead of
- * being inferred from silence. When the ledger has nothing to say about
- * outcomes, which is every record written before they existed, the second
- * sentence is omitted rather than guessed. */
+ * It used to be three sentences on every healthy record: that the record checks
+ * out, how many runs started, and that no ending is ever written down. The
+ * owner, with the card in front of him (verbatim): "this little dialog box is
+ * kind of pointless". He is right about the healthy case -- a paragraph that
+ * says the same thing under every list is furniture, and the integrity
+ * sentence was being read as a statement about the agents (it once sat under
+ * three runs that all refused to start). So a record that checks out says
+ * nothing, and only a record that NO LONGER checks out speaks, because that is
+ * the one case where the sentence changes what a person should do with the
+ * list. The outcome count is still on the metrics page through COPY.runOutcomes. */
 function recordFooter(sessions) {
-  const counted = countOf(sessions.total, 'run', 'runs')
-  const integrity = sessions.verified === true
-    ? `Written down on this computer as it happened, and the record of all ${counted} still checks out.`
-    : sessions.verified === false
-      ? 'Written down on this computer as it happened. The record no longer checks out, so treat this list as a guide, not a receipt.'
-      : `Written down on this computer as it happened, ${counted} in all.`
-  const outcomes = Number.isSafeInteger(sessions.started) && Number.isSafeInteger(sessions.refused)
-    ? COPY.runOutcomes(sessions.started, sessions.refused, sessions.total)
-    : null
-  /* AND THE THIRD SENTENCE, WHICH IS ABOUT WHAT THIS RECORD DOES NOT HOLD.
-   *
-   * The owner asked for a flow, and the first thing a person wants from a flow
-   * is how long each thing took. It cannot be answered. The recorder writes
-   * exactly two lines per run -- the intent before the process exists, and
-   * started or refused the instant the start resolved -- and there is no line
-   * for an ending anywhere in the chain. A duration here could therefore only
-   * be this window subtracting one clock from another and presenting it as a
-   * measurement, which is the class of thing this whole screen was rewritten to
-   * stop doing. So the list says what it has and says, once, what it has not. */
-  return [integrity, outcomes, COPY.runEndingsNotKept].filter(Boolean).join(' ')
+  if (sessions.verified === false) {
+    return 'Written down on this computer as it happened. The record no longer checks out, so treat this list as a guide, not a receipt.'
+  }
+  return null
 }
 
 function panelStatements(panel) {

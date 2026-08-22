@@ -149,22 +149,41 @@ function packedXs(list, width) {
    is centred under its own parent. The whitespace does the work the edges were
    being asked to do alone.
 
-   TWO THINGS THIS PACKER DID NOT DO. Neither was visible while the canvas was
-   frozen at 827px wide; both are what a canvas allowed to use the window turns
-   into (see the page-2 column in src/styles.css).
+   WHAT THIS PACKER IS NOW, AND WHAT IT IS NOT.
+   It is a PER-RANK packer: each rank is positioned on its own, after the rank
+   above it has been fixed, with no knowledge of how wide the subtrees under
+   it will turn out to be. It wants to centre every family under its parent
+   (`desired` below) but it places families with a monotone left-to-right
+   cursor, so the moment one family cannot sit under its parent without
+   touching the family to its left, it is pushed right, and every family after
+   it is pushed further. Measured on the owner's screenshot (canvas ≈ 900px,
+   three roots and one new-tree slot, one child and three child slots): the
+   root row sat at the within-family pitch, 78 + 68 = 146px, while the child
+   row's families were 68 wide with 238px BETWEEN them — a 306px family pitch
+   under a 146px parent pitch — so the child row ran to 89/230/536/842 and
+   B's slot sat 80px right of B, C's 150px right of C, on elbowed connectors
+   that should have been straight drops. Parents were placed first, with no
+   room made for their children, and the children were pushed wherever the
+   cursor left them.
 
-   1. A rank whose nodes all share ONE parent was refused here — `groups.length
-      < 2` — and fell through to packedXs, which spreads a rank EVENLY across
-      the whole canvas. That is the exact failure the paragraph above was
-      written to prevent, left in place for the commonest shape there is: one
-      coordinator with four managers under it. On a 1260px canvas those four
-      stand 252px apart and the rank stops reading as one family. One group is
-      still a group; it is packed and centred under its parent like any other.
-   2. The air between siblings was a constant, so a rank with room to breathe
-      never used it and a wider window bought the reader nothing. The air is
-      now the largest value up to AIR_WITHIN_MAX that still fits the rank, and
-      the gap BETWEEN groups holds a constant ratio to it, so the "tight
-      siblings, wide gap between families" reading survives at every width. */
+   The cure is not a better cursor; it is a pass that knows subtree widths
+   before any parent is placed. That pass is packSubtreeXs below: one
+   post-order measure from the leaves up, then top-down placement, so every
+   parent is centred over exactly the room its own children need and a
+   child's connector collapses to a vertical line. This rank packer stays for
+   two reasons that are not nostalgia: it is the sole CULL AUTHORITY — which
+   records fit a rank, and whether the drill is required, are decided here
+   and only here, so the subtree overlay can never make an agent disappear —
+   and it is the FALLBACK geometry whenever the subtree pass cannot fit the
+   forest even at its tightest rung. `culled` and `drillRequired` are byte
+   for byte what they were before the overlay existed.
+
+   The two earlier lessons still hold and are kept in this packer:
+   1. A rank whose nodes all share ONE parent is still one group, packed and
+      centred, never handed to packedXs to be smeared across the canvas.
+   2. The air between siblings is the largest value up to AIR_WITHIN_MAX that
+      still fits, and the gap BETWEEN groups keeps a constant ratio to it, so
+      "tight siblings, wide gap between families" survives at every width. */
 const AIR_WITHIN = 18
 const AIR_WITHIN_MAX = 68
 const BETWEEN_RATIO = 3.5
@@ -237,6 +256,159 @@ function packGroupedXs(list, width, anchorOf) {
   return xs.at(-1) + list.at(-1).r <= width - 4 ? xs : null
 }
 
+/* ONE POST-ORDER SUBTREE PASS, THEN TOP-DOWN PLACEMENT.
+   This is the pass packGroupedXs could not be (see the block above it): it
+   measures every subtree from the leaves up BEFORE any parent is placed, so a
+   parent is put over the middle of the room its own children take, and the
+   children are laid out under it from that room's left edge. A parent with one
+   child sits exactly over it; a parent with two sits over their midpoint; the
+   connector the graph draws is then a straight drop, which is the picture the
+   owner drew for us: children directly beneath, no elbow, no family pushed
+   sideways by a neighbour that happened to be placed first.
+
+   Families. A record whose parent is placed and strictly shallower is that
+   parent's child. A record whose parent was culled (or sits on its own rank or
+   deeper, which an explicit tierRank can do) is hung from its nearest placed,
+   strictly shallower ancestor instead, so a culled manager does not orphan its
+   lanes. A true root is a family of its own tree — keyed exactly as the rank
+   packer keys it, `tree:${treeId}` or '~orphan', so the two agree about what a
+   tree is — and families stand in the order their first root appears, which on
+   the root rank is (orderHint, id): the same order the rank packer uses when
+   every parent is at the same x, so the root row does not reshuffle. A record
+   with a parent but no placed shallower ancestor at all is a stray; strays keep
+   their rank's y and trail the forest in a family of their own rather than be
+   dropped, because this pass never removes anything — removal is the rank
+   packer's job and it has already been done by the time this runs.
+
+   Measure. Deepest rank first, so every child is measured before its parent,
+   without recursion. A leaf is its footprint, `2 * halfFoot` (its label's
+   minimum readable width, the same primitive both rank packers use, read from
+   the radius the vertical fitter may already have shrunk). An internal node's
+   children span their footprints plus `air` between; the node's own centre is
+   the midpoint of its first and last child's centres; the subtree's box is the
+   union of that span and the node's own footprint, so a parent wider than its
+   children (a coordinator over one lane) still claims its full width and two
+   such parents never touch. The forest is the families in a row, `air` between
+   roots of one tree and `between = floor(air * BETWEEN_RATIO)` between trees —
+   paid between TREES only. Inside one tree a cousin stands as close as a
+   sibling, which is what a family looks like; the wide gap says "another
+   tree", and today's per-rank packer was spending it between every pair of
+   families, which is how a three-child row came to need 306px per child.
+
+   Ladder. The widest air that fits wins: AIR_WITHIN_MAX down to AIR_WITHIN one
+   pixel at a time at the normal rank edge, then the rank packer's own
+   PACKING_LADDER rungs — spread in, never copied, so the two ladders cannot
+   drift — which narrow the edge and finally the air to MIN_AIR. No rung fits →
+   null, and the per-rank geometry already computed stands: every placed
+   record keeps its x, nothing is culled or un-culled by this pass.
+
+   Returns Map id → x for every placed record, or null. */
+function packSubtreeXs({ tierKeys, tiers, parents, placed, width, treeIdOf }) {
+  const depthOf = new Map()
+  const ranks = tierKeys.map((tierKey, rowIndex) => {
+    const list = tiers.get(tierKey)
+      .filter(record => placed.has(record.id))
+      .sort((left, right) => left.orderHint - right.orderHint || left.id.localeCompare(right.id))
+    for (const record of list) depthOf.set(record.id, rowIndex)
+    return list
+  })
+  const ordered = ranks.flat()
+  if (!ordered.length) return null
+  const byId = new Map(ordered.map(record => [record.id, record]))
+
+  const childrenOf = new Map(ordered.map(record => [record.id, []]))
+  const families = new Map()
+  const familyOf = (key) => {
+    if (!families.has(key)) families.set(key, [])
+    return families.get(key)
+  }
+  const strays = []
+  for (const record of ordered) {
+    const depth = depthOf.get(record.id)
+    if (!parents.has(record.id)) {
+      const treeId = treeIdOf(record)
+      familyOf(treeId ? `tree:${treeId}` : '~orphan').push(record)
+      continue
+    }
+    /* Walk up to the nearest placed, strictly shallower ancestor; the bound
+       and the seen-guard are depthFor's, because a parent map built from
+       declared edges is cycle-safe but a tierRank can still put a parent on
+       its child's rank or below it. */
+    let current = record.id
+    let host = null
+    const seen = new Set([current])
+    for (let step = 0; step < 12 && parents.has(current); step += 1) {
+      current = parents.get(current)
+      if (seen.has(current)) break
+      seen.add(current)
+      if (depthOf.has(current) && depthOf.get(current) < depth) { host = current; break }
+    }
+    if (host) childrenOf.get(host).push(record)
+    else strays.push(record)
+  }
+  const groups = [...families.values()]
+  if (strays.length) groups.push(strays)
+
+  const measure = (air) => {
+    const box = new Map()
+    for (let rowIndex = ranks.length - 1; rowIndex >= 0; rowIndex -= 1) {
+      for (const record of ranks[rowIndex]) {
+        const foot = halfFoot(record)
+        const kids = childrenOf.get(record.id)
+        if (!kids.length) {
+          box.set(record.id, { w: foot * 2, nodeOff: foot, kidsOff: 0 })
+          continue
+        }
+        const span = kids.reduce((sum, kid) => sum + box.get(kid.id).w, 0) + air * (kids.length - 1)
+        const first = box.get(kids[0].id)
+        const last = box.get(kids.at(-1).id)
+        const mid = (first.nodeOff + (span - last.w + last.nodeOff)) / 2
+        const left = Math.min(0, mid - foot)
+        const right = Math.max(span, mid + foot)
+        box.set(record.id, { w: right - left, nodeOff: mid - left, kidsOff: -left })
+      }
+    }
+    const between = Math.floor(air * BETWEEN_RATIO)
+    const forest = groups.reduce((sum, roots) =>
+      sum + roots.reduce((inner, root) => inner + box.get(root.id).w, 0) + air * (roots.length - 1), 0)
+      + between * (groups.length - 1)
+    return { box, between, forest }
+  }
+
+  for (const [edge, air] of SUBTREE_LADDER) {
+    const available = width - edge * 2
+    const { box, between, forest } = measure(air)
+    if (forest > available) continue
+    const xs = new Map()
+    let cursor = edge + (available - forest) / 2
+    const place = (record, left) => {
+      const own = box.get(record.id)
+      xs.set(record.id, left + own.nodeOff)
+      let kidLeft = left + own.kidsOff
+      for (const kid of childrenOf.get(record.id)) {
+        place(kid, kidLeft)
+        kidLeft += box.get(kid.id).w + air
+      }
+    }
+    for (const roots of groups) {
+      for (const root of roots) {
+        place(root, cursor)
+        cursor += box.get(root.id).w + air
+      }
+      cursor += between - air
+    }
+    return xs.size === byId.size ? xs : null
+  }
+  return null
+}
+/* AIR_WITHIN_MAX down to AIR_WITHIN at the rank edge, then the rank packer's
+   own rungs. Spread from PACKING_LADDER so a rung edited there is a rung
+   edited here; a test guards the spread. */
+const SUBTREE_LADDER = Object.freeze([
+  ...Array.from({ length: AIR_WITHIN_MAX - AIR_WITHIN + 1 }, (_, index) => [RANK_EDGE, AIR_WITHIN_MAX - index]),
+  ...PACKING_LADDER,
+])
+
 function keepReadable(list, width) {
   const priority = [...list].sort((left, right) =>
     Number(left.cullable) - Number(right.cullable)
@@ -249,6 +421,21 @@ function keepReadable(list, width) {
     if (packedXs(candidate, width) || keep.length === 0) keep.push(record)
   }
   return new Set(keep.map(record => record.id))
+}
+
+/* Each record's label budget comes from ITS OWN two neighbours, not from
+   the rank minimum: one tight pair used to shrink every label in the row,
+   including labels standing next to open space. An end record has one
+   neighbour; a lone record has none and stays uncapped. `xs` must be the
+   rank's x values in left-to-right order, or a budget is read off a record
+   that is not a neighbour at all. */
+function pitchBetween(xs, index) {
+  const left = index > 0 ? xs[index] - xs[index - 1] : null
+  const right = index + 1 < xs.length ? xs[index + 1] - xs[index] : null
+  if (left == null && right == null) return null
+  if (left == null) return right
+  if (right == null) return left
+  return Math.min(left, right)
 }
 
 /* Middle-truncation destroys the word — "assi…ant", "reco…ile" — and the
@@ -490,24 +677,41 @@ export function layoutTree({ nodes = [], edges = [], W = 800, H = 600 } = {}) {
       for (const record of list.slice(1)) culled.add(record.id)
     }
 
-    /* Each record's label budget comes from ITS OWN two neighbours, not from
-       the rank minimum: one tight pair used to shrink every label in the row,
-       including labels standing next to open space. An end record has one
-       neighbour; a lone record has none and stays uncapped. */
-    const pitchAt = (index) => {
-      const left = index > 0 ? xs[index] - xs[index - 1] : null
-      const right = index + 1 < xs.length ? xs[index + 1] - xs[index] : null
-      if (left == null && right == null) return null
-      if (left == null) return right
-      if (right == null) return left
-      return Math.min(left, right)
-    }
     visible.forEach((record, index) => {
       slots.set(record.id, { x: xs[index], y })
       rowOf.set(record.id, rowIndex)
-      labels.set(record.id, labelFor(record, pitchAt(index)))
+      labels.set(record.id, labelFor(record, pitchBetween(xs, index)))
     })
   })
+
+  /* THE SUBTREE OVERLAY. The loop above has decided what fits (culled,
+     drillRequired) and given every placed record a per-rank x. Now, with the
+     survivors known, the forest is measured from the leaves up and placed from
+     the roots down, and when it fits the canvas its x values replace the
+     per-rank ones: children directly under their parents, parents centred over
+     their children, the wide gap spent between trees only. When it does not
+     fit — a canvas too narrow even at MIN_AIR — the per-rank geometry stands
+     untouched, so a narrow window degrades to the layout it had before this
+     pass existed rather than to an overflow. Each rank is re-sorted by its new
+     x before the label budgets are read: a budget is the distance to the two
+     NEIGHBOURS, and after the overlay a record's neighbours can be different
+     records from the ones the per-rank order put beside it. */
+  const overlay = packSubtreeXs({
+    tierKeys, tiers, parents, placed: new Set(slots.keys()), width,
+    treeIdOf: (record) => record.treeId,
+  })
+  if (overlay) {
+    for (const tierKey of tierKeys) {
+      const rank = tiers.get(tierKey)
+        .filter(record => overlay.has(record.id))
+        .sort((left, right) => overlay.get(left.id) - overlay.get(right.id))
+      const xs = rank.map(record => overlay.get(record.id))
+      rank.forEach((record, index) => {
+        slots.get(record.id).x = xs[index]
+        labels.set(record.id, labelFor(record, pitchBetween(xs, index)))
+      })
+    }
+  }
 
   /* The radius is not a number this file kept to itself: it is the drawn
      diameter, the origin of every leader line and the obstacle the context

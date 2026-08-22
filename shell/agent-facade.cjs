@@ -6,10 +6,12 @@
  * module is that door and nothing more. Every command is decided by the
  * shared surface (shell/agent-command-surface.cjs) -- the same bodies, the
  * same bounds, the same refusals the window gets -- under a RELAY principal
- * whose mayWrite comes from the caller per request, so today (the owner's
- * web-drive switch does not exist yet, and its default is OFF) every write
- * through this door is refused MC_AGENT_PRINCIPAL_READ_ONLY. That is correct
- * and expected, not a defect.
+ * whose mayWrite comes from the caller per request: the owner's web-drive
+ * switch, set in the connect section of Settings on this machine and read
+ * from shell/renderer-prefs.cjs per command. Its default is OFF, so until it
+ * is turned on every write through this door is refused
+ * MC_AGENT_PRINCIPAL_READ_ONLY. That is correct and expected, not a defect,
+ * and there is no route through this door that can move the switch.
  *
  * SERVER RULES (design §2.3), each one load-bearing:
  *

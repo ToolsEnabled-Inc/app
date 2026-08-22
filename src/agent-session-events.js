@@ -46,6 +46,37 @@ export function sessionEventTurnId(packet, sessionId) {
   return event.turnId
 }
 
+/* WHERE ONE MESSAGE ENDS INSIDE A TURN, which is a smaller thing than a turn
+ * ending and was not marked anywhere.
+ *
+ * THE DEFECT (owner, 2026-08-22, from the home card): "Said back: ...now.I
+ * couldn't". Words reach a screen only as assistant_text_delta, and every
+ * accumulator joins deltas bare -- right for the tokens of one message, wrong
+ * when an engine says two whole messages in one turn: answer, run a tool,
+ * answer again. The second message's first token lands against the first
+ * message's full stop with nothing between them.
+ *
+ * THE WIRE ALREADY MARKS THE SEAM. codex emits assistant_text once per item
+ * when that item completes (engine codex-adapter.js), and the Claude CLI
+ * emits assistant_text and then tool_call after each message's deltas (engine
+ * claude-cli-adapter.js); shell/agent-host.cjs forwards the event whole. So a
+ * boundary is a fact on the stream, and this reader names it rather than any
+ * surface guessing from punctuation.
+ *
+ * WHAT IS DELIBERATELY NOT A BOUNDARY. `usage` -- codex emits it mid-message,
+ * and a break there would split one sentence in two. The deltas themselves.
+ * And turn_completed, which sessionTurnStatus already owns: a turn ending is
+ * the bigger seam and every accumulator already settles on it. Same contract
+ * as its siblings: exact shape, exact session, false for everything else. */
+const MESSAGE_BOUNDARY_EVENTS = new Set(['assistant_text', 'tool_call', 'tool_result', 'approval_request'])
+
+export function sessionMessageBoundary(packet, sessionId) {
+  if (!packet || typeof packet !== 'object' || packet.sessionId !== sessionId) return false
+  const event = packet.event
+  if (!event || typeof event !== 'object') return false
+  return typeof event.type === 'string' && MESSAGE_BOUNDARY_EVENTS.has(event.type)
+}
+
 export function sessionTurnStatus(packet, sessionId) {
   if (!packet || typeof packet !== 'object' || packet.sessionId !== sessionId) return null
   const event = packet.event

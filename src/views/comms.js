@@ -1,102 +1,86 @@
-// /comms — an agent fleet's message board, rendered as a calm two-pane channel
-// view. The discord.send integration is dormant — bot-token auth, no token in
-// the vault, zero sends — and is shown honestly as a footer row, never as live.
+// /comms — Agent comms: the messages your agents send each other, channel by
+// channel, and which services and channels exist on this computer.
 //
-// ONE RENDER PATH, THREE DATA SOURCES. This page used to carry a second,
-// simulated render — its own seeded histories, a packet composer, an arrival
-// scheduler, conversation boxes fed from the fleet profile — selected by a
-// per-view live flag. The owner's ruling collapsed that: "all simulated pages
-// ARE the UI pages, just mock data." So the live projection below is the only
-// code that draws the page, and src/data-source.js answers the one question
-// left: where the envelope it renders comes from. 'local' and 'relay' read
-// this machine (or the tunnelled one) exactly as the live face always did;
-// 'mock' feeds src/sample-comms.js's example envelope through the SAME
-// applyLiveProjection, so the render cannot drift between the demonstration
-// and the product — a mock-only render bug is impossible because there is no
-// mock-only render. The mock face is badged (sourceIsBadged), because the
-// badge follows the SOURCE, never the look of the data.
+// WHAT THIS PAGE IS, SAID ONCE. It had six names (two board names, one
+// projection name, the mode labels, the class families, the route) and
+// was an infrastructure inventory welded to a message log: every service and
+// every channel got a tile, a rail row, a detail card and a header count, and
+// one read failure was stamped into all of them. The owner's finding was that
+// nobody could say what the page was for. Now the title says its name, the
+// line under it says the inventory once, the tiles and the channel list are
+// CHANNELS only, services are listed by name in the rail and nowhere else, and
+// one failure is one notice under the header. The words are all in
+// src/comms-copy.js so a plain node run can measure the whole panel per state.
 //
-// Any address rendered from the fleet profile — the channel-rail footer below
-// is the one surface left that reads it — is RFC 5737 documentation-reserved
-// (192.0.2.0/24) ON PURPOSE — it can never be a real host. Do NOT "improve"
-// them into a realistic-looking private range like 192.168.x: that ships
-// something reading as a real machine roster while still passing a grep for
-// the owner's own address, which is the bug this replaced. The footer is
-// user-visible chrome, not a fixture.
+// ONE RENDER PATH, THREE DATA SOURCES. The owner's ruling collapsed the old
+// simulated render: "all simulated pages ARE the UI pages, just mock data."
+// applyLiveProjection below is the only code that draws the page, and
+// src/data-source.js answers the one question left: where the report it
+// renders comes from. 'local' and 'relay' read this machine (or the tunnelled
+// one); 'mock' feeds src/sample-comms.js's example report through the SAME
+// function, so a mock-only render bug is impossible because there is no
+// mock-only render. The mock face is badged, because the badge follows the
+// SOURCE, never the look of the data.
 //
-// C7 added the WATCH BOARD as the page default: a board of conversation
-// context boxes built from the shared chip component (.chip / .chip-preview /
-// .as-chat + buildChat from components.js) — the graph's boxes, laid out as a
-// scrollable stack that drag-splits into nested tiles. The projection's
-// records — services on record, channels seen running, their status details —
-// are those boxes now.
+// THE BOARD is a stack of channel tiles built from the shared chip component
+// (.chip / .chip-preview / .as-chat from styles.css) that drag-splits into
+// nested tiles; an expanded tile is a header and a log, nothing else -- there
+// is no composer on this page because nothing here can send (the old expanded
+// tile borrowed the shared composer, which seeded two canned lines into every
+// tile and printed a not-connected refusal on live data).
+//
+// MESSAGES BETWEEN AGENTS are the one thing on this page that is an
+// integration: the messaging the agents do with EACH OTHER over this product's
+// own channel (agent_comms.send_local / agent_comms.read). No third-party
+// messaging service is named on this page, by the owner's ruling.
 
-import { el, buildChat, attachSeg } from '../components.js'
+import { el, attachSeg, openMemory, ownDisclosure } from '../components.js'
 import { onNextFrame } from '../page-frames.js'
-import { ROLES } from '../vocab.js'
-import { FLEET } from '../fleet-profile.js'
 import { resolveDataSource, currentDataSource, sourceIsBadged, DATA_SOURCE_EVENT } from '../data-source.js'
 import { sampleOpsEnvelope } from '../sample-comms.js'
 import { fetchOps } from '../live-status.js'
-/* The shared empty-state notice — see projectionUnavailableEl below for why this
-   board does not write its own. src/guide.css carries the two placements this
-   page needs (`.comms .chip-preview .host-absent`, `.comms .chat-log .host-absent`). */
+/* The shared empty-state notices — the host-absent one when the whole read
+   failed, the quiet one when the read worked and found nothing. Both are the
+   copy module's words; tools/first-run-recovery-qa.mjs reads them off the
+   glass. src/guide.css carries the placements this page needs. */
 import { commsQuietMarkup, hostAbsentMarkup } from '../first-run-needs.js'
+import {
+  COMMS_NAME, MODE_LABELS, RAIL_GROUPS, NO_SERVICES, EXAMPLE_BADGE,
+  LOADING_LINE, UNREADABLE_SUB, readStateWord,
+  inventoryLine, describe, serviceLine, emptyLine, boardEmptyLine,
+  READER_REFUSALS, LOAD_FAILED,
+  shouldFold, foldSummary, senderHues, rowModel, dayLabel, sameDay,
+  NO_ANSWER_YET, toRecipient,
+} from '../comms-copy.js'
 import '../comms.css'
 
 const pad2 = (n) => String(n).padStart(2, '0')
-const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-const fmtTime = (at) => { const d = new Date(at); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}` }
+const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+/* Hours and minutes. Seconds were dropped: on a page read by a person, a
+   stamp to the second is precision nobody uses and a column that never lines
+   up, and the same stamp sits on three surfaces. */
+const fmtTime = (at) => { const d = new Date(at); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}` }
 
-/* ---------- sender convention: the projection's record kinds ----------
-   These are not agents; they are the KINDS of record the ops projection
-   renders as conversation boxes — a service on record, a channel seen
-   running, and the projection's own status voice. The roles exist so the
-   boxes can reuse the graph's role hues (ROLES) and so RANK below can decide
-   which side of a pairing reads as dominant. Messages themselves carry their
-   sender's name in `sender` and render under the 'observed' kind. */
-const SENDERS = {
-  declared:   { tag: 'on record',    role: 'default', mach: '—' },
-  service:    { tag: 'service',      role: 'default', mach: '—' },
-  observed:   { tag: 'seen running', role: 'helper',  mach: '—' },
-  channel:    { tag: 'channel',      role: 'helper',  mach: '—' },
-  projection: { tag: 'status',       role: 'shadow',  mach: '—' },
-}
-
-/* ============================================================
-   C7 — WATCH BOARD helpers. A card names two SENDERS keys
-   (a/b); rank decides which side a pairing reads as dominant
-   and how important a box is when the layout weighs it.
-   ============================================================ */
-
-const RANK = { coordinator: 4, helper: 3, shadow: 3, manager: 2, default: 1, spawned: 0 }
-const shortName = (k) => SENDERS[k].tag.split('/')[0]
-const domOf = (d) => RANK[SENDERS[d.a].role] >= RANK[SENDERS[d.b].role] ? d.a : d.b
-const impOf = (d) => Math.max(RANK[SENDERS[d.a].role], RANK[SENDERS[d.b].role])
-
-/* Board layout tree: { t:'leaf', c:convId } | { t:'split', dir, branch?, ch:[a,b] }.
-   Module-level so the whole board — tiling, sizes, open chats — persists
-   across in-session navigation (C7 layout model). */
+/* Board layout tree: { t:'leaf', c:convId } | { t:'split', dir, ch:[a,b] }.
+   Module-level so the whole board — tiling, sizes, open tiles — persists
+   across in-session navigation. */
 const wbLeaf = (c) => ({ t: 'leaf', c })
 
-/* Live cards deliberately keep declared services and observed channels as
-   separate records. A matching port, name, or transport is not evidence that
-   the two are the same thing, so this view never pairs them as a relationship. */
+/* A conversation record: one CHANNEL. `hist` is the channel's messages in
+   report order (oldest first), `hues` the sender → colour map by first
+   appearance, `desc` the one describe() sentence the tile and the topic bar
+   share, `pending` the loading card's mark. */
 let LIVE_WATCH = null
-const liveCard = (id, kind, key, desc, unavailable = null) => ({
-  id,
-  a: kind === 'declared' ? 'declared' : kind === 'observed' ? 'observed' : 'projection',
-  b: kind === 'declared' ? 'service' : kind === 'observed' ? 'channel' : 'projection',
-  key,
-  desc,
-  hist: [],
-  unavailable,
-  child: null,
-})
+const channelCard = (id, name, desc, hist = [], extra = {}) => ({ id, name, desc, hist, hues: senderHues(hist), byId: new Map(hist.map(m => [m.id, m])), ...extra })
+
+/* The sentinel the loading card carries. Two places set it and one place has
+   to recognise it: a read that has not answered yet is not a machine with no
+   agent host, and the two states must not print the same notice. */
+const LIVE_COMMS_LOADING = LOADING_LINE
 
 function liveWatchInit() {
   if (LIVE_WATCH) return LIVE_WATCH
-  const pending = liveCard('ops-projection', 'projection', 'live comms', 'Reading this computer’s live comms data.', 'still reading the live comms data')
+  const pending = channelCard('pending', 'messages', LIVE_COMMS_LOADING, [], { pending: true })
   LIVE_WATCH = {
     convs: new Map([[pending.id, pending]]),
     stack: [wbLeaf(pending.id)],
@@ -107,108 +91,145 @@ function liveWatchInit() {
   return LIVE_WATCH
 }
 
+/* WHICH FOLDS A PERSON HAS OPENED, remembered per message id, through the same
+   memory the chat's context block and the home screen's run rows use
+   (components.js openMemory) -- one rule, three pages, one prefix each. */
+const foldOpen = openMemory('mc.comms.fold:')
+
 /* ---------- DOM builders ---------- */
-/* The sentence this board shows while the read is still IN FLIGHT. It is named
-   because two places set it and one place below has to recognise it: a read
-   that has not answered yet is not a machine with no agent host, and the two
-   states must not print the same notice. */
-const LIVE_COMMS_LOADING = 'still reading the live comms data'
 
-/* WHAT AN EMPTY BOARD SAYS, and why the words are not this file's.
- *
- * This branch is the shipping state — `dist/data/*.json` are build-time outputs
- * and no process on a customer machine writes them — and the whole of what it
- * used to say was "unavailable — No local agent fleet host detected on this
- * machine." True, and not an explanation: it names a mechanism the reader has
- * never heard of and offers no door. src/first-run-needs.js owns that
- * explanation now, and home, the fleet graph and Settings read the same module,
- * so one condition is described once rather than four ways.
- *
- * THE LOADING CASE KEEPS THE TERSE LINE ON PURPOSE. "Nothing is reporting to
- * this copy yet" is a claim about the person's machine; while the read is still
- * going nobody knows that yet, and printing it early would be a wrong answer
- * that silently corrects itself — which reads as the product changing its mind.
- * An unanswered read is not an absent host.
- *
- * A MISSING reason falls to the full notice, not to the terse line: "we could
- * not read it and cannot say why" is exactly when a person is most lost, so
- * absence removes only the quoted sentence, never the explanation or the door. */
-const projectionUnavailableEl = (reason) => {
-  if (reason === LIVE_COMMS_LOADING) {
-    return el(`<div class="projection-unavailable" data-projection-unavailable="true">unavailable — ${esc(reason)}</div>`)
-  }
-  const node = el(hostAbsentMarkup(reason, { compact: true }))
-  node.dataset.projectionUnavailable = 'true'
-  return node
+const noteEl = (text) => el(`<div class="projection-state" data-projection-state="true">${esc(text)}</div>`)
+
+/* THE FOLD. A long message (comms-copy.js shouldFold) renders as a
+   <details> whose closed line says what is inside and how much of it there
+   is, opened by a press anywhere on it. The gesture is owned (components.js
+   ownDisclosure) for the reason makeAction documents at length: on a staged
+   packaged build elementFromPoint over a collapsed row answers the DETAILS,
+   so a press beside the disclosure triangle is not a press on it and nothing
+   opens; Enter or Space on the focused summary fire the same click. The
+   classes are the chat's (.chat-context, .chat-context-head, .chat-context-
+   body), so the styles come free from styles.css and the three pages fold the
+   same way. */
+function foldEl(model) {
+  const wrap = el(`
+    <details class="context chat-context">
+      <summary class="chat-context-head">
+        <span class="chat-action-mark" aria-hidden="true"><svg viewBox="0 0 8 8"><path d="M2.6 1.4 5.4 4 2.6 6.6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="chat-context-line"><span class="chat-context-say"></span></span>
+      </summary>
+      <div class="chat-context-body cmsg-text"></div>
+    </details>
+  `)
+  wrap.querySelector('.chat-context-say').textContent = foldSummary(model.text)
+  wrap.querySelector('.chat-context-body').textContent = model.text
+  wrap.open = foldOpen.recall(model.id) === 'open'
+  /* `within` the summary: a press on the closed row (which elementFromPoint
+     answers as the details) or on the summary toggles; a press inside the open
+     body, where a person selects and copies the text, is left alone. */
+  ownDisclosure(wrap, { within: wrap.querySelector('summary'), onToggle: (open) => foldOpen.remember(model.id, open) })
+  return wrap
 }
-const projectionNoticeEl = (note) => el(`<div class="projection-state" data-projection-state="true">${esc(note)}</div>`)
+function bodyEl(model) {
+  if (shouldFold(model.text)) return foldEl(model)
+  const body = el('<div class="cmsg-text"></div>')
+  body.textContent = model.text
+  return body
+}
 
-function liveMsgEl(m) {
-  return el(`
-    <div class="cmsg" data-live-mode="live">
-      <i class="cmsg-bar role-default"></i>
+/* THE MESSAGE ROW, one model for three surfaces. Line 1 is the sender (UI
+   face, hue by first appearance in the channel), then only what the message
+   actually carries: "→ recipient" when addressed, "asked"/"answered" when the
+   kind says so (a notice prints no tag -- the old constant "observed" on every
+   row told the reader nothing), "replying to {name}" when the parent is in
+   this channel (a press scrolls to it), "no answer yet" on an ask nothing
+   answered, the machine tag when present, and the time. Line 2 is the body,
+   folded when long. No delivery column: delivery states live in an in-memory
+   map per call in the engine (delivery.js) and can never reach this view. */
+function rowEl(model, surface, hues) {
+  const hue = hues.get(model.sender) || ''
+  const style = hue ? ` style="--rc:${hue}"` : ''
+  if (surface === 'cl') {
+    const row = el(`<div class="cl"${style}><b></b><span></span></div>`)
+    row.querySelector('b').textContent = model.sender
+    row.querySelector('span').appendChild(bodyEl(model))
+    return row
+  }
+  if (surface === 'msg') {
+    const row = el(`<div class="msg them"${style} data-msg-id="${esc(model.id)}"><span class="who"></span></div>`)
+    const who = [model.sender, model.recipient ? toRecipient(model.recipient) : '', model.tag].filter(Boolean).join(' · ')
+    row.querySelector('.who').textContent = who
+    row.appendChild(bodyEl(model))
+    return row
+  }
+  const row = el(`
+    <div class="cmsg"${style} data-msg-id="${esc(model.id)}">
+      <i class="cmsg-bar"></i>
       <div class="cmsg-main">
         <div class="cmsg-top">
-          <span class="cmsg-au"><span class="br">[</span>${esc(m.sender)}<span class="br">]</span></span>
-          <span class="cmsg-mach">observed</span>
-          <span class="cmsg-time">${fmtTime(m.at)}</span>
+          <span class="cmsg-au"></span>
+          ${model.recipient ? `<span class="cmsg-to">${esc(toRecipient(model.recipient))}</span>` : ''}
+          ${model.tag ? `<span class="cmsg-kind">${esc(model.tag)}</span>` : ''}
+          ${model.replyTo ? `<button type="button" class="cmsg-reply" data-reply-to="${esc(model.parentId)}">${esc(model.replyTo)}</button>` : ''}
+          ${model.noAnswer ? `<span class="cmsg-kind">${esc(NO_ANSWER_YET)}</span>` : ''}
+          ${model.machine ? `<span class="cmsg-machine">${esc(model.machine)}</span>` : ''}
+          <span class="cmsg-time">${fmtTime(model.at)}</span>
         </div>
-        <div class="cmsg-text">${esc(m.t)}</div>
       </div>
     </div>
   `)
+  row.querySelector('.cmsg-au').textContent = model.sender
+  row.querySelector('.cmsg-main').appendChild(bodyEl(model))
+  return row
 }
 
-/* The rail footer names the fleet's transports and hosts, and both belong to
-   the operator rather than to the product. It used to be four literals: two
-   named ports each carrying a green dot and the word "up", and a two-host
-   roster with one host labelled canonical. On a fresh install that is a health
-   claim about infrastructure the app has never contacted, and a roster of
-   machines the reader does not own. A transport with no port says it is not
-   configured, and the dot marks "configured", never "reachable". */
-function railFootMarkup() {
-  const txt = (value) => esc(String(value ?? ''))
-  const lines = []
-  for (const transport of FLEET.transports || []) {
-    const portNumber = Number(transport.port)
-    const port = Number.isFinite(portNumber) && transport.port !== null ? ` :${txt(portNumber)}` : ''
-    lines.push(`<span class="foot-line">${port ? '<i class="ok"></i>' : ''}<span class="ft"><b>${txt(transport.label || transport.id || 'transport')}</b>${port} · ${txt(transport.note || 'not configured')}</span></span>`)
+/* Fill a surface with a channel's rows: the day dividers (log only), the rows,
+   and the one empty line when there are none. `seen` is the set of ids the
+   previous paint drew; a row absent from it plays .fresh once. */
+function fillRows(target, card, surface, { limit = Infinity, seen = null, now = Date.now(), quiet = false } = {}) {
+  target.textContent = ''
+  if (card.pending) return
+  const rows = limit === Infinity ? card.hist : card.hist.slice(-limit)
+  if (!rows.length) {
+    if (!quiet) target.appendChild(noteEl(emptyLine()))
+    return
   }
-  for (const machine of FLEET.machines || []) {
-    const tag = machine.note ? `<span class="foot-can">${txt(machine.note)}</span>` : ''
-    lines.push(`<span class="foot-line"><span class="ft">${txt(machine.name)} ${txt(machine.ip)}</span>${tag}</span>`)
+  let lastAt = null
+  for (const message of rows) {
+    const model = rowModel(message, card.byId)
+    if (surface === 'cmsg' && (lastAt === null || !sameDay(lastAt, model.at))) {
+      target.appendChild(el(`<div class="day-div"><span>${esc(dayLabel(model.at, now))}</span></div>`))
+    }
+    lastAt = model.at
+    const row = rowEl(model, surface, card.hues)
+    if (seen && surface === 'cmsg' && !seen.has(model.id)) row.classList.add('fresh')
+    target.appendChild(row)
   }
-  if (!lines.length) lines.push('<span class="foot-line"><span class="ft">no transports or hosts declared</span></span>')
-  return lines.join('')
 }
 
 export function commsView() {
   /* data-live-mode / data-projection-state keep their old vocabulary — other
-     surfaces and the QA drivers read these attributes — but the value is now
-     DERIVED from the data source once it resolves (markDataSource below):
-     'simulated' is what a badged mock source wears, 'live' is real data. The
-     mount stamps the loading state; nothing claims a source before one is
-     resolved. */
+     surfaces and the QA drivers read these attributes (offline-routes-qa,
+     walk-and-look) — but the value is DERIVED from the data source once it
+     resolves (markDataSource below): 'simulated' is what a badged mock source
+     wears, 'live' is real data. The mount stamps the loading state; nothing
+     claims a source before one is resolved. */
   const W = liveWatchInit()
   const root = el(`
     <div class="comms" data-mode="${W.mode}" data-live-mode="live" data-projection-state="loading">
       <header class="comms-head">
-        <span class="head-hash">#</span><span class="head-name"></span>
-        <span class="head-meta">message board · cross-machine</span>
-        <span class="head-wt">watch board</span>
-        <span class="head-wt-meta">message board · live conversations</span>
+        <h1 class="head-title">${esc(COMMS_NAME)}</h1>
+        <p class="head-sub"></p>
         <span class="spacer"></span>
-        <div class="seg wb-seg size-seg" role="group" aria-label="Box size">
-          <button type="button" data-size="s" title="Small boxes">S</button>
-          <button type="button" data-size="m" title="Medium boxes">M</button>
-          <button type="button" data-size="l" title="Large boxes">L</button>
-        </div>
         <div class="seg wb-seg mode-seg" role="group" aria-label="Comms mode">
-          <button type="button" data-wmode="watch">Watch</button>
-          <button type="button" data-wmode="channels">Channels</button>
+          <button type="button" data-wmode="watch">${esc(MODE_LABELS.watch)}</button>
+          <button type="button" data-wmode="channels">${esc(MODE_LABELS.channels)}</button>
         </div>
-        <span class="head-live"><i></i>live</span>
-        <span class="head-count"><b>0</b> agents</span>
+        <div class="seg wb-seg size-seg" role="group" aria-label="Tile size">
+          <button type="button" data-size="s" title="Small tiles">S</button>
+          <button type="button" data-size="m" title="Medium tiles">M</button>
+          <button type="button" data-size="l" title="Large tiles">L</button>
+        </div>
+        <span class="head-live"><i></i>${esc(readStateWord('loading'))}</span>
       </header>
       <div class="comms-card glass">
         <div class="comms-body">
@@ -217,9 +238,10 @@ export function commsView() {
           </div>
           <section class="comms-sheet">
             <aside class="ch-rail">
-              <div class="ch-rail-label">Ops projection</div>
+              <div class="ch-group-label">${esc(RAIL_GROUPS.services)}</div>
+              <div class="ch-services"></div>
+              <div class="ch-group-label">${esc(RAIL_GROUPS.channels)}</div>
               <div class="ch-list"></div>
-              <div class="ch-rail-foot" data-projection-foot="true">${railFootMarkup()}</div>
             </aside>
             <section class="ch-main">
               <div class="ch-view">
@@ -230,13 +252,6 @@ export function commsView() {
                 <span class="jl">jump to latest</span>
                 <svg viewBox="0 0 24 24"><path d="M12 5v13m0 0 5.5-5.5M12 18l-5.5-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
-              <footer class="integ-row">
-                <i class="integ-dot"></i>
-                <span class="integ-main"><b>discord.send</b> · configured, no token · 0 messages sent</span>
-                <span class="integ-tag">dormant integration</span>
-                <span class="spacer"></span>
-                <span class="integ-note">writes via durable memory</span>
-              </footer>
             </section>
           </section>
         </div>
@@ -245,81 +260,118 @@ export function commsView() {
   `)
 
   /* ---- state ---- */
-  /* The projection fills these on every application: history keyed by channel
-     id, channelDefs describing the rail. Until the first read answers, the
-     one channel is the loading card, whose `unavailable` sentence keeps the
-     pane honest about a read that has not answered yet. */
-  const history = {}
-  let channelDefs = [{ id: 'ops-projection', name: 'live comms', key: 'ops', mach: 'live', topic: 'Reading this computer’s live comms data.', unavailable: LIVE_COMMS_LOADING }]
-  let liveMessagesReason = LIVE_COMMS_LOADING
   let destroyed = false
   const state = {
-    active: channelDefs[0].id,
-    unread: new Set(),
+    active: W.stack.length ? W.stack[0].c : null,
     pinnedToBottom: true,
     newCount: 0,
+    /* Message ids drawn by the previous paint of the log, so a row that just
+       arrived plays .fresh once and older rows never do. */
+    seen: new Set(),
   }
   const timers = []
 
+  const headEl = root.querySelector('.comms-head')
+  const subEl = root.querySelector('.head-sub')
+  const liveEl = root.querySelector('.head-live')
+  const servicesEl = root.querySelector('.ch-services')
   const listEl = root.querySelector('.ch-list')
-  const railFoot = root.querySelector('[data-projection-foot]')
-  const headMeta = root.querySelector('.head-meta')
-  const headCount = root.querySelector('.head-count')
-  const headName = root.querySelector('.head-name')
-  const countEl = root.querySelector('.head-count b')
   const viewEl = root.querySelector('.ch-view')
   const topicEl = root.querySelector('.ch-topic')
   const logEl = root.querySelector('.ch-log')
   const chip = root.querySelector('.jump-chip')
   const chipLabel = chip.querySelector('.jl')
   const reduced = () => document.body.classList.contains('reduce-motion')
+  const setLiveWord = (stateName) => { liveEl.lastChild.textContent = readStateWord(stateName) }
 
-  /* ---- channel rail (the projection's records, with their separator) ---- */
+  /* THE ONE NOTICE. Created in exactly one place and removed in exactly one
+     place: a message-read failure, or the host-absent explanation when the
+     whole read failed. It sits under the header, above the card, and nothing
+     inside the card repeats it -- the N+1 copies (every tile, the topic bar,
+     the rail foot) were the defect. */
+  const setNotice = (html) => {
+    const old = root.querySelector('[data-comms-notice]')
+    if (!html) { old?.remove(); return }
+    const node = el(`<div class="comms-notice" data-comms-notice="true">${html}</div>`)
+    if (old) old.replaceWith(node)
+    else headEl.after(node)
+  }
+
+  /* ---- channel rail ---- */
   const railItems = new Map()
-  function renderRail() {
+  function renderRail(services) {
+    servicesEl.textContent = ''
+    /* null = nothing is known yet (loading, or the whole read failed): no
+       claim either way. An empty array is an answer and says so. */
+    if (Array.isArray(services) && !services.length) servicesEl.appendChild(el(`<div class="ch-service" data-empty="true">${esc(NO_SERVICES)}</div>`))
+    for (const service of services || []) {
+      const row = el('<div class="ch-service"></div>')
+      row.textContent = serviceLine(service)
+      servicesEl.appendChild(row)
+    }
     listEl.textContent = ''
     railItems.clear()
-    channelDefs.forEach((def) => {
-      /* The separator marks the seam the projection declares — between the
-         services on record and the channels seen running (dividerBefore is
-         set where that second block starts). */
-      if (def.dividerBefore) listEl.appendChild(el(`<div class="ch-rail-sep"></div>`))
+    for (const card of W.convs.values()) {
       const item = el(`
-        <button class="ch" data-id="${esc(def.id)}" title="${esc(def.key)}">
+        <button type="button" class="ch" data-id="${esc(card.id)}">
           <span class="ch-hash">#</span>
-          <span class="ch-name">${esc(def.name)}</span>
-          <span class="ch-mach">${esc(def.mach)}</span>
-          <i class="ch-dot"></i>
+          <span class="ch-name"></span>
         </button>
       `)
-      item.addEventListener('click', () => switchChannel(def.id))
+      item.querySelector('.ch-name').textContent = card.name
+      item.addEventListener('click', () => switchChannel(card.id))
       listEl.appendChild(item)
-      railItems.set(def.id, item)
-    })
+      railItems.set(card.id, item)
+    }
+    railItems.get(state.active)?.classList.add('active')
   }
-  renderRail()
-
-  const defOf = (id) => channelDefs.find(c => c.id === id)
 
   /* ---- timeline rendering ---- */
+  /* When the notice above the card already explains why every channel is
+     empty (a refused message read, or the quiet board), the per-channel and
+     per-board empty lines stay off: the notice is the sentence, and the same
+     fact twice on one screen is the defect this page was cleared of. */
+  let emptyHidden = false
   function renderLog(id) {
-    const def = defOf(id)
-    if (!def) return
-    topicEl.innerHTML = `key <b>${esc(def.key)}</b> — ${esc(def.topic)}`
-    logEl.innerHTML = ''
-    if (def.unavailable || liveMessagesReason) logEl.appendChild(projectionUnavailableEl(def.unavailable || liveMessagesReason))
-    else if (!history[id]?.length) logEl.appendChild(projectionNoticeEl('No messages have been seen for this exact channel.'))
-    else for (const m of history[id]) logEl.appendChild(liveMsgEl(m))
-    state.pinnedToBottom = true
-    state.newCount = 0
+    const card = W.convs.get(id)
+    if (!card) { topicEl.textContent = ''; logEl.textContent = ''; return }
+    topicEl.textContent = card.desc
+    const wasPinned = state.pinnedToBottom
+    const before = state.seen
+    fillRows(logEl, card, 'cmsg', { seen: before.size ? before : null, quiet: emptyHidden })
+    const fresh = logEl.querySelectorAll('.cmsg.fresh').length
+    state.seen = new Set(card.hist.map(m => m.id))
+    if (wasPinned) {
+      state.newCount = 0
+      /* PIN AFTER LAYOUT, NOT AFTER A FRAME THAT MAY NEVER COME. A covered
+         window gets no frames, so this callback -- and the log it closed
+         over -- stayed in the browser's queue for ever (measured: +2 per lap
+         of the ring at this site). onNextFrame flushes layout and pins now on
+         such a page, and is the ordinary requestAnimationFrame otherwise. */
+      onNextFrame(() => { logEl.scrollTop = logEl.scrollHeight })
+    } else if (before.size) {
+      state.newCount += fresh
+    }
     updateChip()
-    /* PIN AFTER LAYOUT, NOT AFTER A FRAME THAT MAY NEVER COME. A covered
-       window gets no frames, so this callback -- and the log it closed
-       over -- stayed in the browser's queue for ever (measured: +2 per lap
-       of the ring at this site). onNextFrame flushes layout and pins now on
-       such a page, and is the ordinary requestAnimationFrame otherwise. */
-    onNextFrame(() => { logEl.scrollTop = logEl.scrollHeight })
   }
+
+  /* "replying to {name}" scrolls the parent row into view and plays its
+     arrival light again, so the eye lands on the thing being answered. */
+  logEl.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-reply-to]')
+    if (!button) return
+    /* Found by comparing the attribute, not by building a selector: the id
+       is data off the wire, and the one way to put data into a selector safely
+       is CSS.escape, which the unbound-identifier gate cannot see as a browser
+       global. A loop over the rows costs nothing at this size. */
+    const wanted = button.dataset.replyTo
+    const parent = [...logEl.querySelectorAll('[data-msg-id]')].find((row) => row.dataset.msgId === wanted) || null
+    if (!parent) return
+    parent.scrollIntoView({ block: 'center', behavior: reduced() ? 'auto' : 'smooth' })
+    parent.classList.remove('fresh')
+    void parent.offsetWidth
+    parent.classList.add('fresh')
+  })
 
   function updateChip() {
     chip.classList.toggle('hidden', state.pinnedToBottom)
@@ -337,12 +389,9 @@ export function commsView() {
   function switchChannel(id) {
     if (id === state.active) return
     state.active = id
-    state.unread.delete(id)
-    railItems.forEach((item, cid) => {
-      item.classList.toggle('active', cid === id)
-      item.classList.toggle('has-unread', state.unread.has(cid))
-    })
-    headName.textContent = defOf(id)?.name || ''
+    state.seen = new Set()
+    state.pinnedToBottom = true
+    railItems.forEach((item, cid) => item.classList.toggle('active', cid === id))
     // crossfade: settle out, swap content, settle back in — in place
     clearTimeout(switching)
     viewEl.classList.add('swap')
@@ -366,31 +415,22 @@ export function commsView() {
     logEl.scrollTo({ top: logEl.scrollHeight, behavior: reduced() ? 'auto' : 'smooth' })
   })
 
-  /* The header count is written by the projection (services on record); until
-     the first application it keeps the mount value. Everything that needs
-     undoing at teardown — event listeners, the seg helpers, the poll — goes
-     through this one list, the same way destroy() has always drained it. */
+  /* Everything that needs undoing at teardown — event listeners, the seg
+     helpers, the poll — goes through this one list. */
   const unsubs = []
 
   /* ==========================================================
-     C7 — WATCH BOARD. Every box is the shared context-box chip
-     (.chip / .chip-preview / .as-chat + buildChat) laid out as
-     a fixed vertical stack that drag-splits into nested tiles.
+     THE BOARD. Every tile is the shared context-box chip
+     (.chip / .chip-preview / .as-chat) laid out as a vertical
+     stack that drag-splits into nested tiles.
      ========================================================== */
   const pane = root.querySelector('.watch-pane')
   const stackEl = root.querySelector('.watch-stack')
   const stackDrop = el(`<div class="wb-stackdrop"></div>`)
-  const wtMeta = root.querySelector('.head-wt-meta')
-  /* `${n} conversations` read "1 conversations" on a fresh install, which is
-     the first line of the first page a person reaches from home's forward
-     arrow. Singular/plural is spelled the way the rest of this codebase
-     spells it (src/local-activity.js, src/account-markup.js and 18 others). */
-  const conversationsMeta = count => `message board · ${count} conversation${count === 1 ? '' : 's'}`
-  wtMeta.textContent = conversationsMeta(W.convs.size)
   const EASE = 'cubic-bezier(0.22, 0.9, 0.26, 1)'
   const boxEls = new Map()            // convId -> chip element (this mount)
   let dragTeardown = null
-  { const esc = (ev) => { if (ev.key === 'Escape' && drag) dragTeardown?.() }; window.addEventListener('keydown', esc); unsubs.push(() => window.removeEventListener('keydown', esc)) } // audit #27: Escape aborts an in-flight box drag through the SAME teardown destroy() uses (abortDrag + listener cleanup); guarded on `drag` so a stray Escape outside a drag is a no-op
+  { const esc = (ev) => { if (ev.key === 'Escape' && drag) dragTeardown?.() }; window.addEventListener('keydown', esc); unsubs.push(() => window.removeEventListener('keydown', esc)) } // audit #27: Escape aborts an in-flight tile drag through the SAME teardown destroy() uses (abortDrag + listener cleanup); guarded on `drag` so a stray Escape outside a drag is a no-op
 
   /* ----- tree helpers ----- */
   function locate(target, list = W.stack, parentSplit = null) {
@@ -408,10 +448,6 @@ export function commsView() {
     }
     return null
   }
-  function eachSplit(fn, list = W.stack) {
-    for (const n of list) if (n.t === 'split') { fn(n); eachSplit(fn, n.ch) }
-  }
-  const primaryConv = (n) => n.t === 'leaf' ? n.c : primaryConv(n.ch[0])
   function subtreeHas(rootN, target) {
     if (rootN === target) return true
     return rootN.t === 'split' && (subtreeHas(rootN.ch[0], target) || subtreeHas(rootN.ch[1], target))
@@ -428,92 +464,45 @@ export function commsView() {
     const sibling = P.ch[loc.index === 0 ? 1 : 0]
     replaceNode(P, sibling)
   }
-  /* the draggable unit for a box: a branch parent carries its whole pairing;
-     a branch child stays pinned to its parent */
-  function findDragNode(cid) {
-    let node = findLeafByConv(cid)
-    if (!node) return null
-    for (;;) {
-      const loc = locate(node)
-      if (!loc || !loc.parentSplit) return node
-      if (loc.parentSplit.branch) {
-        if (loc.parentSplit.ch[0] === node) { node = loc.parentSplit; continue }
-        return null
-      }
-      return node
-    }
-  }
-  const dropTargetNode = findDragNode      // same climb: split around branch pairs
+  /* the draggable unit for a tile is its own leaf; tiles weigh equally, so
+     there is no pairing that drags as one and no dominant side (a tie crowns
+     nobody) */
+  const findDragNode = (cid) => findLeafByConv(cid)
+  const dropTargetNode = findDragNode
 
-  const findBranchByParent = (cid) => {
-    let found = null
-    eachSplit(s => { if (!found && s.branch && s.ch[0].t === 'leaf' && s.ch[0].c === cid) found = s })
-    return found
-  }
-  const findBranchByChild = (cid) => {
-    let found = null
-    eachSplit(s => { if (!found && s.branch && primaryConv(s.ch[1]) === cid) found = s })
-    return found
-  }
-
-  /* ----- box construction (the reused chip component) ----- */
-  /* Name and text are separate grid cells (see comms.css): with full 2-3
-     sentence messages the old inline "name · text" form buried the speaker
-     mid-paragraph on every wrapped line. A shared name column turns the
-     senders into a scannable rail — who is talking reads down the pane
-     without reading a single message. side-a/side-b lets CSS tint each
-     speaker with the same role hue their header dot already wears. */
-  function previewLineEl(d, m) {
-    const side = m.s === d.a ? 'a' : 'b'
-    return el(`<div class="cl side-${side}"><b>${esc(m.sender || shortName(m.s))}</b><span>${esc(m.t)}</span></div>`)
-  }
-  function chatMsgEl(d, m) {
-    const side = m.s === d.a ? 'them' : 'me'
-    return el(`<div class="msg ${side}"><span class="who">${esc(m.sender || shortName(m.s))}</span>${esc(m.t)}</div>`)
+  /* ----- tile construction (the reused chip component) ----- */
+  function fillPreview(box, card) {
+    const pv = box.querySelector('.chip-preview')
+    fillRows(pv, card, 'cl', { limit: 14, quiet: emptyHidden })
+    onNextFrame(() => { if (box._pvFollow) pv.scrollTop = pv.scrollHeight })
   }
 
   function boxOf(cid) {
     let box = boxEls.get(cid)
     if (box) return box
     const d = W.convs.get(cid)
-    const dom = domOf(d)
-    const ra = ROLES[SENDERS[d.a].role]
-    const rb = ROLES[SENDERS[d.b].role]
     box = el(`
-      <div class="chip wb-box role-${SENDERS[dom].role}" data-conv="${cid}"
-           data-agent="${esc(SENDERS[dom].tag)}" data-importance="${impOf(d)}"
-           style="--au-a:${ra.hex};--au-b:${rb.hex}">
+      <div class="chip wb-box" data-conv="${esc(cid)}">
         <div class="wb-head">
-          <span class="wb-pair">
-            <i class="wb-dot" style="background:${ra.hex}"></i><span class="wb-name">${esc(shortName(d.a))}</span>
-            <span class="wb-x">↔</span>
-            <i class="wb-dot" style="background:${rb.hex}"></i><span class="wb-name">${esc(shortName(d.b))}</span>
-          </span>
-          <span class="wb-key">${esc(d.key)}</span>
+          <span class="wb-hash">#</span><span class="wb-name"></span>
+          <span class="wb-state"></span>
           <span class="spacer"></span>
-          <button type="button" class="wb-btn wb-branch" title="Open sub-conversation" aria-pressed="false" ${d.child ? '' : 'hidden'}>
-            <svg viewBox="0 0 24 24"><circle cx="7" cy="5" r="1.7" fill="currentColor"/><path d="M7 7v6a4 4 0 0 0 4 4h5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="m13.5 14 3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
           <button type="button" class="wb-btn wb-restack" title="Return to stack">
             <svg viewBox="0 0 24 24"><path d="M5 7h14M5 12h8M5 17h8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M17.5 17.5v-6m0 0L15 14m2.5-2.5L20 14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
-          <button type="button" class="wb-btn wb-dismiss" title="Close sub-conversation">
-            <svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          </button>
         </div>
-        <div class="wb-desc">${esc(d.desc)}</div>
+        <div class="wb-desc"></div>
         <div class="chip-preview"></div>
         <div class="wb-drop"><i></i></div>
       </div>
     `)
-    const pv = box.querySelector('.chip-preview')
-    if (d.unavailable) pv.appendChild(projectionUnavailableEl(d.unavailable))
-    else if (d.hist.length) for (const m of d.hist.slice(-14)) pv.appendChild(previewLineEl(d, m))
-    else pv.appendChild(projectionNoticeEl('No messages have been seen for this exact channel.'))
-    onNextFrame(() => { pv.scrollTop = pv.scrollHeight })
-
+    box.querySelector('.wb-name').textContent = d.name
+    box.querySelector('.wb-state').textContent = d.pending ? '' : `${d.hist.length} message${d.hist.length === 1 ? '' : 's'}`
+    box.querySelector('.wb-desc').textContent = d.desc
     box._pvFollow = true
     box._chatFollow = true
+    fillPreview(box, d)
+    const pv = box.querySelector('.chip-preview')
     pv.addEventListener('scroll', () => {
       box._pvFollow = pv.scrollHeight - pv.scrollTop - pv.clientHeight < 36
     })
@@ -525,10 +514,6 @@ export function commsView() {
       const log = box.querySelector('.chat-log')
       if (log && box._chatFollow) log.scrollTop = log.scrollHeight
     })
-    box.querySelector('.wb-branch').addEventListener('click', (e) => {
-      e.stopPropagation()
-      toggleBranch(cid)
-    })
     box.querySelector('.wb-restack').addEventListener('click', (e) => {
       e.stopPropagation()
       const node = findDragNode(cid)
@@ -537,16 +522,29 @@ export function commsView() {
       if (!loc || !loc.parentSplit) return
       flipBoard(() => { detach(node); W.stack.push(node) })
     })
-    box.querySelector('.wb-dismiss').addEventListener('click', (e) => {
-      e.stopPropagation()
-      const s = findBranchByChild(cid)
-      if (s) flipBoard(() => replaceNode(s, s.ch[0]))
-    })
     box.addEventListener('pointerdown', (e) => onBoxPointerDown(e, box))
 
     boxEls.set(cid, box)
     if (W.open.has(cid)) openChatBox(cid, true)
     return box
+  }
+
+  /* A poll that changed nothing structural repaints each tile's words in
+     place: the preview, the count, the open log. The stack, the splits, the
+     open set and every fold a person has opened survive the 4-second read. */
+  function refreshBoxes() {
+    for (const [cid, box] of boxEls) {
+      const d = W.convs.get(cid)
+      if (!d || !box.isConnected) continue
+      box.querySelector('.wb-state').textContent = d.pending ? '' : `${d.hist.length} message${d.hist.length === 1 ? '' : 's'}`
+      box.querySelector('.wb-desc').textContent = d.desc
+      fillPreview(box, d)
+      const log = box.querySelector('.chat-log')
+      if (log) {
+        fillRows(log, d, 'msg', { quiet: emptyHidden })
+        if (box._chatFollow) log.scrollTop = log.scrollHeight
+      }
+    }
   }
 
   /* ----- expand ↔ collapse: the graph chips' FLIP morph, verbatim ----- */
@@ -564,29 +562,29 @@ export function commsView() {
       void box.offsetWidth
     }
     box.classList.add('as-chat')
-    const chat = buildChat({
-      title: `${shortName(d.a)} ↔ ${shortName(d.b)}`,
-      subtitle: d.key,
-      roleKey: SENDERS[domOf(d)].role,
-      seed: 2,
-      onClose: () => closeChatBox(cid),
-      /* THE MOCK FLEET NEVER CLAIMS TO REACH A PROCESS. On a badged source the
-         composer is switched off with the reason said in words (buildChat's
-         composerReason: the input disables, the sentence renders above it) —
-         never hidden, because a silently missing composer reads as a broken
-         page, and never left live, because without a real sender buildChat
-         answers itself and an example that talks back claims a process that
-         does not exist. Real data — local and relay alike — keeps the
-         composer exactly as the live face always had it. */
-      composerReason: sourceIsBadged(currentDataSource())
-        ? 'An example conversation, not a live one. There is no agent behind it, so nothing can be sent from here.'
-        : null,
-    })
+    /* A HEADER AND A LOG, NOTHING ELSE. styles.css keys the expanded surface on
+       `.chip.as-chat .chat`, so the local markup reuses the chat's own head and
+       log classes and leaves out the composer: nothing on this page can send,
+       and the shared composer, handed no sender, seeded canned lines and
+       printed a refusal into every tile. */
+    const chat = el(`
+      <div class="chat">
+        <div class="chat-head">
+          <span class="t"></span><span class="s"></span>
+          <span class="spacer"></span>
+          <button type="button" class="chat-close" title="Close" aria-label="Close">
+            <svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <div class="chat-log"></div>
+      </div>
+    `)
+    chat.querySelector('.t').textContent = d.name
+    chat.querySelector('.s').textContent = d.desc
+    chat.querySelector('.chat-close').addEventListener('click', (e) => { e.stopPropagation(); closeChatBox(cid) })
     box.appendChild(chat)
     const log = chat.querySelector('.chat-log')
-    if (d.unavailable) log.appendChild(projectionUnavailableEl(d.unavailable))
-    else if (d.hist.length) for (const m of d.hist.slice(-6)) log.appendChild(chatMsgEl(d, m))
-    else log.appendChild(projectionNoticeEl('No messages have been seen for this exact channel.'))
+    fillRows(log, d, 'msg', { quiet: emptyHidden })
     log.scrollTop = log.scrollHeight
     box._chatFollow = true
     log.addEventListener('scroll', () => {
@@ -630,42 +628,21 @@ export function commsView() {
       }
       const cell = el(`<div class="wb-cell"></div>`)
       box.classList.add('in-split')
-      box.classList.remove('stack-leaf', 'dominant')
+      box.classList.remove('stack-leaf')
       box.style.height = ''
       cell.appendChild(box)
       node._el = cell
       return cell
     }
-    const s = el(`<div class="wb-split ${node.dir}${node.branch ? ' branch' : ''}${top ? ' top-split' : ''}"></div>`)
-    if (node.branch) {
-      const pd = W.convs.get(primaryConv(node))
-      s.style.setProperty('--pair', ROLES[SENDERS[domOf(pd)].role].hex)
-    }
-    const c0 = renderNode(node.ch[0], false)
-    const c1 = renderNode(node.ch[1], false)
-    if (node.branch) c1.classList.add('pair-b')
-    s.append(c0, c1)
+    const s = el(`<div class="wb-split ${node.dir}${top ? ' top-split' : ''}"></div>`)
+    s.append(renderNode(node.ch[0], false), renderNode(node.ch[1], false))
     node._el = s
     return s
   }
 
   function applyMarks() {
-    for (const box of boxEls.values()) {
-      box.classList.remove('branch-child', 'can-restack', 'dominant')
-      const btn = box.querySelector('.wb-branch')
-      btn.classList.remove('on')
-      btn.setAttribute('aria-pressed', 'false')
-    }
-    eachSplit((s) => {
-      if (!s.branch) return
-      const child = boxEls.get(primaryConv(s.ch[1]))
-      child?.classList.add('branch-child')
-      const parent = boxEls.get(s.ch[0].c)
-      const btn = parent?.querySelector('.wb-branch')
-      if (btn) { btn.classList.add('on'); btn.setAttribute('aria-pressed', 'true') }
-    })
-    for (const cid of boxEls.keys()) {
-      const box = boxEls.get(cid)
+    for (const [cid, box] of boxEls) {
+      box.classList.remove('can-restack')
       if (!box.isConnected) continue
       const node = findDragNode(cid)
       if (node) {
@@ -673,43 +650,6 @@ export function commsView() {
         if (loc && loc.parentSplit) box.classList.add('can-restack')
       }
     }
-    // base-stack dominance: the most important agent's box reads biggest
-    let best = null, bestImp = -1
-    for (const entry of W.stack) {
-      if (entry.t !== 'leaf') continue
-      const imp = impOf(W.convs.get(entry.c))
-      if (imp > bestImp) { bestImp = imp; best = entry }
-    }
-    if (best) boxEls.get(best.c)?.classList.add('dominant')
-  }
-
-  function applyWeights() {
-    // per split: the side holding the most important agent takes the larger
-    // share (~1.7×); a branch pairing always favours the parent conversation
-    const childEl = (n) => n._el
-    // .lead is this function's own mark — cleared wholesale before re-weighing
-    // so a box that left its split, or a side whose weight flipped, never
-    // keeps yesterday's emphasis
-    for (const box of boxEls.values()) box.classList.remove('lead')
-    function weigh(node) {
-      if (node.t === 'leaf') return impOf(W.convs.get(node.c))
-      const ia = weigh(node.ch[0])
-      const ib = weigh(node.ch[1])
-      let wa = 1, wb = 1
-      if (node.branch) wa = 1.65
-      else if (ia > ib) wa = 1.7
-      else if (ib > ia) wb = 1.7
-      childEl(node.ch[0])?.style.setProperty('--w', wa)
-      childEl(node.ch[1])?.style.setProperty('--w', wb)
-      // the winner also wears the emphasis (.lead): extra width alone reads
-      // as layout, not importance — the box must LOOK like the lead too.
-      // Only a leaf can wear it; when a whole sub-split wins, its own weigh()
-      // pass has already crowned the best box inside it. A tie crowns nobody.
-      const win = wa > wb ? node.ch[0] : wb > wa ? node.ch[1] : null
-      if (win?.t === 'leaf') boxEls.get(win.c)?.classList.add('lead')
-      return Math.max(ia, ib)
-    }
-    for (const entry of W.stack) if (entry.t === 'split') weigh(entry)
   }
 
   function saveScrolls() {
@@ -737,164 +677,107 @@ export function commsView() {
     const saved = saveScrolls()
     stackEl.textContent = ''
     /* An empty board says it is empty: the drop target alone is invisible, so
-       a bare pane would read as a rendering failure rather than as a
-       projection with no records. The projection always supplies at least one
-       card today (even "nothing on record" is a card); this is the honest
-       floor under that assumption, not a state anything currently produces. */
-    if (!W.stack.length) stackEl.appendChild(projectionNoticeEl('No conversation records to show.'))
+       a bare pane would read as a rendering failure rather than as a report
+       with no channels. */
+    if (!W.stack.length && !emptyHidden && root.dataset.projectionState !== 'unavailable') stackEl.appendChild(noteEl(boardEmptyLine()))
     for (const entry of W.stack) stackEl.appendChild(renderNode(entry, true))
     stackEl.appendChild(stackDrop)
     applyMarks()
-    applyWeights()
     restoreScrolls(saved)
   }
 
-  function setProjectionFoot(lines) {
-    railFoot.innerHTML = lines.map(line => `
-      <span class="foot-line"><span class="ft">${esc(line)}</span></span>
-    `).join('')
+  /* ---- the quiet notice: mount and removal in one place ----
+     THE QUIET BOARD SAYS WHY IT IS QUIET, AND KEEPS ITS DOOR. On a build whose
+     shell carries the live message reader, a fresh install reaches the ready
+     branch -- the read works and answers zero rows -- so the host-absent
+     notice never renders. Measured on the 2026-08-19 re-cut confirming run:
+     the board said only "No services are on record for this computer. No
+     messages have been seen for this exact channel." and was the one screen on
+     the first-run ring without a door to the guide. The words are the copy
+     module's (src/first-run-needs.js); the packaged driver reads the same
+     module. It never shows while the read itself failed -- that state has its
+     own honest sentence and this one would call a refused read a quiet one. */
+  function setQuiet(quiet) {
+    const quietEl = root.querySelector('[data-comms-quiet]')
+    if (quiet && !quietEl) root.querySelector('.comms-body')?.appendChild(el(commsQuietMarkup()))
+    else if (!quiet && quietEl) quietEl.remove()
   }
 
-  function projectionDetailCard(parent, kind, unavailable) {
-    const detail = liveCard(`${parent.id}:source`, 'projection', `${kind} status`, `${kind} is kept as its own record; the app never guesses that a service on record and a channel seen running are the same thing.`, unavailable)
-    parent.child = detail.id
-    return detail
+  /* Replace the board's channels. When the set of channel ids is unchanged the
+     layout survives (splits, open tiles, scroll, folds) and only the words are
+     repainted; otherwise the stack is rebuilt from the new list. */
+  function setChannels(cards) {
+    const next = new Map(cards.map(card => [card.id, card]))
+    const same = next.size === W.convs.size && [...next.keys()].every(id => W.convs.has(id))
+    W.convs = next
+    if (same) {
+      refreshBoxes()
+      return
+    }
+    W.stack = cards.map(card => wbLeaf(card.id))
+    W.open.clear()
+    boxEls.clear()
+    state.active = cards[0]?.id || null
+    state.seen = new Set()
+    state.pinnedToBottom = true
+    renderBoard()
   }
 
   function applyLiveProjection(result) {
     if (destroyed) return
     const envelope = result.ok ? result.data : null
     if (!envelope?.data) {
-      const reason = result.reason || 'the live comms data could not be read'
-      const unavailable = liveCard('ops-projection', 'projection', 'live comms', 'This computer’s live comms data could not be read.', reason)
-      W.convs = new Map([[unavailable.id, unavailable]])
-      W.stack = [wbLeaf(unavailable.id)]
-      W.open.clear()
-      channelDefs = [{ id: unavailable.id, name: 'live comms', key: 'ops', mach: 'unavailable', topic: 'The live comms data could not be read.', unavailable: reason }]
-      liveMessagesReason = reason
+      /* THE WHOLE READ FAILED. No tiles, no rail rows, one notice holding the
+         host-absent explanation (with its guide door), the word by the dot
+         says so, and the line under the title carries NO count. */
+      const reason = result.reason || LOAD_FAILED('no reason given')
       root.dataset.projectionState = 'unavailable'
       root.dataset.projectionUnavailable = 'true'
-      root.querySelector('.head-live').lastChild.textContent = 'unavailable'
-      headMeta.textContent = 'live comms · could not be read'
-      /* The watch-board line was left at its mount-time value, so a page whose
-         every other readout says "could not be read" still claimed
-         "message board · 1 conversations" -- counting the synthetic
-         could-not-be-read card as a conversation. Same sentence as headMeta
-         above, for the same reason. */
-      wtMeta.textContent = 'message board · could not be read'
-      countEl.textContent = '—'
-      headCount.childNodes[1].textContent = ' record'
-      setProjectionFoot([`the live comms data could not be read — ${reason}`])
-      state.active = unavailable.id
-      state.unread.clear()
-      boxEls.clear()
-      renderRail()
-      railItems.get(state.active)?.classList.add('active')
-      headName.textContent = unavailable.name
-      renderLog(state.active)
-      renderBoard()
+      setLiveWord('unavailable')
+      subEl.textContent = UNREADABLE_SUB
+      setNotice(hostAbsentMarkup(reason, { compact: true }))
+      emptyHidden = true
+      setQuiet(false)
+      setChannels([])
+      renderRail(null)
+      renderLog(null)
       return
     }
 
     const { data } = envelope
-    const services = data.declaredServices
-    const observed = data.channels.ok ? data.channels.value : null
+    const services = Array.isArray(data.declaredServices) ? data.declaredServices : []
+    const observed = data.channels?.ok && Array.isArray(data.channels.value) ? data.channels.value : []
     const messages = data.messages
-    liveMessagesReason = messages.ok ? null : messages.reason || 'the messages could not be read'
-    const rawMessages = messages.ok ? messages.value : []
-    const cards = []
-    const defs = []
-    const messageRows = (sourceId) => rawMessages
-      .filter(message => message.channelId === sourceId)
-      .map(message => ({ at: new Date(message.at).getTime(), s: 'observed', sender: message.sender, t: message.text }))
+    const messagesReason = messages?.ok ? null : (messages?.reason || READER_REFUSALS.NO_ANSWER)
+    const rawMessages = messages?.ok && Array.isArray(messages.value) ? messages.value : []
 
-    for (const service of services) {
-      const id = `declared:${service.id}`
-      const card = liveCard(id, 'declared', service.displayName, `Service on record · ${service.transport} · :${service.port} · ${service.resolution}`, liveMessagesReason)
-      card.hist = messageRows(service.id)
-      cards.push(card, projectionDetailCard(card, 'This service on record', liveMessagesReason))
-      defs.push({ id, sourceId: service.id, name: service.displayName, key: `declared/${service.id}`, mach: 'declared', topic: `Service on record · ${service.transport} · port ${service.port} · ${service.resolution}`, unavailable: liveMessagesReason })
-      history[id] = card.hist
-    }
-    if (!services.length) {
-      const id = 'declared:empty'
-      const card = liveCard(id, 'projection', 'services on record', 'No services are on record for this computer.', liveMessagesReason)
-      cards.push(card, projectionDetailCard(card, 'Services on record', liveMessagesReason))
-      defs.push({ id, name: 'services on record', key: 'declared', mach: 'empty', topic: 'No services are on record for this computer.', unavailable: liveMessagesReason })
-      history[id] = []
-    }
+    /* TILES ARE CHANNELS. A service on record is not a place a message lands;
+       it is listed by name in the rail and nowhere else. */
+    const cards = observed.map((item) => channelCard(
+      item.id,
+      item.name || item.id,
+      describe(item),
+      rawMessages.filter(message => message.channelId === item.id),
+    ))
 
-    if (observed) {
-      for (const item of observed) {
-        const id = `observed:${item.id}`
-        const detail = item.detail ? ` · ${item.detail}` : ''
-        const card = liveCard(id, 'observed', item.name, `Channel seen running · ${item.state}${detail}`, liveMessagesReason)
-        card.hist = messageRows(item.id)
-        cards.push(card, projectionDetailCard(card, 'This channel seen running', liveMessagesReason))
-        defs.push({ id, sourceId: item.id, name: item.name, key: `observed/${item.id}`, mach: item.state, topic: `Channel seen running · ${item.state}${detail}`, unavailable: liveMessagesReason, dividerBefore: defs.length > 0 && !defs.some(def => def.dividerBefore) })
-        history[id] = card.hist
-      }
-    } else {
-      const id = 'observed:unavailable'
-      const reason = data.channels.reason || 'the channels seen running could not be read'
-      const card = liveCard(id, 'projection', 'channels seen running', 'The channels seen running could not be read.', reason)
-      cards.push(card, projectionDetailCard(card, 'Channels seen running', reason))
-      defs.push({ id, name: 'channels seen running', key: 'observed', mach: 'unavailable', topic: 'The channels seen running could not be read.', unavailable: reason, dividerBefore: defs.length > 0 })
-      history[id] = []
-    }
-
-    W.convs = new Map(cards.map(card => [card.id, card]))
-    W.stack = cards.filter(card => !card.id.endsWith(':source')).map(card => wbLeaf(card.id))
-    W.open.clear()
-    channelDefs = defs
-    state.active = channelDefs[0].id
-    state.unread.clear()
-    root.dataset.projectionState = liveMessagesReason ? 'partial-unavailable' : 'ready'
-    if (liveMessagesReason) root.dataset.projectionUnavailable = 'messages'
+    root.dataset.projectionState = messagesReason ? 'partial-unavailable' : 'ready'
+    if (messagesReason) root.dataset.projectionUnavailable = 'messages'
     else delete root.dataset.projectionUnavailable
-    root.querySelector('.head-live').lastChild.textContent = liveMessagesReason ? 'partial' : 'live'
-    headMeta.textContent = `live comms · ${services.length} on record · ${observed ? observed.length : 'unreadable'} seen running`
-    countEl.textContent = String(services.length)
-    headCount.childNodes[1].textContent = ' declared'
-    wtMeta.textContent = `live comms · ${services.length + (observed?.length || 0)} separate records`
-    const mcpLine = data.mcp.ok
-      ? `Tool links (MCP) · ${data.mcp.value.live.length} live · ${data.mcp.value.dead.length} dead`
-      : `Tool links (MCP) could not be read — ${data.mcp.reason || 'no reason given'}`
-    setProjectionFoot([
-      `${services.length} services on record`,
-      observed ? `${observed.length} channels seen running` : `channels seen running could not be read — ${data.channels.reason}`,
-      mcpLine,
-      liveMessagesReason ? `messages could not be read — ${liveMessagesReason}` : 'messages are being read',
-    ])
-    boxEls.clear()
-    renderRail()
-    railItems.get(state.active)?.classList.add('active')
-    headName.textContent = channelDefs[0]?.name || ''
+    setLiveWord(messagesReason ? 'partial-unavailable' : 'ready')
+    subEl.textContent = inventoryLine(data)
+    /* One refusal, once, above the card. Inside the card the tiles and the log
+       show no sentence for it -- the notice is the sentence. */
+    setNotice(messagesReason ? `<p class="comms-notice-body">${esc(messagesReason)}</p>` : '')
+    const quiet = !services.length && !messagesReason && rawMessages.length === 0
+    emptyHidden = Boolean(messagesReason) || quiet
+    setQuiet(quiet)
+    setChannels(cards)
+    renderRail(services)
     renderLog(state.active)
-    renderBoard()
-    /* THE QUIET BOARD SAYS WHY IT IS QUIET, AND KEEPS ITS DOOR.
-       On a payload that carries the live message reader, a fresh install
-       reaches THIS branch -- the read works and answers zero rows -- so the
-       host-absent notice above, which used to carry this screen's explanation
-       and its guide link, never renders. Measured on the 2026-08-19 re-cut
-       confirming run: the board said only "No services are on record for this
-       computer. No messages have been seen for this exact channel." and was
-       the one screen on the first-run ring without a door to the guide.
-       The words are the copy module's (src/first-run-needs.js), the same
-       place the host-absent words live, and the packaged driver reads the
-       same module. Mount and removal are both here because this runs every
-       few seconds: the notice must neither stack on itself nor outlive the
-       first message it explained the absence of. It never shows while the
-       read itself failed -- that state has its own honest sentence and this
-       one would call a refused read a quiet one. */
-    const quiet = !services.length && !liveMessagesReason && rawMessages.length === 0
-    const quietEl = root.querySelector('[data-comms-quiet]')
-    if (quiet && !quietEl) root.querySelector('.comms-body')?.appendChild(el(commsQuietMarkup()))
-    else if (!quiet && quietEl) quietEl.remove()
   }
 
-  /* FLIP the whole board through a structural change: measure every box,
-     mutate the tree, re-render, then glide each box from where it was. */
+  /* FLIP the whole board through a structural change: measure every tile,
+     mutate the tree, re-render, then glide each tile from where it was. */
   function flipBoard(mutate) {
     if (reduced()) { mutate(); renderBoard(); return }
     const first = new Map()
@@ -922,29 +805,20 @@ export function commsView() {
     requestAnimationFrame(() => pane.classList.remove('no-trans'))
   }
 
-  /* ----- branches: child conversation slides in beside its parent ----- */
-  function toggleBranch(cid) {
-    const d = W.convs.get(cid)
-    if (!d.child) return
-    const open = findBranchByParent(cid)
-    if (open) {
-      flipBoard(() => replaceNode(open, open.ch[0]))
-      return
-    }
-    const L = findLeafByConv(cid)
-    if (!L) return
-    flipBoard(() => replaceNode(L, { t: 'split', dir: 'row', branch: true, ch: [L, wbLeaf(d.child)] }))
-  }
-
   /* ----- drag-to-split tiling ----- */
   let drag = null
   function onBoxPointerDown(e, box) {
     if (e.button !== 0 || drag) return
-    if (e.target.closest('.wb-btn, .chat-close, .chat-log, .chat-input, input, .wb-seg')) return
+    if (e.target.closest('.wb-btn, .chat-close, .chat-log, .chat-context, .wb-seg')) return
+    /* NARROW SCREENS DO NOT DRAG. Under 720px the sheet stacks and the tiles
+       are full width, so there is no half to split into, and a pointer drag
+       on a touch screen is the scroll gesture (the stylesheet sets touch-action
+       pan-y to match). A press still opens the tile. */
+    const narrow = typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 720px)').matches
     const cid = box.dataset.conv
     const sx = e.clientX, sy = e.clientY
     let started = false
-    let denied = false
+    let denied = narrow
     const move = (ev) => {
       if (started) { dragMove(ev); return }
       if (denied || Math.hypot(ev.clientX - sx, ev.clientY - sy) < 7) return
@@ -975,7 +849,7 @@ export function commsView() {
   function beginDrag(cid, node, box, ev) {
     const ghost = box.cloneNode(true)
     ghost.querySelector('.chat')?.remove()
-    ghost.classList.remove('as-chat', 'dominant', 'lead', 'stack-leaf', 'in-split', 'branch-child', 'can-restack')
+    ghost.classList.remove('as-chat', 'stack-leaf', 'in-split', 'can-restack')
     ghost.classList.add('wb-ghost')
     const r = box.getBoundingClientRect()
     ghost.style.width = Math.min(r.width, 320) + 'px'
@@ -1068,11 +942,10 @@ export function commsView() {
       b.classList.toggle('on', on)
       b.setAttribute('aria-pressed', String(on))   // which one is chosen is state, not paint
     })
-    /* The sheet is display:none in watch mode, so the log has no height and
+    /* The sheet is display:none in board mode, so the log has no height and
        renderLog's anchor scroll is a no-op — the view would open at the OLDEST
        message with the chip suppressed, then yank to the bottom on the next
-       projection application. Re-anchor on the frame the sheet actually has a
-       box. */
+       read. Re-anchor on the frame the sheet actually has a box. */
     if (m === 'channels') {
       requestAnimationFrame(() => {
         if (state.pinnedToBottom) logEl.scrollTop = logEl.scrollHeight
@@ -1118,39 +991,30 @@ export function commsView() {
   setSize(W.size)
 
   renderBoard()
-
-  /* ---- initial channel ---- */
-  railItems.get(state.active)?.classList.add('active')
-  headName.textContent = defOf(state.active)?.name || ''
+  renderRail(null)
   renderLog(state.active)
 
   /* ---- the example marking, derived from the SOURCE, never from the data ----
      A badged source (mock — signed out, or the example toggle) must be
      unmistakable on the glass, and real data — local and relay alike — must
-     carry no marking at all. The pass runs after EVERY projection application:
-     applyLiveProjection writes the live face's words ("live comms · …", the
-     word beside the dot), and on a badged source this corrects them in the
-     same breath, so no application leaves example data wearing live words.
-     data-live-mode / data-projection-state keep the vocabulary the simulated
-     face used ('simulated') so the attribute means the same thing it always
-     meant — this page is showing example data — while being derived from the
-     one source axis instead of a per-view flag. The visible badge borrows the
-     .integ-tag boxed-tag treatment (the page's one machine-token box style;
-     this view's stylesheet is out of scope here) and says the same words
-     home's example badge says, because one product labelling one state two
-     ways teaches people to read neither. */
+     carry no marking at all. The pass runs after EVERY application:
+     applyLiveProjection writes the live face's word beside the dot, and on a
+     badged source this corrects it in the same breath, so no application
+     leaves example data wearing live words. data-live-mode /
+     data-projection-state keep the vocabulary the simulated face used
+     ('simulated') so the attribute means the same thing it always meant. The
+     badge says the same words home's example badge says, because one product
+     labelling one state two ways teaches people to read neither. */
   const markDataSource = () => {
     const badged = sourceIsBadged(currentDataSource())
     root.dataset.liveMode = badged ? 'simulated' : 'live'
     const badge = root.querySelector('[data-example-badge]')
     if (!badged) { badge?.remove(); return }
     root.dataset.projectionState = 'simulated'
-    root.querySelector('.head-live').lastChild.textContent = 'example'
-    headMeta.textContent = headMeta.textContent.replace(/^live comms/, 'example comms')
-    wtMeta.textContent = wtMeta.textContent.replace(/^live comms/, 'example comms')
+    setLiveWord('simulated')
     if (!badge) {
       root.querySelector('.comms-head .spacer').before(
-        el(`<span class="integ-tag" data-example-badge="true">Example, not your data</span>`))
+        el(`<span class="comms-badge" data-example-badge="true">${esc(EXAMPLE_BADGE)}</span>`))
     }
   }
 
@@ -1164,65 +1028,48 @@ export function commsView() {
      * CUTS THE RELEASE and which then lives inside the application archive.
      * A customer's agent messages do not exist when that runs, and the file
      * cannot be written afterwards -- it is inside the asar. So the message
-     * pane could never have shown a message, however well the channel worked,
-     * and no amount of work on the channel would have changed that. That is why
-     * this needs a second source rather than a better generator.
+     * pane could never have shown a message, however well the channel worked.
      *
-     * THE STATIC PROJECTION STAYS. Services on record, channels seen running
-     * and the tool-link counts are genuinely build-time-and-CLI facts and are
-     * still read exactly as before; only the messages are read live, and only
-     * they are merged in below. Nothing that legitimately used ops.json lost it.
+     * THE STATIC REPORT STAYS. Services on record, channels and the tool-link
+     * counts are genuinely build-time-and-CLI facts and are still read exactly
+     * as before; only the messages are read live, and only they are merged in
+     * below.
      *
      * DEGRADES BY SAYING SO. A build whose shell exposes no message reader --
-     * an older payload, a window that is not the app -- takes the same path the
-     * page already had for an unreadable source, and the pane says the messages
-     * could not be read WITH the reason. It never shows an empty conversation
-     * as though the agents had nothing to say. */
+     * an older build, a window that is not the app -- says the messages could
+     * not be read WITH the reason and the next step (comms-copy.js
+     * READER_REFUSALS). It never shows an empty conversation as though the
+     * agents had nothing to say. */
     const readLiveMessages = async () => {
       const bridge = typeof window !== 'undefined' ? window.mcAgent : null
-      /* EVERY SENTENCE BELOW SAYS WHAT TO DO NEXT, and that is a standing bar
-         rather than a nicety: a page whose failure text ends at the failure is
-         what the owner filed as a finding in its own right. A person reading
-         this pane wants to know whether their agents are silent or the page is,
-         and each answer points at the one thing that would tell them. */
       if (!bridge || typeof bridge.localMessages !== 'function') {
-        return { ok: false, reason: 'this copy of the program cannot read messages between agents yet — update it, and until then read each agent\'s own conversation on the Computers page' }
+        return { ok: false, reason: READER_REFUSALS.NO_READER }
       }
       try {
         const answer = await bridge.localMessages({ limit: 200 })
         if (!answer || answer.ok !== true || !Array.isArray(answer.messages)) {
-          return {
-            ok: false,
-            reason: (answer && answer.reason)
-              || 'the program did not answer when asked for messages between agents. Start an agent from the tree; if this keeps saying so, restart the program.',
-          }
+          return { ok: false, reason: (answer && answer.reason) || READER_REFUSALS.NO_ANSWER }
         }
         return { ok: true, messages: answer.messages }
       } catch (error) {
-        return {
-          ok: false,
-          reason: `messages between agents could not be read (${error?.message || error}) — this pane will try again on its own in a few seconds, and the Computers page still shows each agent's own conversation`,
-        }
+        return { ok: false, reason: READER_REFUSALS.READ_THREW(error) }
       }
     }
 
-    /* The live messages are folded into the SAME envelope shape the projection
-       already renders, so applyLiveProjection is unchanged: one code path draws
-       the page whether the messages came from a file or from the fabric. */
+    /* The live messages are folded into the SAME report shape the page already
+       renders, so applyLiveProjection is unchanged: one code path draws the
+       page whether the messages came from a file or from the fabric. */
     const LIVE_CHANNEL_ID = 'agent-tree'
     const withLiveMessages = (result, live) => {
       const envelope = result.ok ? result.data : null
-      /* THE STATIC PROJECTION BEING UNREADABLE MUST NOT HIDE A LIVE
-         CONVERSATION, and the first version of this let it.
-         MEASURED on a driven two-node run: the agents talked, the shell handed
-         over both messages, and the page still said "This computer's live comms
-         data could not be read" -- because ops.json is UNAVAILABLE on any
-         computer that is not the one that cut the release (it is written from a
-         builder-side CLI), and an unavailable envelope short-circuits the whole
-         page before the messages are looked at. That is the ordinary state of a
-         customer's machine, so the failure would have been universal: the exact
-         defect the owner filed, reappearing one layer up.
-         The two sources are independent, so they fail independently. */
+      /* THE STATIC REPORT BEING UNREADABLE MUST NOT HIDE A LIVE CONVERSATION,
+         and the first version of this let it. MEASURED on a driven two-node
+         run: the agents talked, the shell handed over both messages, and the
+         page still said the report could not be read -- because ops.json is
+         UNAVAILABLE on any computer that is not the one that cut the release,
+         and an unavailable report short-circuits the whole page before the
+         messages are looked at. That is the ordinary state of a customer's
+         machine. The two sources are independent, so they fail independently. */
       if (!envelope?.data && !live.ok) return result
       const base = envelope?.data || {
         declaredServices: [],
@@ -1242,9 +1089,9 @@ export function commsView() {
         observedAt: new Date().toISOString(),
         value: live.messages.map(message => ({ ...message, channelId: LIVE_CHANNEL_ID })),
       }
-      /* A message needs a channel to land in -- messageRows() above filters by
-         id -- and the agents on this computer are not a declared service and
-         not something the preflight CLI can see. They are their own channel. */
+      /* A message needs a channel to land in, and the agents on this computer
+         are not a declared service and not something the preflight CLI can
+         see. They are their own channel. */
       const channels = data.channels.ok && Array.isArray(data.channels.value) ? [...data.channels.value] : []
       if (!channels.some(channel => channel.id === LIVE_CHANNEL_ID)) {
         channels.push({
@@ -1269,26 +1116,23 @@ export function commsView() {
     const loadLive = () => Promise.all([fetchOps(), readLiveMessages()])
       .then(([ops, live]) => { if (!destroyed) paintProjection(withLiveMessages(ops, live)) })
       .catch((err) => {
-        if (!destroyed) paintProjection({ ok: false, reason: `ops projection request failed: ${err?.message || err}` })
+        if (!destroyed) paintProjection({ ok: false, reason: LOAD_FAILED(err) })
       })
 
-    /* WHERE THE ENVELOPE COMES FROM is resolved in the load path, not at
+    /* WHERE THE REPORT COMES FROM is resolved in the load path, not at
        mount: on a public origin the relay-versus-mock answer needs the host
        asked for its transport, which is async (src/data-source.js). Real
-       sources take the live loader above, exactly as before. A mock source
-       wraps the example fleet's envelope (src/sample-comms.js) in the same
-       one-sentence carrier withLiveMessages synthesizes for a machine with no
-       ops.json, and feeds it through the SAME applyLiveProjection — the
-       render cannot tell, which is the owner's ruling made structural: the
-       example pages ARE the product pages, only the data is mock.
+       sources take the live loader above. A mock source wraps the example
+       fleet's report (src/sample-comms.js) in the same one-sentence carrier
+       withLiveMessages synthesizes for a machine with no ops.json, and feeds
+       it through the SAME applyLiveProjection — the render cannot tell.
 
        THE MOCK PATH NEVER TOUCHES THE BRIDGE AND NEVER POLLS. There is no
        process behind the example fleet, so asking mcAgent for its messages
-       would be a claim that one exists; and the envelope is a pure function
-       of its clock, so a 4-second poll would only rebuild the same board —
-       the deterministic demonstration reads still, the way a screenshot of it
-       would. A source change (sign-in, sign-out, the example toggle)
-       re-resolves below instead. */
+       would be a claim that one exists; and the report is a pure function of
+       its clock, so a 4-second poll would only rebuild the same board. A
+       source change (sign-in, sign-out, the example toggle) re-resolves below
+       instead. */
     let liveTimer = 0
     const stopLivePoll = () => { if (liveTimer) { clearInterval(liveTimer); liveTimer = 0 } }
     const loadForSource = async ({ reask = false } = {}) => {
@@ -1297,9 +1141,9 @@ export function commsView() {
         source = await resolveDataSource({ reask })
       } catch (err) {
         /* A resolution that failed is not a machine with no host and not the
-           example: the pane says the read failed, with the reason, through
+           example: the page says the read failed, with the reason, through
            the same unavailable branch every other failed read uses. */
-        if (!destroyed) paintProjection({ ok: false, reason: `the data source could not be resolved (${err?.message || err})` })
+        if (!destroyed) paintProjection({ ok: false, reason: LOAD_FAILED(err) })
         return
       }
       if (destroyed) return
@@ -1311,11 +1155,10 @@ export function commsView() {
         })
         return
       }
-      /* A CONVERSATION IS NOT A SNAPSHOT. The page was fetch-once, which is
-         correct for a file that never changes and wrong for the thing the
-         owner wanted to watch. The interval is cleared by destroy() through
-         the same unsubscribe list every other subscription on this page uses,
-         and by the mock branch above when the source flips mid-session. */
+      /* A CONVERSATION IS NOT A SNAPSHOT. The interval is cleared by destroy()
+         through the same unsubscribe list every other subscription on this
+         page uses, and by the mock branch above when the source flips
+         mid-session. */
       if (!liveTimer) liveTimer = setInterval(loadLive, 4000)
       loadLive()
     }

@@ -16,8 +16,8 @@
 //   * a Codex Cloud launch — real, billable, remote work the product's own copy
 //     says "cannot be cancelled once it is accepted". The dropped value is the
 //     task id: the only handle the person has on work they are paying for.
-//   * a ledger archive with dryRun:false — owner requests actually moved between
-//     two durable files.
+//   * a ledger archive with dryRun:false — an owner request's disposition
+//     appended to the durable overlay.
 //   * a loop stop — a terminate sent against a real PID, whose receipt is the
 //     only thing that distinguishes "the run is gone" from "it was NOT confirmed
 //     stopped and may still be running".

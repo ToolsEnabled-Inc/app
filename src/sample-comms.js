@@ -108,7 +108,7 @@ const SAMPLE_MESSAGES = Object.freeze([
   { channel: 'assignments', agoH: 28.5, s: 'codexb',
     t: 'ack on the second host; two seats claimed.' },
   { channel: 'blockers', agoH: 26.5, s: 'luna',
-    t: 'BLOCKER: a stale lease is holding the queue lock — the heartbeat is 40 minutes old. Sweeping it before the claim.' },
+    t: 'Blocker: a stale lease is holding the queue lock — the heartbeat is 40 minutes old. Sweeping it before the claim.' },
   { channel: 'blockers', agoH: 26.2, s: 'luna',
     t: 'cleared — lease swept, lock released, eight minutes lost.' },
   { channel: 'status', agoH: 26.0, s: 'controller',

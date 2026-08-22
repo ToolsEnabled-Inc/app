@@ -70,6 +70,30 @@ export const CONNECT_HREF = `#/settings?setting=${CONNECT_SETTING_ID}`
    they are three different screens. */
 export const CONNECT_ACTION_LABEL = 'Connect this computer to your account'
 
+/* THE ONE SWITCH THAT LETS A BROWSER CHANGE THINGS HERE, named once.
+ *
+ * A machine only accepts changes from a signed-in browser if it has been told,
+ * on the machine itself, that it may be driven from one. The reader is
+ * shell/relay-supervisor.cjs webDriveMayWrite(): it reads the shell's own
+ * durable-choice store (shell/renderer-prefs.cjs) at the key below and answers
+ * true ONLY for the exact string 'on' -- five fail-closed early returns, none
+ * of which this window can reach round. Until this constant existed there was
+ * NO writer anywhere in src/: the refusal a browser met pointed at a control
+ * that did not exist. The owner's ruling is that the question is asked on the
+ * computer, at the moment it becomes meaningful, which is the moment the
+ * connect section sees the claim land; src/connect-computer-settings.js draws
+ * that question and the switch, and both spell the control with this label.
+ *
+ * ESM cannot import the CJS reader, so the key and the value are repeated here
+ * and the parity is pinned by tools/test/relay-supervisor.test.mjs against the
+ * CJS exports. The key is outside `mc.set.` on purpose: public/durable-storage.js
+ * syncs `mc.set.*` to the account, and this choice must never leave the
+ * machine it was made on -- it is what stops someone who has the password
+ * from granting themselves the permission this switch withholds. */
+export const WEB_DRIVE_CONTROL_LABEL = 'Let a signed-in browser drive this computer'
+export const WEB_DRIVE_PREF_KEY = 'mc.relay.web-drive'
+export const WEB_DRIVE_ON = 'on'
+
 /* WHAT A PERSON IS TOLD TO TYPE INTO THEIR BROWSER, written once because a
  * wrong address here sends somebody to a page that cannot help them.
  *
@@ -300,6 +324,21 @@ const RESTART_REMEDY = 'Ask for a new code below, then enter that one on the acc
 const NAME_REMEDY = 'Change the name in the box above, then press the button again.'
 const NAME_REFUSAL_CODE = 'DEVICE_CLAIM_NAME_INVALID'
 
+/* The third one, and it exists because the floor sentence was untrue for it.
+ * The shared DEVICE_CLAIM_ floor ends "a new code comes from this screen", and
+ * for a computer that already holds a credential that is the one thing that
+ * cannot happen: the credential is the engine's
+ * (capability/src/lib/online-fra-device-claim.js), its runtime has no delete
+ * path, and nothing in this window can clear it. The shell's old sentence
+ * said "Remove it on the account page first", which sent people to do a thing
+ * that does not cure this -- removing the computer on the account page leaves
+ * what this machine holds untouched, so the next press refuses the same way.
+ * Until a forget exists (an owner question, filed), the honest remedy says
+ * what is true: if it is your account, you are done; if it is not, nothing
+ * here can help yet. */
+const ALREADY_CONNECTED_REMEDY = 'If that is your account, it is already joined and there is nothing more to do here. Removing it on the account page does not clear what this computer holds, and nothing in this window can clear it yet.'
+const ALREADY_CONNECTED_CODE = 'DEVICE_CLAIM_ALREADY_CONNECTED'
+
 /* The two states where a claim is actually in flight. Written down once
    because three branches now have to leave one alone. */
 function waiting(state) {
@@ -403,7 +442,10 @@ export function reduce(state, event) {
   if (type === 'begin-result') {
     const result = event.result
     if (result?.ok !== true) {
-      const remedy = refusalCodeOf(result) === NAME_REFUSAL_CODE ? NAME_REMEDY : ''
+      const refusedAs = refusalCodeOf(result)
+      const remedy = refusedAs === NAME_REFUSAL_CODE ? NAME_REMEDY
+        : refusedAs === ALREADY_CONNECTED_CODE ? ALREADY_CONNECTED_REMEDY
+        : ''
       return next(state, { phase: 'idle', ...refusalOf(result, remedy) })
     }
     const code = typeof result.code === 'string' ? result.code.trim() : ''

@@ -328,6 +328,65 @@ const escapeMarkup = value => String(value ?? '').replace(/[&<>"']/g, character 
    placeholder attribute on the line below. The label stays verbatim on purpose
    (mangling somebody's words in the one place they compare them against what
    they typed is worse), so every sink escapes instead. */
+
+/* WHICH FOLDS A PERSON HAS OPENED, REMEMBERED PER KEY.
+ *
+ * Extracted from addContext below, byte-for-byte in behaviour, because the home
+ * screen's run rows now fold the same way the chat's context block does and
+ * the owner asked for exactly that: "collapse the context and such as it goes
+ * like we do in chat." One memory with two prefixes is one rule; a second copy
+ * inside home.js would be the version that drifts.
+ *
+ * `recall` answers 'open' | 'closed' | null, where null is "nobody has said"
+ * and the caller picks its own default -- a row that should open because it
+ * is the newest, say. `remember` writes the choice. Both swallow a storage
+ * that refuses (private mode, a shim that throws): a fold that cannot be
+ * remembered is still a fold that opens for this sitting. No key means no
+ * memory rather than a shared one, the same rule addContext always had. */
+export function openMemory(prefix) {
+  const base = typeof prefix === 'string' ? prefix : ''
+  return {
+    recall(key) {
+      if (!key) return null
+      try {
+        const value = localStorage.getItem(base + key)
+        return value === 'open' || value === 'closed' ? value : null
+      } catch { return null }
+    },
+    remember(key, open) {
+      if (!key) return
+      try { localStorage.setItem(base + key, open ? 'open' : 'closed') } catch { /* session-only is still a real change */ }
+    },
+  }
+}
+
+/* THE OWNED DISCLOSURE GESTURE, for a <details> whose whole row should open.
+ *
+ * MEASURED on a staged packaged build (the reasoning is at makeAction below):
+ * document.elementFromPoint over any part of a collapsed row answers the
+ * DETAILS element rather than the SUMMARY inside it, so a press beside the
+ * triangle is not a press on the disclosure and nothing opens. The row looked
+ * pressable and was not. So the native toggle is cancelled and redone by hand,
+ * which also stops a press on the summary toggling twice.
+ *
+ * THE ONE NARROWING, which is why the home rows cannot simply reuse addContext's
+ * handler: a run row's open body holds text a person selects and a link they
+ * follow, and a gesture that folds the row on every press inside it would take
+ * both away. `within` is the element whose presses toggle (the summary); a
+ * press whose target is the details itself -- the elementFromPoint case on a
+ * collapsed row -- still toggles, and a press inside the open body is left
+ * alone. Keyboard needs nothing extra: the summary is natively focusable and
+ * Enter or Space fire a click on it. With no `within`, every press toggles,
+ * which is the behaviour addContext has always had. */
+export function ownDisclosure(details, { within = null, onToggle = null } = {}) {
+  details.addEventListener('click', (event) => {
+    if (within && event.target !== details && !within.contains(event.target)) return
+    event.preventDefault()
+    details.open = !details.open
+    if (typeof onToggle === 'function') onToggle(details.open)
+  })
+}
+
 /* Four OPTIONAL powers a live-agent caller may hand this composer (every
    existing caller compiles unchanged; the component stays outbox- and
    fleet-agnostic — the closures own the mechanisms):
@@ -619,15 +678,7 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
    * thread they are reading, not for every thread they ever open, so the key
    * is the caller's (`openKey`, the session). No key means no memory rather
    * than a shared one -- a global default is the thing being avoided. */
-  const CONTEXT_OPEN_PREFIX = 'mc.chat.context-open:'
-  const contextWasOpen = (key) => {
-    if (!key) return false
-    try { return localStorage.getItem(CONTEXT_OPEN_PREFIX + key) === 'open' } catch { return false }
-  }
-  const rememberContext = (key, open) => {
-    if (!key) return
-    try { localStorage.setItem(CONTEXT_OPEN_PREFIX + key, open ? 'open' : 'closed') } catch { /* session-only is still a real change */ }
-  }
+  const contextOpen = openMemory('mc.chat.context-open:')
 
   const addContext = (entry) => {
     if (emptyNote.parentNode) emptyNote.remove()
@@ -636,7 +687,7 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     const wrap = document.createElement('details')
     wrap.className = 'msg context chat-context'
     wrap.title = chatTime(at)
-    wrap.open = contextWasOpen(key)
+    wrap.open = contextOpen.recall(key) === 'open'
     const head = document.createElement('summary')
     head.className = 'chat-context-head'
     const mark = document.createElement('span')
@@ -665,7 +716,7 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     wrap.addEventListener('click', (event) => {
       event.preventDefault()
       wrap.open = !wrap.open
-      rememberContext(key, wrap.open)
+      contextOpen.remember(key, wrap.open)
     })
     lastTurnAt = at
     log.appendChild(wrap)

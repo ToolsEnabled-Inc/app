@@ -142,6 +142,58 @@ test('two trees separate: their roots get the between-family gap, not shoulder p
   )
 })
 
+/* P-O3: THE WIDE GAP IS BETWEEN TREES, NOT BETWEEN FAMILIES INSIDE ONE TREE.
+   One root, two managers, two workers each, on a 1200px canvas. Before the
+   subtree pass the worker rank was packed per family with BETWEEN (238px at
+   air 68) between the two families, so cousins stood 316px apart while
+   siblings stood 146 — and each manager was NOT over its own pair. Now the
+   cousin gap equals the sibling gap (78 + 68 = 146) and the between-family
+   gap is spent only where a second tree begins. */
+test('BETWEEN separates trees, not families inside one tree', () => {
+  const nodes = [
+    { id: 'root', name: 'Coordinator', role: 'coordinator', bornAt: 1 },
+    { id: 'm1', name: 'Manager One', role: 'default', parentId: 'root', bornAt: 1 },
+    { id: 'm2', name: 'Manager Two', role: 'default', parentId: 'root', bornAt: 1 },
+    { id: 'w1a', name: 'Worker 1a', role: 'default', parentId: 'm1', bornAt: 1 },
+    { id: 'w1b', name: 'Worker 1b', role: 'default', parentId: 'm1', bornAt: 1 },
+    { id: 'w2a', name: 'Worker 2a', role: 'default', parentId: 'm2', bornAt: 1 },
+    { id: 'w2b', name: 'Worker 2b', role: 'default', parentId: 'm2', bornAt: 1 },
+  ]
+  const result = layoutTree({ nodes, W: 1200, H: 700 })
+  const x = (id) => result.slots.get(id).x
+  const sibling = x('w1b') - x('w1a')
+  const cousin = x('w2a') - x('w1b')
+  assert.equal(cousin, sibling, `cousins ${cousin}px apart, siblings ${sibling}px: the between-tree gap was spent inside one tree`)
+  assert.equal(sibling, 146)
+  // Each manager stands over the middle of its own pair; the root over both.
+  assert.ok(Math.abs((x('w1a') + x('w1b')) / 2 - x('m1')) < 1)
+  assert.ok(Math.abs((x('w2a') + x('w2b')) / 2 - x('m2')) < 1)
+  assert.ok(Math.abs((x('m1') + x('m2')) / 2 - x('root')) < 1)
+})
+
+/* A SEAM, PINNED AND NOT FIXED HERE. layoutTree reads a root's tree from
+   node.treeId, node.agent.treeId or node.agent.treeNode.treeId, while the
+   live page hands records their treeNode at TOP level, so on the real canvas
+   every root keys '~orphan' and three trees stand at the within-family pitch.
+   Fixing the read changes root spacing visibly; it is its own change, after
+   the owner has seen this one. This test documents today's behaviour so the
+   fix is a deliberate flip of one assertion, not a surprise. */
+test('seam: a top-level treeNode.treeId is not read as a tree today', () => {
+  const nodes = [
+    { id: 'a-root', name: 'First Coordinator', role: 'coordinator', treeNode: { treeId: 'tree-a' }, bornAt: 1 },
+    { id: 'b-root', name: 'Second Coordinator', role: 'coordinator', treeNode: { treeId: 'tree-b' }, bornAt: 1 },
+  ]
+  const seam = layoutTree({ nodes, W: 1200, H: 700 })
+  const control = layoutTree({ nodes: nodes.map(({ treeNode, ...rest }) => rest), W: 1200, H: 700 })
+  const gap = (result) => Math.abs(result.slots.get('b-root').x - result.slots.get('a-root').x)
+  assert.equal(gap(seam), gap(control), 'top-level treeNode.treeId is now read as a tree key: the seam at the treeId read in src/tree-layout.js was fixed; retire this pin deliberately')
+})
+
+test('the subtree ladder spreads PACKING_LADDER instead of copying its rungs', () => {
+  const source = readFileSync(join(SRC, 'tree-layout.js'), 'utf8')
+  assert.match(source, /\.\.\.PACKING_LADDER/, 'SUBTREE_LADDER no longer spreads PACKING_LADDER; the two ladders can now drift apart')
+})
+
 test('the zoom drill keeps its hysteresis: two thresholds, resets between them', () => {
   const graph = readFileSync(join(SRC, 'tree-graph.js'), 'utf8')
   const at = graph.match(/const ZOOM_DRILL_AT = ([\d.]+)/)?.[1]

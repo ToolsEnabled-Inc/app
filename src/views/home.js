@@ -27,14 +27,23 @@
 // wires the sources that feed it. Copy does not live here; if a sentence needs
 // changing, it changes there, where the test can see it.
 //
-// WHAT IS STILL SIMULATED, AND SAID SO. The labelled demonstration -- the
-// written coordinator session and its cast -- is still here, still reachable
-// from Settings, and now the only thing on the screen that carries a badge. It
-// never appears unless a person asked for it: the previous version showed a
-// header reading "SESSION - SAMPLE TRANSCRIPT" beside a badge reading "LIVE
-// SOURCE" on a live screen, which is the same defect in miniature.
+// WHAT IS STILL SIMULATED, AND SAID SO. The labelled demonstration is still
+// reachable from Settings and is the only thing on the screen that carries a
+// badge. It never appears unless a person asked for it: an earlier version
+// showed a header reading "SESSION - SAMPLE TRANSCRIPT" beside a badge reading
+// "LIVE SOURCE" on a live screen, which is the same defect in miniature.
+//
+// ONE CARD, NOT TWO. The demonstration used to have a renderer of its own -- a
+// written coordinator transcript with timed arrivals and a composer that faked
+// replies -- beside the live list of runs. The owner, with both on screen: make
+// the live one "the foundation, and try to add more context to it. And
+// collapse the context and such as it goes like we do in chat." So there is one
+// list of runs for every source; each row folds open to what was asked, the
+// lines between, and what was said back; and the example feeds that same list
+// with a record and conversations of its own (src/sample-activity.js) instead
+// of a second screen.
 
-import { el, uptimeRing } from '../components.js'
+import { el, uptimeRing, openMemory, ownDisclosure } from '../components.js'
 import { onNextFrame } from '../page-frames.js'
 import { fetchStatus, fetchCoordinator } from '../live-status.js'
 import { ownerPromptSnapshot } from '../mission-bridge.js'
@@ -91,8 +100,18 @@ import { readLocalUsage } from '../local-metrics.js'
 import {
   sessionEventText,
   sessionEventTurnId,
+  sessionMessageBoundary,
   sessionTurnStatus,
 } from '../agent-session-events.js'
+/* THE EXAMPLE'S OWN RECORD, CONVERSATIONS AND TURN FIGURES, so the demonstration
+   goes through every join a real machine does and this file holds no second
+   renderer for it. Substitution, not suppression: the reasoning is at the top
+   of src/sample-activity.js. */
+import { sampleConversations, sampleSessionsRaw } from '../sample-activity.js'
+import { sampleUsageRaw } from '../sample-usage.js'
+/* Whether this copy offers the subscription page at all, read through the one
+   predicate the router and the account screen already use. */
+import { CHECKOUT_SURFACE_EVENT, checkoutSurfaceAvailable } from '../checkout-visibility.js'
 /* The two controls on the settings page that decide what this box contains:
    which agents' context appears in it, and whether agent runs appear too, not
    at all, or on their own. The view reads them and re-reads them on the event,
@@ -149,44 +168,22 @@ const LEDGER_REREAD_FLOOR_MS = 4_000
    for. */
 const LIVE_REPAINT_MS = 90
 
-/* ============================================================
-   The demonstration's cast and script. Profile data, because a
-   fleet names its own agents; untouched by this rewrite except
-   that it now renders only when a person has asked for it.
-   ============================================================ */
+/* The fleet's speaker dress (dot colour, label) for the coordinator thread.
+   Profile data, because a fleet names its own agents. The profile's written
+   sample transcript (`session`, `arrivals`, `replies`, `replyActs`) is no
+   longer rendered by this file: the example shows the same run rows a real
+   machine does, with its own conversations. */
 const SPEAKERS = FLEET.speakers || {}
-const SESSION = (FLEET.session || []).filter(turn => turn && typeof turn.text === 'string')
-const ARRIVALS = (FLEET.arrivals || []).filter(turn => turn && typeof turn.text === 'string')
-const REPLIES = (FLEET.replies || []).filter(text => typeof text === 'string' && text)
-const REPLY_ACTS = (FLEET.replyActs || []).filter(text => typeof text === 'string' && text)
-
 const escText = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-/* Draw from a shuffled bag so the pool is spent before anything repeats — the
-   comms board learned this the hard way: nothing gives a generated transcript
-   away faster than a verbatim repeat two messages apart. On refill the new bag
-   must not open with the line that just closed the old one, or the one guarded
-   repeat appears at the seam. */
-function makeBag(items) {
-  let bag = []
-  let last = null
-  return () => {
-    if (!bag.length) {
-      bag = items.slice()
-      for (let i = bag.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1))
-        ;[bag[i], bag[j]] = [bag[j], bag[i]]
-      }
-      if (bag.length > 1 && bag[bag.length - 1] === last) {
-        ;[bag[0], bag[bag.length - 1]] = [bag[bag.length - 1], bag[0]]
-      }
-    }
-    last = bag.pop()
-    return last
-  }
-}
-
 const BRACE_SVG = `<svg width="22" height="26" viewBox="0 0 22 26"><path d="M20.5 1.5 C13 1.5 8 3.6 8 10.8 L8 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="56" viewBox="0 0 22 56"><path d="M8 0 L8 16 C8 24 5.6 26.4 1.5 28 C5.6 29.6 8 32 8 40 L8 56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="26" viewBox="0 0 22 26"><path d="M8 0 L8 15.2 C8 22.4 13 24.5 20.5 24.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+
+/* WHICH RUN ROWS A PERSON HAS OPENED, remembered across visits and reloads the
+   same way the chat remembers its context block (src/components.js openMemory).
+   Keyed by the run's own session id, so a choice survives the list being
+   rebuilt and is never shared between two runs. */
+const runOpen = openMemory('mc.home.run-open:')
+const runOpenKey = (run) => run.sessionId || `seq:${run.sequence}`
 
 /* One per mounted home view, so the panel heading's id is unique even while the
    router briefly holds two of them. */
@@ -194,7 +191,7 @@ let panelInstances = 0
 
 export function homeView() {
   /* The SOURCE decides what this screen shows, and it alone puts the badge on.
-     `sample` is baked into this view's closures (the send fork, the arrivals,
+     `sample` is baked into this view's closures (which record the list reads,
      the write gate), so it is fixed at construction from what is known
      synchronously: the example toggle, or an already-resolved verdict. On a
      public page the first-ever mount may not know yet -- the relay probe is
@@ -248,10 +245,19 @@ export function homeView() {
                page that takes a subscription could only be reached by typing
                its address. It sits inside the panel rather than beside the
                ring because the ring is what this copy is doing right now and
-               this is not that; and it is unconditional, because a door that
-               appears only in some states is one a person cannot learn. Its
-               words come from COPY like every other sentence here. -->
-          <div class="home-doors">
+               this is not that. Its words come from COPY like every other
+               sentence here.
+               DRAWN ONLY WHERE THE ROOM EXISTS. It used to be unconditional
+               ("a door that appears only in some states is one a person
+               cannot learn"), and that was right about states and wrong about
+               copies: on toolsenabled.ai/app/ there is no shell and no
+               purchase list, checkoutSurfaceAvailable() is false, the route
+               behind the link is suppressed, and this was a dead-looking
+               control on the screen a new account lands on. So it is gated on
+               the same predicate the router and the account screen use -- not
+               a subscription state, but whether THIS COPY offers the page at
+               all. Fail-closed: not measured yet is not offered. -->
+          <div class="home-doors" hidden>
             <a class="home-door" data-door-subscribe></a>
           </div>
         </div>
@@ -269,15 +275,25 @@ export function homeView() {
      re-animate lines a person is in the middle of reading. */
   const noticeSlot = el('<div class="log-notices"></div>')
   const runsSlot = el('<div class="log-runs"></div>')
+  /* The heading over the coordinator thread. Its own element, a sibling before
+     the turns slot, because paintTurns replaces that slot's children whole and
+     a heading inside it would be wiped on every repaint. */
+  const threadHead = el('<div class="log-thread-head" hidden></div>')
   const turnsSlot = el('<div class="log-turns"></div>')
-  logEl.append(noticeSlot, runsSlot, turnsSlot)
+  logEl.append(noticeSlot, runsSlot, threadHead, turnsSlot)
   const panelTitle = root.querySelector('[data-panel-title]')
   const panelBadge = root.querySelector('[data-panel-badge]')
   const panelFoot = root.querySelector('[data-panel-foot]')
 
   const subscribeDoor = root.querySelector('[data-door-subscribe]')
+  const doorsRow = root.querySelector('.home-doors')
   subscribeDoor.href = COPY.subscribeDoor.href
   subscribeDoor.textContent = COPY.subscribeDoor.label
+  /* The probe is asynchronous and this view mounts early, so the door is
+     re-decided when the probe settles rather than read once and left wrong. */
+  const showDoors = () => { doorsRow.hidden = checkoutSurfaceAvailable() !== true }
+  showDoors()
+  window.addEventListener(CHECKOUT_SURFACE_EVENT, showDoors)
 
   /* ------------------------------------------------------------------
      The hero ring.
@@ -453,7 +469,6 @@ export function homeView() {
     }
   }
 
-  const timers = []
   let clockEpoch = null
   let raf = 0
   let lastTickAt = 0
@@ -616,7 +631,11 @@ export function homeView() {
      own reply field is empty. */
   let conversations = null
   function readConversations() {
-    conversations = readSessionRoles(typeof window === 'undefined' ? null : window.localStorage, { transcripts: true })
+    /* The example's conversations are its own, built beside its own record,
+       and a real person's saved trees never reach a badged screen. */
+    conversations = sample
+      ? sampleConversations(state.nowMs)
+      : readSessionRoles(typeof window === 'undefined' ? null : window.localStorage, { transcripts: true })
   }
 
   /* ---- ONE RUN, AS A FLOW RATHER THAN AS A LINE IN A LOG ----
@@ -652,31 +671,69 @@ export function homeView() {
    * markup and is hidden when there is nothing for it, so a word arriving from a
    * live agent is a textContent write on one span rather than a rebuild of the
    * list -- which would fight the scroll pin and re-animate rows a person is
-   * reading. */
-  function buildRunRow() {
-    const row = el(`<li class="home-run">
-      <span class="run-head"><span class="run-what"></span><span class="run-result"></span><span class="run-live" hidden></span></span>
-      <span class="run-when"></span>
-      <span class="run-agent" hidden></span>
-      <span class="run-asked" hidden></span>
-      <span class="run-did" hidden></span>
-      <span class="run-said" hidden></span>
-      <span class="run-why" hidden></span>
-      <span class="run-gap" hidden></span>
-    </li>`)
-    return {
+   * reading.
+   *
+   * AND EACH ROW FOLDS, the way the chat's context block does. The owner's
+   * words, with the two cards in front of him: "collapse the context and such
+   * as it goes like we do in chat." The closed line is the run, its verdict,
+   * one clipped line of what it was about, and when; the open body is the
+   * question, the lines between, what it did, what it said back, and the door
+   * to its real chat. A native <details> carries the state, the keyboard and
+   * what a screen reader says; the press is owned (ownDisclosure) for the
+   * measured reason recorded in src/components.js -- a press beside the
+   * triangle lands on the details, not the summary, and would otherwise open
+   * nothing. */
+  function buildRunRow(run, index) {
+    const row = el(`<li class="home-run"><details class="run-fold"><summary class="run-head">
+      <span class="chat-action-mark" aria-hidden="true"><svg viewBox="0 0 8 8"><path d="M2.6 1.4 5.4 4 2.6 6.6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <span class="run-what"></span><span class="run-result"></span><span class="run-live" hidden></span>
+      <span class="run-agent" hidden></span><span class="run-brief" hidden></span><span class="run-when"></span>
+    </summary><div class="run-body">
+      <span class="run-asked" hidden></span><div class="run-turns" hidden></div>
+      <span class="run-did" hidden></span><span class="run-said" hidden></span>
+      <span class="run-why" hidden></span><span class="run-gap" hidden></span>
+      <a class="run-door home-next" hidden></a>
+    </div></details></li>`)
+    const fold = row.querySelector('.run-fold')
+    const head = row.querySelector('.run-head')
+    /* OPEN BY DEFAULT ONLY FOR THE NEWEST. Runs arrive newest-first, so index 0
+       is the one a person came to look at; the rest fold so the list is a list
+       and not a wall. A remembered choice beats the default either way:
+       'closed' on the newest stays closed, 'open' on an old one stays open. */
+    const key = runOpenKey(run)
+    const remembered = runOpen.recall(key)
+    fold.open = remembered ? remembered === 'open' : index === 0
+    const parts = {
       el: row,
+      fold,
+      key,
+      /* Whether a person has ever said which way this row goes. While they have
+         not, a run that starts working may open itself once (paintRunRow). */
+      remembered: remembered !== null,
+      openedForWork: false,
+      turnsSignature: null,
       what: row.querySelector('.run-what'),
       result: row.querySelector('.run-result'),
       live: row.querySelector('.run-live'),
       when: row.querySelector('.run-when'),
       agent: row.querySelector('.run-agent'),
+      brief: row.querySelector('.run-brief'),
       asked: row.querySelector('.run-asked'),
+      turns: row.querySelector('.run-turns'),
       did: row.querySelector('.run-did'),
       said: row.querySelector('.run-said'),
       why: row.querySelector('.run-why'),
       gap: row.querySelector('.run-gap'),
+      door: row.querySelector('.run-door'),
     }
+    ownDisclosure(fold, {
+      within: head,
+      onToggle: (open) => {
+        parts.remembered = true
+        runOpen.remember(key, open)
+      },
+    })
+    return parts
   }
 
   /* A line carries its value or it is not there. `hidden` rather than removal so
@@ -685,6 +742,16 @@ export function homeView() {
   function setLine(node, value) {
     node.textContent = value || ''
     node.hidden = !value
+  }
+
+  /* One line of the saved conversation, in the markup addTurn uses for the
+     coordinator thread so the two read in one register. No speaker dot: these
+     are this computer's own roles, not the fleet's cast. */
+  function runTurnNode(line, agentLabel) {
+    const cls = line.who === 'you' ? 'is-owner' : (line.who === 'action' ? 'is-act' : 'is-agent')
+    const label = line.who === 'you' ? COPY.turnYou : (line.who === 'action' ? '' : agentLabel)
+    const who = label ? `<span class="turn-who">${escText(label)}</span>` : ''
+    return el(`<div class="turn ${cls}">${who}<div class="turn-text">${escText(line.text)}</div></div>`)
   }
 
   function paintRunRow(parts, run) {
@@ -709,16 +776,50 @@ export function homeView() {
        happening and never how long it has been happening, because nothing
        writes down when a run ends. */
     setLine(parts.live, said.working ? COPY.runWorkingNow : '')
+    /* A ROW THAT STARTS WORKING OPENS ITSELF, ONCE, so the words arriving are
+       on the glass rather than behind a fold -- unless the person has already
+       said which way this row goes, in which case their choice stands. */
+    if (said.working && !parts.remembered && !parts.openedForWork) {
+      parts.openedForWork = true
+      parts.fold.open = true
+    }
     parts.when.textContent = said.when
     /* The exact instant on hover. The row itself stays relative, because a
        column of timestamps is a log and this is a list of what happened. */
     if (said.at) parts.when.title = said.at
     setLine(parts.agent, said.agent)
+    /* The closed line's one clue to what the run was about: the brief, or for
+       a run with no brief, why it did not start or what is missing. Already
+       clipped to one line by describeRun; hidden by the stylesheet when the
+       row is open, where the full lines are. */
+    setLine(parts.brief, said.asked || said.why || said.gap)
     setLine(parts.asked, said.asked ? COPY.runAsked(said.asked) : '')
+    /* THE LINES BETWEEN, rebuilt only when they changed. A cheap signature of
+       the turns rather than a deep compare; the common repaint is a live word
+       landing on .run-said, and that must not rebuild this block under a
+       reader. */
+    const turnsSignature = said.turns.map(line => `${line.who}:${line.text}`).join('\n')
+    if (parts.turnsSignature !== turnsSignature) {
+      parts.turnsSignature = turnsSignature
+      parts.turns.replaceChildren(...said.turns.map(line => runTurnNode(line, COPY.turnAgent(said.agent))))
+      parts.turns.hidden = said.turns.length === 0
+    }
     setLine(parts.did, said.did || said.noWork)
     setLine(parts.said, said.said ? COPY.runSaid(said.said) : '')
     setLine(parts.why, said.why)
     setLine(parts.gap, said.gap)
+    /* THE DOOR TO THE RUN'S REAL CHAT, only where one exists: a run that has a
+       node on the computers page, on a real machine. The example has no page
+       to open, and a run started from elsewhere has no node to open to. */
+    const entry = run.sessionId && conversations && typeof conversations.get === 'function'
+      ? conversations.get(run.sessionId)
+      : null
+    const hasDoor = !sample && Boolean(entry && entry.nodeId)
+    parts.door.hidden = !hasDoor
+    if (hasDoor) {
+      parts.door.href = COPY.runDoor.href
+      parts.door.textContent = COPY.runDoor.label
+    }
   }
 
   let runsSignature = null
@@ -746,12 +847,23 @@ export function homeView() {
       runsSlot.replaceChildren()
       if (listed.length) {
         const list = el(`<ol class="home-runs"></ol>`)
-        for (const run of listed) {
-          const parts = buildRunRow()
+        listed.forEach((run, index) => {
+          /* The index decides the default fold: the newest row open, the rest
+             closed; a remembered choice is re-read on every rebuild. */
+          const parts = buildRunRow(run, index)
           runRows.set(run.sequence, parts)
           list.appendChild(parts.el)
-        }
+        })
         runsSlot.appendChild(list)
+      }
+      /* A REBUILT LIST READS FROM ITS TOP, where the newest run is. The pin
+         below is a transcript's contract (newest line at the bottom); a list
+         of runs is newest-first, so a rebuild that re-pinned to the bottom
+         would scroll the person away from the run that just arrived. When the
+         coordinator thread shares the card the transcript keeps its pin. */
+      if (!view.panel.context) {
+        pinned = false
+        logEl.scrollTop = 0
       }
     }
     for (const run of listed) {
@@ -795,11 +907,7 @@ export function homeView() {
       renderedPanelKind = kind
       turnsSignature = null
       contextNotice = null
-      if (kind === 'sample') {
-        noteContext(SESSION)
-        if (!SESSION.length) contextNotice = COPY.sampleEmpty
-        if (ARRIVALS.length) scheduleArrival(true)
-      } else if (kind === 'conversation') {
+      if (kind === 'conversation') {
         noteContext([])
         contextNotice = { ...COPY.conversationLoading, loading: true }
         void loadCoordinatorThread()
@@ -807,6 +915,10 @@ export function homeView() {
         noteContext([])
       }
     }
+    /* The thread's heading, beside the run list, so the two halves read as two
+       things. Hidden with the half it names. */
+    threadHead.hidden = kind !== 'conversation'
+    if (kind === 'conversation') threadHead.textContent = COPY.threadLabel(composerTarget)
     paintTurns(kind)
     pinAfterMount()
   }
@@ -891,9 +1003,7 @@ export function homeView() {
       return
     }
     if (composerEl) return
-    const placeholder = view.mode === HOME_MODES.SAMPLE
-      ? COPY.composerSample(composerTarget)
-      : COPY.composerLive(composerTarget)
+    const placeholder = COPY.composerLive(composerTarget)
     composerEl = el(`
       <div class="chat-input session-input">
         <input type="text" placeholder="${escText(placeholder)}" aria-label="${escText(placeholder)}" />
@@ -907,103 +1017,76 @@ export function homeView() {
     sendButtonEl.addEventListener('click', () => { void send() })
     inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); void send() } })
 
-    if (view.mode !== HOME_MODES.SAMPLE) {
-      /* The audited path. Until the bridge confirms it will take a message the
-         controls are disabled and say why in one short sentence — not in the
-         placeholder, which is a label for the box and not a status line. */
-      writeStateEl = el(`<div class="session-write-state" data-state="checking" role="status">${escText(COPY.replyChecking)}</div>`)
-      composerEl.insertAdjacentElement('afterend', writeStateEl)
-      inputEl.disabled = true
-      sendButtonEl.disabled = true
-      /* THE SWITCH IS ASKED ABOUT FIRST, and it was not before.
-         `send()` has always returned early when replying is switched off, but
-         the enable below was gated only on whether the message could be
-         CARRIED. So with the shipped defaults the box asked the bridge, was
-         told yes, enabled the input and printed "Replies will be sent and
-         recorded" over a control that discarded every keystroke. Found by the
-         page 2 lane asking what this composer actually posts into. */
-      if (!writeReplyEnabled) {
-        writeStateEl.dataset.state = 'off'
-        writeStateEl.textContent = COPY.replyDisabled
+    /* The audited path, and the only one: the composer exists only in FLEET
+       mode now (src/local-activity.js `composer`). Until the bridge confirms it
+       will take a message the controls are disabled and say why in one short
+       sentence — not in the placeholder, which is a label for the box and not
+       a status line. */
+    writeStateEl = el(`<div class="session-write-state" data-state="checking" role="status">${escText(COPY.replyChecking)}</div>`)
+    composerEl.insertAdjacentElement('afterend', writeStateEl)
+    inputEl.disabled = true
+    sendButtonEl.disabled = true
+    /* THE SWITCH IS ASKED ABOUT FIRST, and it was not before.
+       `send()` has always returned early when replying is switched off, but
+       the enable below was gated only on whether the message could be
+       CARRIED. So with the shipped defaults the box asked the bridge, was
+       told yes, enabled the input and printed "Replies will be sent and
+       recorded" over a control that discarded every keystroke. Found by the
+       page 2 lane asking what this composer actually posts into. */
+    if (!writeReplyEnabled) {
+      writeStateEl.dataset.state = 'off'
+      writeStateEl.textContent = COPY.replyDisabled
+      return
+    }
+    void bridgeStatus().then(result => {
+      if (destroyed || !writeStateEl) return
+      if (!result.ok) {
+        writeStateEl.dataset.state = 'unavailable'
+        writeStateEl.textContent = COPY.replyUnavailable
         return
       }
-      void bridgeStatus().then(result => {
-        if (destroyed || !writeStateEl) return
-        if (!result.ok) {
-          writeStateEl.dataset.state = 'unavailable'
-          writeStateEl.textContent = COPY.replyUnavailable
-          return
-        }
-        writeStateEl.dataset.state = 'ready'
-        writeStateEl.textContent = result.channels?.discord?.ok === false
-          ? COPY.replyReadyOneChannelOffline
-          : COPY.replyReady
-        inputEl.disabled = false
-        sendButtonEl.disabled = false
-      })
-    }
+      /* One sentence. This used to read a per-channel flag off the bridge and
+         add "One message channel is offline" for one named channel; that
+         channel is gone (owner ruling, 2026-08-22: no need for it or to
+         mention it), and the bridge's readiness is the whole of the news. */
+      writeStateEl.dataset.state = 'ready'
+      writeStateEl.textContent = COPY.replyReady
+      inputEl.disabled = false
+      sendButtonEl.disabled = false
+    })
   }
-
-  const drawReply = makeBag(REPLIES)
-  const drawReplyAct = makeBag(REPLY_ACTS)
 
   async function send() {
     if (!inputEl) return
     const v = inputEl.value.trim()
     if (!v) return
-
-    if (!sample) {
-      if (!writeReplyEnabled || inputEl.disabled) return
-      inputEl.disabled = true
-      sendButtonEl.disabled = true
-      writeStateEl.dataset.state = 'pending'
-      writeStateEl.textContent = COPY.replySending
-      const result = await postBridgeAction('thread-reply', {
-        idempotencyKey: crypto.randomUUID(),
-        threadId: 'owner-thread',
-        message: v,
-      })
-      if (destroyed || !writeStateEl) return
-      if (!result.ok) {
-        writeStateEl.dataset.state = 'refused'
-        writeStateEl.textContent = COPY.replyRefused
-      } else {
-        inputEl.value = ''
-        receiveTurn(result.receipt.actor || composerTarget, v)
-        pulseBraces()
-        writeStateEl.dataset.state = 'confirmed'
-        writeStateEl.textContent = COPY.replySent
-      }
-      inputEl.disabled = false
-      sendButtonEl.disabled = false
-      inputEl.focus()
-      return
+    /* The one path. The example used to answer here from a bag of written
+       replies on a timer; that fork is gone with the example's own renderer,
+       and the composer no longer exists at all outside FLEET mode. */
+    if (sample || !writeReplyEnabled || inputEl.disabled) return
+    inputEl.disabled = true
+    sendButtonEl.disabled = true
+    writeStateEl.dataset.state = 'pending'
+    writeStateEl.textContent = COPY.replySending
+    const result = await postBridgeAction('thread-reply', {
+      idempotencyKey: crypto.randomUUID(),
+      threadId: 'owner-thread',
+      message: v,
+    })
+    if (destroyed || !writeStateEl) return
+    if (!result.ok) {
+      writeStateEl.dataset.state = 'refused'
+      writeStateEl.textContent = COPY.replyRefused
+    } else {
+      inputEl.value = ''
+      receiveTurn(result.receipt.actor || composerTarget, v)
+      pulseBraces()
+      writeStateEl.dataset.state = 'confirmed'
+      writeStateEl.textContent = COPY.replySent
     }
-
-    inputEl.value = ''
-    receiveTurn('owner', v)
-    /* Sometimes the tool line the coordinator ran to answer arrives first —
-       that beat is what makes the reply read as work done, not text served. */
-    const withAct = REPLY_ACTS.length > 0 && Math.random() < 0.35
-    const replyAt = 1100 + Math.random() * 1100
-    if (withAct) timers.push(setTimeout(() => receiveTurn('act', drawReplyAct()), replyAt - 550))
-    timers.push(setTimeout(() => {
-      receiveTurn(composerTarget, REPLIES.length ? drawReply() : COPY.sampleNoReply)
-      pulseBraces()
-    }, replyAt + (withAct ? 500 : 0)))
-  }
-
-  /* ---- the demonstration's live continuation: rare, whole-message arrivals ---- */
-  const drawArrival = makeBag(ARRIVALS)
-  const scheduleArrival = (first = false) => {
-    const t = setTimeout(() => {
-      if (destroyed || renderedPanelKind !== 'sample') return
-      const turn = drawArrival()
-      receiveTurn(turn.who, turn.text)
-      pulseBraces()
-      scheduleArrival()
-    }, first ? 10_000 + Math.random() * 12_000 : 24_000 + Math.random() * 24_000)
-    timers.push(t)
+    inputEl.disabled = false
+    sendButtonEl.disabled = false
+    inputEl.focus()
   }
 
   /* ------------------------------------------------------------------
@@ -1073,7 +1156,13 @@ export function homeView() {
        exists to remove. */
     const bridge = globalThis.mcAgent
     let raw
-    if (!bridge) raw = undefined
+    /* THE EXAMPLE READS ITS OWN RECORD AND NEVER THIS COMPUTER'S -- the same
+       swap describeHome makes for the hero, made here for the list, so the two
+       cannot disagree about what the example fleet has run. The bridge is not
+       asked at all: a real record has no business near a badged screen, and
+       the example has nothing to learn from it. */
+    if (sample) raw = sampleSessionsRaw(Date.now())
+    else if (!bridge) raw = undefined
     else if (typeof bridge.history !== 'function') raw = null
     else {
       try { raw = await bridge.history({ limit: 20 }) } catch { raw = null }
@@ -1100,7 +1189,9 @@ export function homeView() {
    * shared with the metrics page and that page groups the same rows four other
    * ways. */
   async function loadUsage() {
-    const read = await readLocalUsage({ agent: globalThis.mcAgent })
+    /* The example's turn figures come from its own usage record, through the
+       same reader, the way src/views/metrics.js does it. */
+    const read = await readLocalUsage({ agent: sample ? { usage: async () => sampleUsageRaw(Date.now()) } : globalThis.mcAgent })
     if (destroyed) return
     usageBySession.clear()
     if (read.readable === true) {
@@ -1300,7 +1391,16 @@ export function homeView() {
 
     const text = sessionEventText(packet, sessionId)
     const status = sessionTurnStatus(packet, sessionId)
-    if (text === null && status === null) return
+    /* WHERE ONE MESSAGE ENDS INSIDE A TURN. The owner read "Said back:
+       ...now.I couldn't" off this row: two whole messages in one turn, joined
+       bare because the words only ever arrive as deltas. The engine marks the
+       seam (sessionMessageBoundary); it is remembered here and spent on the
+       next word, so a break is only ever written between two pieces of text
+       and never at the end of a turn. clip() then flattens it to one space on
+       this one-line row -- "now. I couldn't" -- and the open body keeps it as
+       a paragraph. */
+    const boundary = sessionMessageBoundary(packet, sessionId)
+    if (text === null && status === null && !boundary) return
 
     const turnId = sessionEventTurnId(packet, sessionId)
     let live = liveSessions.get(sessionId)
@@ -1309,11 +1409,13 @@ export function homeView() {
        next one and the row shows two answers run together -- the defect the
        tree page measured and fixed in its own transcript. */
     if (!live || (turnId && live.turnId && live.turnId !== turnId)) {
-      live = { turnId: turnId || null, text: '', working: false }
+      live = { turnId: turnId || null, text: '', working: false, breakPending: false }
       liveSessions.set(sessionId, live)
     }
     if (turnId && !live.turnId) live.turnId = turnId
     if (text !== null) {
+      if (live.text && live.breakPending) live.text += '\n\n'
+      live.breakPending = false
       live.text += text
       live.working = true
     }
@@ -1324,6 +1426,11 @@ export function homeView() {
          the usage record has something new in it. */
       live.working = false
       askForLedger({ usage: true })
+    }
+    if (boundary) {
+      live.breakPending = true
+      /* A boundary alone changes nothing on the glass. */
+      if (text === null && status === null) return
     }
     paintLiveSoon(sessionId)
   }
@@ -1378,7 +1485,6 @@ export function homeView() {
       clearTimeout(approvalsTimer)
       clearTimeout(ledgerTimer)
       clearTimeout(liveRepaintTimer)
-      timers.forEach(clearTimeout)
       /* The stream outlives this view: the sessions it carries belong to the
          shell, not to the page. A listener left attached here would keep the
          whole view alive for as long as any agent kept talking. */
@@ -1389,6 +1495,7 @@ export function homeView() {
       cancelAnimationFrame(settledPinFrame)
       window.removeEventListener(CHATBOX_FEED_EVENT, onChatboxSettings)
       window.removeEventListener(APPROVAL_OUTCOME_EVENT, onApprovalOutcome)
+      window.removeEventListener(CHECKOUT_SURFACE_EVENT, showDoors)
       document.fonts?.removeEventListener?.('loadingdone', onFontsLoaded)
       /* THE CRESCENT, WHICH NOTHING HAD EVER TAKEN DOWN.
        *

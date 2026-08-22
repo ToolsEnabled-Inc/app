@@ -25,7 +25,22 @@ import { DATA_SOURCE_EVENT, resolveDataSource, sourceIsBadged } from '../data-so
    the badge, not the code path, is what separates them. */
 import { sampleLedgerData } from '../sample-ledger.js'
 import { mountLedgerWriteSurface } from '../write-surfaces.js'
-import { registerNotice } from '../ledger-copy.js'
+import { HIDE_ROW, registerNotice } from '../ledger-copy.js'
+/* THE × ON EVERY ROW, AND WHY IT HIDES RATHER THAN DELETES. Plan O6 looked at
+   all three lists for an honest "delete" and found none: an owner request is
+   retired by APPENDING to a hash-chained overlay and still reaches every
+   projected list until three sessions have seen it; an owner question is
+   parsed from a planning file the app has no writer for. A × that claimed to
+   take a row "out of the list agents read" would see the row come straight
+   back on the next load. So the × does the one thing this screen can do
+   honestly -- stop drawing the row here -- and says so in every sentence
+   beside it (HIDE_ROW). The set lives in this copy's own storage, keyed per
+   list so an example R1 never hides a real R1, and nothing is ever sent. */
+import { createHiddenRows } from '../hidden-rows.js'
+/* Two presses for anything that takes a row away -- the research page's
+   measured rule, lifted into a shared helper so the × cannot fire on a pointer
+   that was on its way to the scroll bar. */
+import { armOnce } from '../arm-press.js'
 /* THE DOOR OUT OF THIS SCREEN'S EMPTY STATE. The ledger is one of the four
    screens src/first-run-needs.js names as permanently empty on a copy with no
    agent host, so the honest answer -- there is nothing here and nothing you do
@@ -36,6 +51,13 @@ import { GUIDE_ACTION } from '../first-run-needs.js'
 import '../ledger.css'
 
 const MODE_KEY = 'mc.ledger.mode'
+/* ONE HIDE LIST PER REGISTER. The example register is shaped exactly like a
+   real one down to its ids, so the two must never share a set: a row hidden
+   while the example toggle was on would otherwise vanish from the real list
+   the moment the toggle went off. The suffix follows sourceIsBadged(), which
+   is the page's one badge rule. */
+const HIDDEN_KEY_LIVE = 'mc.ledger.hidden:live'
+const HIDDEN_KEY_EXAMPLE = 'mc.ledger.hidden:example'
 const SUMMARY_STATES = ['open', 'in-progress', 'gated', 'done', 'blocked']
 
 const STATE = {
@@ -86,16 +108,38 @@ function questionState(statusClass) {
   return Object.hasOwn(STATE, statusClass) ? statusClass : 'unknown'
 }
 
-function requestMarkup(item, { expanded = false }) {
+/* THE CONTROL AT THE ROW'S RIGHT EDGE, in both of its states. It is a SIBLING
+   of the row inside `.ledger-line` (position:relative), never a child of it:
+   the Q row is itself a <button>, and a button inside a button is invalid
+   markup that browsers split unpredictably. A row that is hidden and shown on
+   request gets the same control with the opposite verb. */
+function hideControl(key, id, { hidden = false } = {}) {
+  return hidden
+    ? `<button class="ledger-hide" type="button" data-unhide="${key}" aria-label="${esc(HIDE_ROW.putBack(id))}" title="${esc(HIDE_ROW.putBackTitle)}">↩</button>`
+    : `<button class="ledger-hide" type="button" data-hide="${key}" aria-label="${esc(HIDE_ROW.aria(id))}" title="${esc(HIDE_ROW.title)}">×</button>`
+}
+
+/* Under the row: where the first press says what the second will do. Empty
+   and hidden until then, so a register of fifty rows does not carry fifty
+   blank paragraphs. */
+const ROW_HINT = '<p class="ledger-row-hint" data-row-hint role="status" hidden></p>'
+
+function requestMarkup(item, { hidden = false } = {}) {
   const state = requestState(item.status)
   const meta = STATE[state]
   const key = `r:${item.id}`
-  const detailId = `ledger-detail-r-${item.id.replace(/\./g, '-')}`
 
+  /* THE R ROW IS NOT A BUTTON ANY MORE, AND ITS DETAIL IS GONE. The detail it
+     used to open (status / gates / unmet, as <code>) repeated the row above it
+     word for word -- zero information behind a control that looked like it
+     held some. A row that expands to nothing is a lie about the row, so the
+     row is a plain div now and the only control on it is the × beside it. The
+     Q row keeps its expansion, because its detail adds what the row lacks
+     (statusClass, packageId). */
   return `
-    <div class="ledger-record" style="--depth:0" role="treeitem" aria-level="1" data-record-key="${key}">
+    <div class="ledger-record" style="--depth:0" role="treeitem" aria-level="1" data-record-key="${key}"${hidden ? ' data-hidden' : ''}>
       <div class="ledger-line" data-state="${state}">
-        <button class="ledger-row" type="button" data-expand="${key}" aria-expanded="${expanded ? 'true' : 'false'}" aria-controls="${detailId}">
+        <div class="ledger-row">
           <span class="ledger-state" title="${esc(item.status)}"><span class="ledger-glyph" aria-hidden="true">${meta.glyph}</span><span class="ledger-sr-only">${esc(item.status)}</span></span>
           <span class="ledger-id-cell"><span class="ledger-guides" aria-hidden="true"></span><span class="ledger-id">${esc(item.id)}</span></span>
           <span class="ledger-title">${esc(item.status)}</span>
@@ -103,22 +147,14 @@ function requestMarkup(item, { expanded = false }) {
             <span class="ledger-agent">gates ${item.gateCount}</span>
             <span class="ledger-age">unmet ${item.unmetGateCount}</span>
           </span>
-        </button>
+        </div>
+        ${hideControl(key, item.id, { hidden })}
       </div>
-      <div class="ledger-detail" id="${detailId}" ${expanded ? '' : 'hidden'}>
-        <span class="ledger-detail-label">status</span>
-        <code>${esc(item.status)}</code>
-        <span class="ledger-detail-sep" aria-hidden="true">·</span>
-        <span class="ledger-detail-label">gates</span>
-        <code>${item.gateCount}</code>
-        <span class="ledger-detail-sep" aria-hidden="true">·</span>
-        <span class="ledger-detail-label">unmet</span>
-        <code>${item.unmetGateCount}</code>
-      </div>
+      ${ROW_HINT}
     </div>`
 }
 
-function questionMarkup(item, { expanded = false }) {
+function questionMarkup(item, { expanded = false, hidden = false } = {}) {
   const state = questionState(item.statusClass)
   const meta = STATE[state]
   const key = `q:${item.id}`
@@ -126,7 +162,7 @@ function questionMarkup(item, { expanded = false }) {
   const packageId = item.packageId ?? '—'
 
   return `
-    <div class="ledger-record is-question" role="listitem" data-record-key="${key}">
+    <div class="ledger-record is-question" role="listitem" data-record-key="${key}"${hidden ? ' data-hidden' : ''}>
       <div class="ledger-line" data-state="${state}">
         <button class="ledger-row" type="button" data-expand="${key}" aria-expanded="${expanded ? 'true' : 'false'}" aria-controls="${detailId}">
           <span class="ledger-state" title="${esc(item.status)}"><span class="ledger-glyph" aria-hidden="true">${meta.glyph}</span><span class="ledger-sr-only">${esc(item.status)}</span></span>
@@ -137,6 +173,7 @@ function questionMarkup(item, { expanded = false }) {
             <span class="ledger-age">${esc(packageId)}</span>
           </span>
         </button>
+        ${hideControl(key, item.id, { hidden })}
       </div>
       <div class="ledger-detail" id="${detailId}" ${expanded ? '' : 'hidden'}>
         <span class="ledger-detail-label">status-class</span>
@@ -145,6 +182,7 @@ function questionMarkup(item, { expanded = false }) {
         <span class="ledger-detail-label">package-id</span>
         <code>${esc(packageId)}</code>
       </div>
+      ${ROW_HINT}
     </div>`
 }
 
@@ -167,8 +205,9 @@ export function ledgerView() {
             <button type="button" data-mode="r" aria-pressed="false">R items</button>
             <button type="button" data-mode="q" aria-pressed="false">Q items</button>
           </div>
-          <p class="ledger-register-note" aria-live="polite"><span data-visible-count>0</span></p>
+          <p class="ledger-register-note" aria-live="polite"><span data-visible-count>0</span> <button class="ledger-hidden-toggle" type="button" data-show-hidden hidden>${esc(HIDE_ROW.show)}</button></p>
         </div>
+        <p class="ledger-hidden-note" data-hidden-note aria-live="polite" hidden></p>
 
         <section class="ledger-register" aria-live="polite"></section>
       </div>
@@ -187,7 +226,17 @@ export function ledgerView() {
     onMount: api => { showRegisterInForms = api.showRegister },
   })
   const modeGroup = root.querySelector('.ledger-mode')
+  const hiddenNote = root.querySelector('[data-hidden-note]')
+  const showHiddenToggle = root.querySelector('[data-show-hidden]')
+  /* Q rows only: the R row no longer expands (its detail said nothing). */
   const expandedRows = new Set()
+  /* THE HIDE SET STARTS ON THE LIVE KEY AND IS RE-CREATED WHEN THE BADGE IS
+     KNOWN (see load). Before the source resolves the page draws no rows, so
+     the key it holds then is never consulted; the moment `badged` is set the
+     set is rebound to the matching list so an example hide can never land on
+     a real row. */
+  let hidden = createHiddenRows(HIDDEN_KEY_LIVE)
+  let showHidden = false
   let mode = readMode()
   let source = null
   /* Whether the register on screen is the example. Set ONLY from
@@ -278,29 +327,51 @@ export function ledgerView() {
     }
 
     const qItems = qObservation.value
-    renderSummary(mode === 'r' ? rItems : qItems)
+
+    /* THE HIDE SET IS APPLIED HERE AND ONLY HERE. Every reader of the list --
+       the totals strip, the counter, the rows, the forms' picker -- takes the
+       VISIBLE list, so a hidden row is hidden from all of them at once rather
+       than from the rows alone while the counter above still counts it. With
+       "Show hidden" on, the hidden rows are drawn dimmed, carry data-hidden,
+       and offer the put-back control instead of the ×. */
+    const hiddenKeys = new Set(hidden.list())
+    const isHidden = key => hiddenKeys.has(key)
+    const rShown = rItems.filter(item => !isHidden(`r:${item.id}`))
+    const qShown = qItems.filter(item => !isHidden(`q:${item.id}`))
+    const rHidden = rItems.length - rShown.length
+    const qHidden = qItems.length - qShown.length
+    const rList = showHidden ? rItems : rShown
+    const qList = showHidden ? qItems : qShown
+    const hiddenCount = mode === 'r' ? rHidden : qHidden
+    renderSummary(mode === 'r' ? rList : qList)
 
     const rows = []
     if (mode === 'r') {
-      for (const item of rItems) rows.push(requestMarkup(item, { expanded: expandedRows.has(`r:${item.id}`) }))
+      for (const item of rList) rows.push(requestMarkup(item, { hidden: isHidden(`r:${item.id}`) }))
       register.setAttribute('role', 'tree')
       register.setAttribute('aria-label', badged ? 'Example requests — not yours' : 'Your requests')
       register.innerHTML = rows.length
         ? rows.join('')
         : '<p class="ledger-empty">There are no requests in this list.</p>'
       root.querySelector('[data-visible-count]').textContent =
-        `${badged ? EXAMPLE_COUNT_PREFIX : ''}${rItems.length} requests · with their status and gates`
+        `${badged ? EXAMPLE_COUNT_PREFIX : ''}${rList.length} requests · with their status and gates${rHidden > 0 ? ` · ${HIDE_ROW.count(rHidden)}` : ''}`
     } else {
-      for (const item of qItems) rows.push(questionMarkup(item, { expanded: expandedRows.has(`q:${item.id}`) }))
+      for (const item of qList) rows.push(questionMarkup(item, { expanded: expandedRows.has(`q:${item.id}`), hidden: isHidden(`q:${item.id}`) }))
       register.setAttribute('role', 'list')
       register.setAttribute('aria-label', badged ? 'Example questions — not yours' : 'Your questions')
       register.innerHTML = rows.length
         ? rows.join('')
         : '<p class="ledger-empty">There are no questions waiting on a decision.</p>'
-      const open = qItems.filter(item => item.statusClass === 'open').length
+      const open = qList.filter(item => item.statusClass === 'open').length
       root.querySelector('[data-visible-count]').textContent =
-        `${badged ? EXAMPLE_COUNT_PREFIX : ''}${qItems.length} questions · ${open} open`
+        `${badged ? EXAMPLE_COUNT_PREFIX : ''}${qList.length} questions · ${open} open${qHidden > 0 ? ` · ${HIDE_ROW.count(qHidden)}` : ''}`
     }
+    /* The toggle exists only while there is something it would show. A button
+       reading "Show hidden" over a list with nothing hidden is a control that
+       looks real and is not. */
+    showHiddenToggle.hidden = hiddenCount === 0
+    showHiddenToggle.textContent = showHidden ? HIDE_ROW.hideAgain : HIDE_ROW.show
+    showHiddenToggle.setAttribute('aria-pressed', showHidden ? 'true' : 'false')
 
     /* 'simulated' here is DOM VOCABULARY, not architecture: the attribute's
        two values predate the source axis and tooling reads them, so the words
@@ -317,9 +388,35 @@ export function ledgerView() {
        The kind keeps the vocabulary src/ledger-copy.js declares. */
     showRegisterInForms({
       kind: badged ? 'simulated' : 'live',
-      items: rItems.map(item => ({ id: item.id, label: `${item.id} · ${item.status}` })),
+      items: rShown.map(item => ({ id: item.id, label: `${item.id} · ${item.status}` })),
     })
   }
+
+  /* THE TOOLBAR NOTE: one sentence about the last hide or put-back, with Undo
+     beside it. Tone 'note' always -- a row a person hid is not a failure. */
+  function paintHiddenNote(text, { undoKey = null } = {}) {
+    if (!text) {
+      hiddenNote.hidden = true
+      hiddenNote.textContent = ''
+      return
+    }
+    hiddenNote.hidden = false
+    hiddenNote.dataset.state = HIDE_ROW.tone
+    hiddenNote.textContent = text
+    if (undoKey) {
+      const undo = document.createElement('button')
+      undo.type = 'button'
+      undo.className = 'ledger-hidden-toggle'
+      undo.dataset.undoHide = undoKey
+      undo.textContent = HIDE_ROW.undo
+      hiddenNote.append(' ', undo)
+    }
+  }
+
+  /* A record key is 'r:R12' or 'q:Q7'; the id a person reads is the part
+     after the colon, and which note to paint follows the prefix. */
+  const idOfKey = key => key.slice(2)
+  const hiddenSentence = key => (key.startsWith('q:') ? HIDE_ROW.hiddenQ : HIDE_ROW.hiddenR)(idOfKey(key))
 
   modeGroup.addEventListener('click', event => {
     const button = event.target.closest('button[data-mode]')
@@ -327,10 +424,63 @@ export function ledgerView() {
     mode = button.dataset.mode
     writeMode(mode)
     syncModeButtons()
+    /* The note was about a row on the other list; it does not follow. */
+    paintHiddenNote(null)
     renderRegister()
   })
 
+  showHiddenToggle.addEventListener('click', () => {
+    showHidden = !showHidden
+    renderRegister()
+  })
+
+  hiddenNote.addEventListener('click', event => {
+    const undo = event.target.closest('button[data-undo-hide]')
+    if (!undo) return
+    const key = undo.dataset.undoHide
+    hidden.remove(key)
+    renderRegister()
+    paintHiddenNote(HIDE_ROW.restored(idOfKey(key)))
+  })
+
   register.addEventListener('click', event => {
+    /* THE × AND ITS OPPOSITE, before the expand handler so a press on the
+       control never also toggles the Q row it sits beside. */
+    const hideButton = event.target.closest('button[data-hide]')
+    if (hideButton) {
+      const key = hideButton.dataset.hide
+      const hint = hideButton.closest('.ledger-record')?.querySelector('[data-row-hint]')
+      /* FIRST PRESS ARMS, SECOND ACTS. The hint under the row says what the
+         second press will do and what it will not; a lone press disarms and
+         the hint goes with it, so the row never sits there threatening. */
+      if (!armOnce(hideButton, { onDisarm: () => { if (hint) { hint.hidden = true; hint.textContent = '' } } })) {
+        if (hint) {
+          hint.dataset.state = HIDE_ROW.tone
+          hint.textContent = HIDE_ROW.armed(idOfKey(key))
+          hint.hidden = false
+        }
+        return
+      }
+      /* NOTHING IS SENT. The key goes into this copy's own storage and the
+         list is redrawn from it; the capture fence below never sees this
+         press because the × carries neither data-decision nor
+         data-queue-operation, and it needs no fence -- there was never a
+         write here to stop. */
+      hidden.add(key)
+      renderRegister()
+      paintHiddenNote(hiddenSentence(key), { undoKey: key })
+      return
+    }
+    const unhideButton = event.target.closest('button[data-unhide]')
+    if (unhideButton) {
+      /* Putting a row back needs no second press: the only thing it can do is
+         restore what the person is looking at. */
+      const key = unhideButton.dataset.unhide
+      hidden.remove(key)
+      renderRegister()
+      paintHiddenNote(HIDE_ROW.restored(idOfKey(key)))
+      return
+    }
     const row = event.target.closest('button[data-expand]')
     if (!row) return
     const key = row.dataset.expand
@@ -373,6 +523,7 @@ export function ledgerView() {
   async function load({ reask = false } = {}) {
     const version = ++requestVersion
     source = { kind: 'loading' }
+    paintHiddenNote(null)
     renderRegister()
     /* Resolution is async because on a public origin the relay-versus-mock
        answer needs the host asked for its transport; the loading notice is
@@ -395,6 +546,9 @@ export function ledgerView() {
     }
     if (destroyed || version !== requestVersion) return
     badged = sourceIsBadged(origin)
+    /* The hide set follows the badge: the example list and the real list
+       keep separate sets, re-bound here at the one place the badge is set. */
+    hidden = createHiddenRows(badged ? HIDDEN_KEY_EXAMPLE : HIDDEN_KEY_LIVE)
     /* 'live'/'simulated' is the attribute's established vocabulary and tools
        key on it, so the words survive -- but they are derived from the source
        axis now, not from a second render path. mock -> 'simulated'. */
