@@ -104,6 +104,14 @@ const {
    on the mission bridge this shell already supervises. See
    shell/relay-supervisor.cjs and docs/relay-agent-facade-DESIGN.md §7. */
 const { createRelaySupervisor, webDriveMayWrite } = require('./relay-supervisor.cjs')
+/* HOW A COMPUTER GETS A RELAY PAIR IN THE FIRST PLACE. The supervisor above
+   has always been correct and always been dormant, because nothing in this
+   shell could connect a machine to an account -- see relayMachineIsEnrolled()
+   below, which until now returned a flat false with a TODO where this line
+   should have been. shell/device-claim.cjs is that missing half: it drives the
+   payload's claim CLI, holds the poll token in this process, and answers the
+   one question the supervisor's predicate asks. */
+const { createDeviceClaim } = require('./device-claim.cjs')
 /* Passed back INTO startCapabilityLayer through its own `spawn` seam, so this
    shell can hold the layer's child from the moment it exists rather than only
    from the moment it speaks. See capabilityLayerChild. */
@@ -3807,30 +3815,50 @@ function currentWorkAreas() {
   }
 }
 
-/* WHETHER THIS MACHINE HAS A RELAY PAIR, AND WHY THE ANSWER IS A FLAT NO.
+/* THE SHELL'S HALF OF "CONNECT THIS COMPUTER". Drives the payload's claim CLI,
+   keeps the poll token in this process, and answers whether the vault holds a
+   device credential. Built here so the whole enrolment seam -- the claim, the
+   predicate it feeds, and the relay leg the predicate starts -- reads in one
+   place. Nothing is spawned by constructing it. */
+const deviceClaim = createDeviceClaim({
+  spawn: spawnChildProcess,
+  resolvePayloadRoot: resolveCapabilityRoot,
+  /* Stated, not inherited, for the same reason the supervisor's is: the
+     credential this writes must land in the vault the relay leg reads, and a
+     second derivation is how two half-populated state roots happen. */
+  stateRoot: CAPABILITY_STATE_ROOT,
+  log: (line) => console.error(`[device-claim] ${line}`),
+})
+
+/* WHETHER THIS MACHINE HAS A RELAY PAIR.
  *
  * Enrolment -- "this computer is one half of a pair on the owner's account" --
- * is a device credential in the ENGINE's vault
- * (online-fra-device-claim.js, DEVICE_CREDENTIAL_VAULT_KEY; the relay shell
- * itself reads it through connectionState(vault)). Nothing in this shell knows
- * it. It is not in renderer-prefs, not in the setup record, not in
- * session-profiles, and not in the machine record; the shell's only route to
- * the vault at all is shell/vault-presence.cjs, which spawns the payload's
- * PowerShell for one presence question and deliberately answers `null` rather
- * than `false` when it cannot check.
+ * is a device credential in the ENGINE's vault (online-fra-device-claim.js,
+ * DEVICE_CREDENTIAL_VAULT_KEY; the relay shell itself reads it through
+ * connectionState(vault)). It is still not in renderer-prefs, not in the setup
+ * record, not in session-profiles and not in the machine record -- inventing a
+ * second persistence format for a fact the vault already holds is how two
+ * answers to one question start disagreeing. What changed is that this shell
+ * can now ASK: shell/device-claim.cjs runs the payload's claim CLI, whose
+ * `status` verb is that same vault read.
  *
- * So this predicate is NOT a guess dressed as a fact, and it does not invent a
- * persistence format to hold one. It answers false, which leaves the
- * supervisor built, correct and dormant.
+ * IT IS THE CACHED ANSWER, AND IT IS SYNCHRONOUS ON PURPOSE. The supervisor's
+ * start() takes a predicate, not a promise, and a predicate that spawned
+ * PowerShell would turn every start() into a process launch. deviceClaim's
+ * cache begins false and only an actual answer moves it, so a shell that has
+ * not yet asked -- or could not -- says no. The refresh that fills it in is
+ * awaited once, on the start path below, before this is consulted.
  *
- * TODO -- the enrolment surface. docs/relay-agent-facade-DESIGN.md §0.8 and
- * §11.5 name the missing work: there is no in-app "connect this computer"
- * flow, device claim exists only in the engine and is driven by hand-run
- * tools, and until that flow lands there is no honest way for this shell to
- * say a pair exists. When it lands, this function reads the state it writes,
- * and the one line below starts answering yes. */
+ * FALSE IS ALSO WHAT ANY FAILURE MEANS HERE. A throw out of this predicate
+ * would propagate into the supervisor's start(), which catches it and refuses
+ * anyway; catching it here says so out loud instead of relying on a guarantee
+ * made in another file. */
 function relayMachineIsEnrolled() {
-  return false
+  try {
+    return deviceClaim.enrolled() === true
+  } catch {
+    return false
+  }
 }
 
 /* THE RELAY LEG'S SUPERVISOR. Built here, beside the capability layer's start,
@@ -3844,10 +3872,12 @@ function relayMachineIsEnrolled() {
    respawned child gets fresh credentials -- while this seam takes the pair
    itself. Joining them is one line at the start path below: await the
    facade's listen(), then start the supervisor with a resolver that answers
-   the pair it returned. That line is not written yet because nothing can
-   exercise it: the leg does not start on a machine with no relay pair, and
-   this build has no way to know that a pair exists (see above). Until then
-   the child would be spawned without facade credentials, the composite bridge
+   the pair it returned. That line is still not written, and the reason has
+   narrowed: this build can now know a pair exists -- relayMachineIsEnrolled()
+   above reads the vault through the claim CLI -- so what remains is the
+   facade's own start ordering, not the enrolment fact it waited on. Until it
+   is joined, the child is spawned without facade credentials, the composite
+   bridge
    answers AGENT_FACADE_ABSENT -- a refusal a person can read -- and the relay
    child's mission-bridge routes work exactly as they do today. What is NOT
    acceptable and is not done here: handing the child a blank or invented
@@ -3866,6 +3896,52 @@ const relaySupervisor = createRelaySupervisor({
      deriving it twice produces two half-populated state roots. */
   stateRoot: CAPABILITY_STATE_ROOT,
   log: (line) => console.error(`[relay-leg] ${line}`),
+})
+
+/* THE THREE CHANNELS THE CONNECT SCREEN DRIVES, and the fourth verb that ends
+ * a claim nobody is waiting for.
+ *
+ * assertTrustedAgentSender is the guard, not a lighter one. It is the shell's
+ * generic "our own main frame, at our own origin" test despite its name (see
+ * its definition above), and these channels start a child process that writes
+ * a credential into the vault -- exactly the class of thing that guard exists
+ * for. A frame navigated off-origin must not be able to claim this computer.
+ *
+ * THE POLL TOKEN IS NOT IN ANY OF THESE REPLIES. begin() returns the code the
+ * person types and when it dies; the token that collects the grant stays in
+ * shell/device-claim.cjs. poll() therefore takes no argument -- there is
+ * nothing for a renderer to hand back, which is the point.
+ *
+ * These handlers never throw: device-claim resolves refusals as
+ * { ok:false, code, reason } with a code from its own closed set and a
+ * sentence it wrote, so a rejected invoke() -- whose message is whatever
+ * happened to be in an Error -- is not a shape this surface can produce. */
+ipcMain.handle('mc-device-claim:status', (event) => {
+  assertTrustedAgentSender(event)
+  return deviceClaim.status()
+})
+
+ipcMain.handle('mc-device-claim:begin', (event, value) => {
+  assertTrustedAgentSender(event)
+  return deviceClaim.begin(value && typeof value === 'object' ? value : {})
+})
+
+/* A poll that lands on 'connected' is the moment this machine becomes
+   reachable, so the relay leg is started right here rather than at the next
+   launch. start() is idempotent and asks relayMachineIsEnrolled() again on its
+   own, so this is a nudge and not a second authority. */
+ipcMain.handle('mc-device-claim:poll', async (event) => {
+  assertTrustedAgentSender(event)
+  const answer = await deviceClaim.poll()
+  if (answer && answer.ok === true && answer.state === 'connected' && relayMachineIsEnrolled()) {
+    relaySupervisor.start()
+  }
+  return answer
+})
+
+ipcMain.handle('mc-device-claim:cancel', (event) => {
+  assertTrustedAgentSender(event)
+  return deviceClaim.cancel()
 })
 
 /* Start the capability layer, and DO NOT make it fatal.
@@ -3976,8 +4052,17 @@ function startSupervisedCapabilityLayer() {
     /* AFTER THE LAYER IT SERVES, AND ONLY FOR A MACHINE THAT IS ENROLLED. The
        relay leg's tunnelled requests are answered by the mission bridge that
        has just come up, so starting it earlier would only buy a first session
-       that refuses. On a machine with no pair recorded -- every machine today,
-       see relayMachineIsEnrolled() above -- this starts nothing at all. */
+       that refuses. On a machine with no pair recorded this starts nothing at
+       all.
+
+       THE ASK COMES FIRST, AND IT IS AWAITED. relayMachineIsEnrolled() reads a
+       cache that begins false, so consulting it before the vault has been
+       asked would leave every enrolled machine unreachable until its next
+       launch -- the same not-yet-read-as-none defect capabilityLayerSettled()
+       below exists to prevent. The refusal path costs one spawn and is
+       swallowed: a vault this shell cannot read is a leg that does not start,
+       which is what the predicate would have said anyway. */
+    try { await deviceClaim.status() } catch { /* the predicate stays false */ }
     if (relayMachineIsEnrolled()) relaySupervisor.start()
 
     return capabilityLayerStatus

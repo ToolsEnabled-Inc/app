@@ -78,6 +78,29 @@ import {
   PRODUCT_SETTING_IDS,
   createResearchSettings,
 } from '../research-settings.js'
+/* THE MISSING HALF OF SIGNING UP, AND WHY IT IS ON THIS PAGE AT ALL.
+ *
+ * "as a user I dont even see how after signing up that I now connect my
+ * computer." The website's account page asks for a code beginning TC-; nothing
+ * in this application had ever shown one. Every other piece existed -- the
+ * account service, the box on the website, the client inside the installed
+ * application -- and there was no screen where a person met their code.
+ *
+ * IT IS HERE RATHER THAN ON THE THREE SCREENS THAT LOOK LIKELIER. The home
+ * screen's fact list is capped at three and enforced at that cap
+ * (tools/test/home-screen.test.mjs), so it can only point. `#/account` says in
+ * its own copy that the account it means is on this computer and that nothing
+ * is sent anywhere, which a hosted claim with an emailed second factor would
+ * contradict on the same screen. The fleet page is the wrong altitude for a
+ * setup step somebody does once. Settings' 'Start here' group already means
+ * "the first page, what setup recorded, and this computer", and it is the group
+ * that opens for somebody arriving with no remembered posture -- so this
+ * section is on screen on a first visit, which is when it is needed. */
+import {
+  CONNECT_SECTION,
+  CONNECT_SETTING_COUNT,
+  createConnectComputerSettings,
+} from '../connect-computer-settings.js'
 /* WHY A SECTION ON THIS PAGE NEEDS A SENTENCE ABOVE ITS SWITCHES.
  *
  * LEGACY-ONB-001, re-measured on a sterile profile: a person whose fleet graph
@@ -106,11 +129,17 @@ import {
 import '../settings.css'
 import '../chatbox-settings.css'
 import '../fleet-profile-settings.css'
+import '../connect-computer-settings.css'
 import '../setup.css'
 import '../guide.css'
 
 const SECTIONS = [
   CHATBOX_SECTION,
+  /* FIRST IN THE 'Start here' GROUP WHEN IT RENDERS, WHICH IS NOT DECIDED HERE
+     -- this list says what the page draws, and renderSectioned decides where.
+     See CONNECT_HOME_GROUP below for where this one is placed and why that
+     placement is a shim rather than the answer. */
+  CONNECT_SECTION,
   'System',
   'Setup',
   /* HIGH IN THE LIST ON PURPOSE. This section holds one question -- what happens
@@ -141,6 +170,42 @@ const SECTIONS = [
      with the rows. Their wording is kept verbatim in
      docs/design/UNBUILT-SETTINGS-ROWS-2026-08-20.md. */
 ]
+
+/* WHERE THE CONNECT SECTION RENDERS UNTIL THE GROUP MODEL NAMES IT, AND WHY
+ * THAT IS A SHIM RATHER THAN THE ANSWER.
+ *
+ * src/settings-presentation.js owns the section-to-group table, and its own
+ * header states the rule this page depends on: a section in no group VANISHES
+ * from the page -- renderSectioned puts it after every group, below the last
+ * one, which for a first-run step is the same as hiding it. That table is not
+ * this file's to edit today. So the page places this one section itself, at the
+ * top of the group whose subtitle already describes it ("the first page, what
+ * setup recorded, and this computer"), and every rule below asks homeGroupOf()
+ * rather than groupOfSection() so the placement is written once.
+ *
+ * IT UNDOES ITSELF. The moment 'Connect this computer' appears in the 'start'
+ * group's `sections` array, groupOfSection() answers for it, this branch stops
+ * firing and the ordinary path renders it -- no double render, nothing to
+ * remember to delete. The one-line change that retires this is reported with
+ * the work; until it lands, the section is on the page instead of under it.
+ */
+const CONNECT_HOME_GROUP = 'start'
+
+function connectIsPlacedByThisPage() {
+  return groupOfSection(CONNECT_SECTION) === null
+}
+
+/* The group a section renders inside, including the one this page places
+   itself. Everything that counts rows, lights the rail or decides what is left
+   over reads this rather than the shared model directly. */
+function homeGroupOf(section) {
+  const declared = groupOfSection(section)
+  if (declared) return declared
+  if (section === CONNECT_SECTION) {
+    return SETTINGS_GROUPS.find(group => group.id === CONNECT_HOME_GROUP) || null
+  }
+  return null
+}
 
 /* SEVENTY-FOUR ROWS WERE REMOVED FROM THIS CATALOGUE ON 2026-08-20, and the
  * reason is the same one written under `offline_fallback` below.
@@ -631,6 +696,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
   const setupController = createSetupProfileSettings()
   const chatboxController = createChatboxSettings()
   const researchController = createResearchSettings()
+  const connectController = createConnectComputerSettings()
   /* The rail is the same two levels the page is: six group lines, and the
      familiar seventeen category buttons nested under whichever are open. */
   const railMarkup = () => SETTINGS_GROUPS.map(group => {
@@ -638,7 +704,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
     return `<div class="settings-rail-group ${open ? 'is-open' : ''}" data-rail-group-wrap="${escapeHtml(group.id)}">
       <button type="button" class="settings-rail-head" data-rail-group="${escapeHtml(group.id)}" aria-expanded="${open ? 'true' : 'false'}">${escapeHtml(group.label)}</button>
       <div class="settings-rail-sections" ${open ? '' : 'hidden'}>
-        ${group.sections.map(section => `<button type="button" data-category="${escapeHtml(section)}">${escapeHtml(section)}</button>`).join('')}
+        ${placedSections(group).map(section => `<button type="button" data-category="${escapeHtml(section)}">${escapeHtml(section)}</button>`).join('')}
       </div>
     </div>`
   }).join('')
@@ -705,14 +771,15 @@ export function settingsView({ query: routeQuery = null } = {}) {
     setupController.afterRender(root)
     chatboxController.afterRender(root)
     researchController.afterRender(root)
+    connectController.afterRender(root)
   }
 
   function updateFooter() {
-    footer.textContent = `${SETTINGS.length + FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT + CHATBOX_SETTING_COUNT + RESEARCH_SETTING_COUNT} settings · ${shown} shown · search finds the hidden ones too`
+    footer.textContent = `${SETTINGS.length + FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT + CHATBOX_SETTING_COUNT + RESEARCH_SETTING_COUNT + CONNECT_SETTING_COUNT} settings · ${shown} shown · search finds the hidden ones too`
   }
 
   function syncRail() {
-    const activeGroup = groupOfSection(activeSection)
+    const activeGroup = homeGroupOf(activeSection)
     for (const head of rail.querySelectorAll('button[data-rail-group]')) {
       head.classList.toggle('is-active', activeGroup?.id === head.dataset.railGroup)
     }
@@ -729,6 +796,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
     if (section === RESEARCH_SECTION) return researchController.markup()
     if (section === 'System') return profileController.markup()
     if (section === 'Setup') return setupController.markup()
+    if (section === CONNECT_SECTION) return connectController.markup()
     return sectionMarkup(section, levels.get(section))
   }
 
@@ -740,14 +808,26 @@ export function settingsView({ query: routeQuery = null } = {}) {
     if (section === RESEARCH_SECTION) return RESEARCH_SETTING_COUNT
     if (section === 'System') return FLEET_PROFILE_SETTING_COUNT
     if (section === 'Setup') return SETUP_PROFILE_SETTING_COUNT
+    if (section === CONNECT_SECTION) return CONNECT_SETTING_COUNT
     return SETTINGS.filter(setting => setting.section === section && setting.depth <= levels.get(section)).length
   }
 
   function countShown() {
     return SECTIONS.reduce((total, section) => {
-      const group = groupOfSection(section)
+      const group = homeGroupOf(section)
       return group && !openGroups.has(group.id) ? total : total + sectionShownCount(section)
     }, 0)
+  }
+
+  /* The sections that render inside one group, in order. It is group.sections
+     for every group the shared model already describes completely; the 'start'
+     group additionally gets the connect section at the FRONT, because a person
+     who has just signed up meets it before the walkthrough's record of what
+     they answered. See CONNECT_HOME_GROUP: this branch stops firing the moment
+     the shared table names the section itself. */
+  function placedSections(group) {
+    if (group.id !== CONNECT_HOME_GROUP || !connectIsPlacedByThisPage()) return group.sections
+    return [CONNECT_SECTION, ...group.sections]
   }
 
   /* One nest level above the sections. `hidden` on the body is the guard: a
@@ -763,7 +843,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
         <span class="settings-group-list">${group.sections.map(section => escapeHtml(section)).join(' · ')}</span>
       </button>
       <div class="settings-group-body" id="settings-group-${escapeHtml(group.id)}" ${open ? '' : 'hidden'}>
-        ${group.sections.map(sectionNodeMarkup).join('')}
+        ${placedSections(group).map(sectionNodeMarkup).join('')}
       </div>
     </section>`
   }
@@ -801,7 +881,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
   }
 
   function renderSectioned() {
-    const grouped = new Set(SETTINGS_GROUPS.flatMap(group => group.sections))
+    const grouped = new Set(SETTINGS_GROUPS.flatMap(placedSections))
     /* A section the group model does not know renders ungrouped at the end
        rather than vanishing; the presentation suite keeps this branch empty. */
     sectionsNode.innerHTML = SETTINGS_GROUPS.map(groupMarkup).join('')
@@ -827,20 +907,26 @@ export function settingsView({ query: routeQuery = null } = {}) {
     const setupMatches = setupController.matches(normalized)
     const chatboxMatches = chatboxController.matches(normalized)
     const researchMatches = researchController.matches(normalized)
+    /* FIRST IN THE RESULTS, for the same reason it is first in its group: the
+       person most likely to type "connect", "code" or "account" into this box is
+       the one who has just signed up and cannot find this. */
+    const connectMatches = connectController.matches(normalized)
     sectionsNode.innerHTML = `<section class="settings-results">
       <h2 class="settings-section-title">Results</h2>
+      ${connectMatches ? connectController.markup({ searchResult: true }) : ''}
       ${chatboxMatches ? chatboxController.markup({ searchResult: true }) : ''}
       ${researchMatches ? researchController.markup({ searchResult: true }) : ''}
       ${profileMatches ? profileController.markup({ searchResult: true }) : ''}
       ${setupMatches ? setupController.markup({ searchResult: true }) : ''}
       ${matches.map(setting => rowMarkup(setting, true)).join('')}
-      ${profileMatches || setupMatches || chatboxMatches || researchMatches || matches.length ? '' : '<p class="settings-empty">No settings match this search.</p>'}
+      ${connectMatches || profileMatches || setupMatches || chatboxMatches || researchMatches || matches.length ? '' : '<p class="settings-empty">No settings match this search.</p>'}
     </section>`
     shown = matches.length
       + (profileMatches ? FLEET_PROFILE_SETTING_COUNT : 0)
       + (setupMatches ? SETUP_PROFILE_SETTING_COUNT : 0)
       + (chatboxMatches ? CHATBOX_SETTING_COUNT : 0)
       + (researchMatches ? RESEARCH_SETTING_COUNT : 0)
+      + (connectMatches ? CONNECT_SETTING_COUNT : 0)
     wireControls()
     updateFooter()
   }
@@ -1044,7 +1130,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
       setGroupOpen(id, opening)
       if (opening) {
         const group = SETTINGS_GROUPS.find(candidate => candidate.id === id)
-        if (group) activeSection = group.sections[0]
+        if (group) activeSection = placedSections(group)[0]
         syncRail()
         requestAnimationFrame(() => {
           sectionsNode.querySelector(`.settings-group[data-settings-group="${id}"]`)
@@ -1057,8 +1143,12 @@ export function settingsView({ query: routeQuery = null } = {}) {
     if (!button) return
     activeSection = button.dataset.category
     /* A category press is a statement of destination: its group opens if it
-       was closed, so the press always lands somewhere rather than nowhere. */
-    const group = groupOfSection(activeSection)
+       was closed, so the press always lands somewhere rather than nowhere.
+       homeGroupOf, not groupOfSection: a section this page places itself has a
+       rail button like any other, and a press on it that opened nothing would
+       be a control doing nothing visible -- the defect this whole section was
+       built to stop repeating. */
+    const group = homeGroupOf(activeSection)
     if (group && !openGroups.has(group.id)) setGroupOpen(group.id, true)
     syncRail()
     if (query.trim()) {
@@ -1154,6 +1244,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
   setupController.bind(root)
   chatboxController.bind(root)
   researchController.bind(root)
+  connectController.bind(root)
 
   /* LANDING ON THE SWITCH A LINK NAMED, and the reason this is more than a
      scroll.
@@ -1187,6 +1278,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
       setupController.destroy()
       chatboxController.destroy()
       researchController.destroy()
+      connectController.destroy()
       if (scrollFrame) cancelAnimationFrame(scrollFrame)
       window.removeEventListener(QUICK_SETTING_EVENT, onQuickSetting)
       window.removeEventListener(CAPABILITY_PROBE_EVENT, onCapabilityProbes)

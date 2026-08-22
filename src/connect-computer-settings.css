@@ -1,0 +1,127 @@
+/* THE CONNECT SECTION'S OWN FIVE RULES.
+ *
+ * Everything else on this section is borrowed: .settings-section,
+ * .settings-row, .fleet-profile-block, .fleet-profile-status,
+ * .fleet-profile-input, .fleet-profile-actions and .ctl-btn all come from the
+ * page it lives on, so this section reads as part of Settings rather than as a
+ * visitor. What is here is only what nothing on the page already did: a code
+ * large enough to read off a screen and copy onto another device, and a refusal
+ * that cannot be mistaken for ordinary description text.
+ *
+ * NO COLOUR IS SPELLED OUT. Every value below is a token, so the three themes
+ * this product ships (white, tan, black) each get their own contrast without
+ * this file knowing which one is on.
+ */
+
+/* THE CODE. It is a read-only <input> for the keyboard reason written at
+   codeMarkup() in src/connect-computer-settings.js, so it has to be undressed
+   back down to a display: a field-looking box would invite somebody to type
+   their account name into the one element on this screen that cannot take it.
+
+   clamp() rather than a fixed size: the app's default window gives this column
+   roughly 700px and the small window a person actually uses (1000x650) gives it
+   closer to 620px. Twelve mono characters at 34px need about 300px, so both fit
+   -- but the lower bound is what keeps it whole if the rail, the gutters or the
+   text-size setting take more than expected. */
+.connect-code {
+  width: 100%;
+  min-width: 0;
+  padding: var(--s2) 0;
+  border: 0;
+  border-bottom: 1px solid var(--line-2);
+  border-radius: 0;
+  background: none;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: clamp(22px, 3.4vw, 34px);
+  font-weight: 620;
+  letter-spacing: 0.06em;
+  line-height: 1.25;
+  cursor: text;
+}
+
+.connect-code:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: var(--s1);
+  border-radius: var(--r-sm);
+}
+
+.connect-code-wrap {
+  display: grid;
+  gap: var(--s1);
+  min-width: 0;
+}
+
+/* The countdown. Tabular figures so the seconds place does not shove the
+   sentence sideways once a second while somebody is reading the code above
+   it. */
+.connect-remaining {
+  margin: 0;
+  color: var(--ink-25);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.45;
+}
+
+/* The three steps, in the order they are done. Numbered because they are
+   ordered: a person doing step three first has nowhere to type the code. */
+.connect-steps {
+  margin: 0;
+  padding-left: var(--s4);
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.connect-steps li + li { margin-top: var(--s1); }
+
+/* An address to be typed into a browser, and the name this computer will carry
+   on the account page. Mono for the same reason every other exact string in
+   this product is: it is transcribed, not read. */
+.connect-host {
+  font-family: var(--font-mono);
+  font-weight: 620;
+  color: var(--ink);
+}
+
+.connect-known {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* A REFUSAL MUST NOT READ AS DESCRIPTION. It sits directly under the status
+   line, wearing the same left-rule idiom the System section's refusals wear, in
+   the serious colour -- so the eye lands on it before it lands on the button
+   that was just pressed. */
+.connect-refusal {
+  margin: var(--s2) 0 var(--s3);
+  padding: var(--s2) 0 var(--s2) var(--s3);
+  border-left: 2px solid var(--s-serious);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.connect-name {
+  display: grid;
+  gap: var(--s1);
+  min-width: 0;
+}
+
+.connect-name > span {
+  color: var(--ink-3);
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: var(--track-caps);
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+/* The section's own block keeps the name box from stretching the full width of
+   a wide window, where a 900px field for "My Windows computer" reads as a
+   mistake. The code above it is deliberately NOT capped: it is meant to be
+   large. */
+.connect-section .connect-name .fleet-profile-input { max-width: calc(var(--s5) * 14); }

@@ -192,7 +192,19 @@
     "through a computed path, with its own require() graph (the whole",
     "online-fra-* family: device identity and claim, the e2e session, the relay",
     "client, the local bridge). The shell spawns it only once a machine is",
-    "enrolled, and never for writes while the owner's web-drive switch is off."
+    "enrolled, and never for writes while the owner's web-drive switch is off.",
+    "",
+    "tools/online-fra-claim-cli.js (added 2026-08-21) is what makes that",
+    "enrolment possible in the first place: the three verbs -- open, poll,",
+    "status -- that join this computer to a person's account. It was written to",
+    "be the one implementation every surface drives, and then shipped to none of",
+    "them, so the only way to connect a machine was to run it by hand out of a",
+    "checkout the customer does not have. shell/device-claim.cjs spawns it here",
+    "the same way the relay leg is spawned, and reads the vault answer that",
+    "decides whether the relay leg starts at all. Its whole require() graph is",
+    "already staged (src/lib/online-fra-device-claim.js and src/lib/runtime.js",
+    "arrive with tools/relay-shell.js), so declaring it a root stages the CLI",
+    "itself and nothing else."
   ],
   "spawnedPrograms": [
     "src/job-runner.js",
@@ -200,7 +212,8 @@
     "tools/local-node-lane-runner.js",
     "sidecars/local-coder/bin/overnight-advisory-worker.js",
     "tools/research-runs-worker.js",
-    "tools/relay-shell.js"
+    "tools/relay-shell.js",
+    "tools/online-fra-claim-cli.js"
   ],
   "neutralDefaults": [
     "config/service-registry.json",

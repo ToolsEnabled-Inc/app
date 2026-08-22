@@ -13,6 +13,35 @@ contextBridge.exposeInMainWorld('mcShell', {
   // how a squatter is handed this boot's proof. See mc-bridge-endpoint in
   // main.cjs and configuredBaseUrl() in src/mission-bridge.js.
   getBridgeEndpoint: () => ipcRenderer.invoke('mc-bridge-endpoint'),
+  /* CONNECTING THIS COMPUTER TO AN ACCOUNT.
+   *
+   * The four verbs behind the "Connect this computer" screen. The bridge that
+   * answers them is shell/device-claim.cjs, which spawns the payload's claim
+   * CLI; the ceremony itself is the account service's, and the credential it
+   * returns lands in the same vault the relay shell reads, which is what makes
+   * a machine reachable from a signed-in browser at all.
+   *
+   * NO POLL TOKEN CROSSES THIS BOUNDARY. begin() keeps it in the main process
+   * and poll() takes no argument, so a page cannot name a claim that is not
+   * its own -- the same reason the bridge proof above is invoked rather than
+   * handed over.
+   *
+   * DUPLICATED FROM shell/preload.cjs ON PURPOSE, and the duplication is the
+   * whole point of this file: a sandboxed preload cannot require a sibling, so
+   * THIS is the composed boundary main.cjs actually loads and the other file is
+   * loaded by no window. The agent bridge below carries the same note, and
+   * commit 1d44d35 ("Put the agent bridge in the preload the app actually
+   * loads") is what happens when only the other file is edited: a green test
+   * over a feature that does not exist on a real installation. It happened
+   * again with this namespace. tools/test/preload-namespace-parity.test.mjs
+   * now fails when the two disagree, so the third time is caught by a test
+   * rather than by a person wondering why a button does nothing. */
+  deviceClaim: Object.freeze({
+    status: () => ipcRenderer.invoke('mc-device-claim:status'),
+    begin: (request) => ipcRenderer.invoke('mc-device-claim:begin', request),
+    poll: () => ipcRenderer.invoke('mc-device-claim:poll'),
+    cancel: () => ipcRenderer.invoke('mc-device-claim:cancel'),
+  }),
 })
 
 /* The agent bridge. BLOCKER 2 (R1162 non-author review) removed an earlier

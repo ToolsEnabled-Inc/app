@@ -17,6 +17,35 @@ contextBridge.exposeInMainWorld('mcShell', {
   // how a squatter is handed this boot's proof. See mc-bridge-endpoint in
   // main.cjs and configuredBaseUrl() in src/mission-bridge.js.
   getBridgeEndpoint: () => ipcRenderer.invoke('mc-bridge-endpoint'),
+
+  /* CONNECTING THIS COMPUTER TO AN ACCOUNT. Four verbs, matching the handlers
+     in main.cjs and shell/device-claim.cjs behind them.
+
+     poll() TAKES NO ARGUMENT, AND THAT IS THE SECURITY PROPERTY, NOT AN
+     OMISSION. Opening a claim produces two things: a code for the person to
+     type, and a poll token that collects the credential the account mints.
+     The token is bearer-shaped, so it stays in the main process; begin()
+     returns the code and never the token, and poll() has no parameter for a
+     page to hand one back through. A renderer cannot collect a claim it did
+     not open because it is never given the thing that collects one.
+
+     Every reply is data, including the refusals: { ok:false, code, reason }
+     with a code from device-claim's own closed set. Nothing here rejects, so
+     no surface has to render an Error's message.
+
+     WARNING, AND IT IS THE SAME ONE THIS FILE ALREADY MAKES ABOUT THE AGENT
+     BRIDGE BELOW: this file is loaded by no window. main.cjs loads
+     shell/fleet-profile-preload.cjs, which is the shell's composed boundary
+     because a sandboxed preload cannot require a sibling. The exposure above
+     is duplicated there for the chrome verbs and this one is NOT, so
+     window.mcShell.deviceClaim does not exist on a real installation until
+     the same four lines are added to that file. */
+  deviceClaim: Object.freeze({
+    status: () => ipcRenderer.invoke('mc-device-claim:status'),
+    begin: (request) => ipcRenderer.invoke('mc-device-claim:begin', request),
+    poll: () => ipcRenderer.invoke('mc-device-claim:poll'),
+    cancel: () => ipcRenderer.invoke('mc-device-claim:cancel'),
+  }),
 })
 
 /* No agent bridge here, and that is not an oversight.
