@@ -142,7 +142,7 @@ import { mountAgentComposePanel } from '../agent-compose-panel.js'
 /* The sentences about what a session started here would be allowed to do. The
    copy module already owned them and src/agent-session.js already rendered them
    under ITS Start button; this view is how they reach the OTHER one. */
-import { startControlLine } from '../agent-confinement-copy.js'
+import { startControlLine, CONFINEMENT_SUBJECT_REMOTE, CONFINEMENT_SUBJECT_HERE } from '../agent-confinement-copy.js'
 import { WRITE_FLAGS_EVENT, isWriteEnabled, setWriteEnabled } from '../write-flags.js'
 import { START_CONTROL_FLAG, START_CONTROL_ON, startControlOffBecause } from '../setup-profile.js'
 /* The one rule for "is there still an agent behind this circle", shared by every
@@ -2991,7 +2991,13 @@ export function computersView({ initialComputer = null, navigate }) {
     let reading = null
     try { reading = await bridge.confinement() } catch { reading = null }
     if (destroyed) return
-    composeConfinementLine = startControlLine(reading)
+    /* The safety paragraph names the machine it is about. Over the relay that
+       machine is somewhere else, and this is the one paragraph where getting
+       the referent wrong could get somebody's files deleted on a computer they
+       thought they were only looking at. */
+    composeConfinementLine = startControlLine(reading, {
+      subject: currentDataSource() === 'relay' ? CONFINEMENT_SUBJECT_REMOTE : CONFINEMENT_SUBJECT_HERE,
+    })
     if (composePanel?.isOpen?.()) composePanel.open({ confinementLine: composeConfinementLine })
   }
 

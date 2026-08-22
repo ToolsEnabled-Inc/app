@@ -182,7 +182,12 @@ export function toolsSentence({ allowed = null, total = null } = {}) {
  * the cheerful default written down, and it survived a tier system landing
  * underneath it precisely because nothing recomputed it.
  */
-export function confinementNote(reading) {
+/* The default is the desktop's answer, so every existing caller is unchanged.
+   A browser driving a machine over the relay passes the other one. */
+export const CONFINEMENT_SUBJECT_HERE = 'This computer'
+export const CONFINEMENT_SUBJECT_REMOTE = 'The computer you are driving'
+
+export function confinementNote(reading, { subject = CONFINEMENT_SUBJECT_HERE } = {}) {
   if (!reading || typeof reading !== 'object' || Array.isArray(reading) || reading.ok !== true) {
     return Object.freeze({
       level: null,
@@ -200,7 +205,17 @@ export function confinementNote(reading) {
   /* An unrecognised sandbox word is the one case that must not fall through to a
      reassuring sentence. It means this renderer is older than the confinement
      table it is reading, and the honest answer is that it does not know. */
-  const level = name ? `This computer is set to ${name}.` : null
+  /* WHICH COMPUTER THIS PARAGRAPH IS ABOUT, and it is a safety disclosure, so
+     the referent has to be right.
+     Driving from a browser, everything below describes a machine somewhere
+     else. "This computer is set to Unrestricted. Nothing narrows it: it can
+     read, change and delete any file on this computer and run any program,
+     without asking." -- read at a laptop, about a machine at home, that names
+     the wrong computer in the one paragraph that must not.
+     The lead names the subject and the sentences after it inherit that
+     reading, so one word here fixes the whole passage. The default is
+     unchanged, which is what the desktop and the preview both want. */
+  const level = name ? `${subject} is set to ${name}.` : null
   const detail = tier && TIER_DETAIL[tier] ? TIER_DETAIL[tier] : null
   const tools = toolsSentence({
     allowed: reading.toolsAllowed === undefined ? null : reading.toolsAllowed,
@@ -267,7 +282,7 @@ export function confinementLine(reading) {
  * -- so the worst this can say is that it does not know, which is the one
  * honest answer when nothing could be read.
  */
-export function startControlLine(reading) {
-  const note = confinementNote(reading)
+export function startControlLine(reading, options = {}) {
+  const note = confinementNote(reading, options)
   return [note.level, note.effect, note.note].filter(Boolean).join(' ')
 }
