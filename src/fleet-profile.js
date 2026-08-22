@@ -1098,6 +1098,17 @@ export async function resetFleetProfile() {
   return Object.freeze({ ok: true })
 }
 
+/* ASKED, NOT IMPORTED, and that is a cycle rather than a preference:
+   src/data-source.js reaches src/mission-bridge.js, which reaches this module
+   for the profile it reads its endpoint from. The stored choice is one
+   localStorage key with one spelling, and reading it here directly is what
+   keeps the two files from importing each other. The key and the rule are
+   src/data-source.js's -- isExampleMode() is the authority and this is a
+   read-only echo of it. */
+function exampleIsOn() {
+  try { return globalThis.localStorage?.getItem('mc.example') === 'on' } catch { return false }
+}
+
 function mountRuntimeProfileNotice(message, serious = false) {
   if (typeof document === 'undefined' || !message) return
   const mount = () => {
@@ -1133,7 +1144,23 @@ if (FLEET_PROFILE_RESOLUTION.kind === 'invalid') {
      says only the thing that is true on every route it appears over, in the
      tense of a next step rather than a correction. Home suppresses it outright
      (see src/home.css) because home states its own source itself. */
-  mountRuntimeProfileNotice('Some screens show example data until you connect your own computers.')
+  /* IT ONLY SAYS THIS WHEN IT IS TRUE, and on a fresh install it usually is
+     not. The banner floated over every screen announcing "Some screens show
+     example data until you connect your own computers" while the same install
+     said, three inches away, that "Show the example fleet" was Off, that the
+     screens were showing the person's own activity, and (on #/computers) that
+     there was honestly nothing to show yet. Two scouts found the contradiction
+     independently.
+
+     Whether other computers are configured and whether a worked example is on
+     screen are two questions, and only the second one decides this sentence.
+     src/data-source.js owns the answer -- example on means mock, badged,
+     everywhere -- so it is asked rather than inferred. With the example off
+     there is nothing here worth floating over the product: the screens are
+     already saying what they are showing. */
+  if (exampleIsOn()) {
+    mountRuntimeProfileNotice('Every screen is showing the built-in example rather than your own records.')
+  }
 } else if (FLEET_PROFILE_RESOLUTION.kind === 'recovered') {
   mountRuntimeProfileNotice('The fleet loaded from browser storage, but its durable userData copy needs attention.', true)
 } else if (FLEET_PROFILE_RESOLUTION.warnings.length) {

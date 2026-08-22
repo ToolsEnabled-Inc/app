@@ -55,6 +55,21 @@ export const CONNECT_SETTING_COUNT = 1
  * those two agree, so they read the same constant. */
 export const CONNECT_SETTING_ID = 'connect_computer'
 
+/* THE WHOLE ADDRESS, WRITTEN ONCE, BECAUSE FOUR SCREENS NOW LINK TO IT.
+ *
+ * The id above was exported and had NO CALLER ANYWHERE -- three scouts walked
+ * the product from a cold install and found the connect screen reachable only
+ * by opening Settings for no reason. Home, the computers page, the guide and
+ * the System row all point here now, and a link that names the route is only
+ * correct while every one of them spells it the same way. So they do not spell
+ * it: they read this. */
+export const CONNECT_HREF = `#/settings?setting=${CONNECT_SETTING_ID}`
+
+/* WHAT THE DOOR IS CALLED, wherever it is drawn. Same reason: four surfaces
+   offering four differently-worded ways to one screen is how a person decides
+   they are three different screens. */
+export const CONNECT_ACTION_LABEL = 'Connect this computer to your account'
+
 /* WHAT A PERSON IS TOLD TO TYPE INTO THEIR BROWSER, written once because a
  * wrong address here sends somebody to a page that cannot help them.
  *
@@ -127,10 +142,18 @@ export function defaultDeviceName({ profileLabel = '', platform = '' } = {}) {
 
 /* What actually goes up the wire. Somebody who clears the box has not asked for
    a nameless computer on their account -- they have cleared the box -- so the
-   guess stands in rather than an empty name being filed against them. */
+   guess stands in rather than an empty name being filed against them.
+
+   AND IT IS THE GUESS THE BOX WAS ACTUALLY FILLED WITH. This used to recompute
+   from `platform` alone, while the box had been filled from the person's own
+   profile label -- so clearing a box reading "Front desk" filed "My Windows
+   computer" instead. `defaultName` is the value that was put in the box when
+   the screen was built, carried on the state so the fallback and the box can
+   never disagree about what the default was. */
 export function nameToClaim(state) {
   const typed = String(state?.name || '').trim()
-  return typed || defaultDeviceName({ platform: state?.platform })
+  const filled = String(state?.defaultName || '').trim()
+  return typed || filled || defaultDeviceName({ platform: state?.platform })
 }
 
 /* HOW LONG IS LEFT, SAID AS A WHOLE SENTENCE, INCLUDING WHEN THE ANSWER IS
@@ -159,6 +182,7 @@ export function remainingText(expiresAtMs, nowMs) {
  *
  * checking   asking the installed application what it already knows
  * absent     this window has no way to ask at all
+ * unknown    the ask was refused, so whether this computer is joined is UNREAD
  * idle       nothing in flight; the name box and the button are what is shown
  * starting   a code has been asked for and has not come back
  * waiting    a code is on screen and this window is asking for the confirmation
@@ -173,7 +197,7 @@ export function remainingText(expiresAtMs, nowMs) {
  * they were.
  */
 export const CLAIM_PHASES = Object.freeze([
-  'checking', 'absent', 'idle', 'starting', 'waiting', 'orphaned', 'connected', 'ended',
+  'checking', 'absent', 'unknown', 'idle', 'starting', 'waiting', 'orphaned', 'connected', 'ended',
 ])
 
 /* Why a code stopped being usable. Each is a different sentence to a person and
@@ -191,6 +215,9 @@ export function initialState({ name = '', platform = '' } = {}) {
   return Object.freeze({
     phase: 'checking',
     name,
+    /* The guess as it was made, kept apart from the box's live value so a
+       cleared box falls back to what it was filled with. See nameToClaim. */
+    defaultName: name,
     platform,
     code: null,
     expiresAtMs: null,
@@ -202,6 +229,37 @@ export function initialState({ name = '', platform = '' } = {}) {
     endedBecause: null,
     refusal: '',
     refusalCode: null,
+    /* WHETHER THE PERSON CAUSED THIS REFUSAL, and it is the difference between
+     * a message and an accusation.
+     *
+     * THE DEFECT: on a sterile profile the section drew a red alert reading
+     * "This computer is already in the middle of a connection step. Wait for
+     * that one to finish." four inches under "Nothing has been sent anywhere."
+     * -- before the person had touched anything. Three scouts reproduced it
+     * independently; it is the first thing a new customer sees on the most
+     * important screen in the product. The cause is a background read being
+     * refused (see the shell's one-child-at-a-time rule), and a background
+     * read's refusal is not news a person can act on.
+     *
+     * So a refusal that FOLLOWED A PRESS is still drawn exactly where it was,
+     * out loud, with role="alert". A refusal nobody asked for is carried on the
+     * state -- for the search index and for the status line that explains it --
+     * and never painted as an alarm. */
+    refusalPressed: false,
+    /* SOMETHING TRUE THAT IS NOT A REFUSAL. One sentence, and today it has one
+       use: saying that a code which was already open has been given up. */
+    note: '',
+    /* WHETHER THE ACCOUNT SERVICE ITSELF SAID SO, IN THIS SESSION, RATHER THAN
+     * A FILE ON THIS DISK SAYING SO.
+     *
+     * `connected` is reached two ways and they are not the same fact. A poll
+     * that came back `connected` is the service confirming the collection as it
+     * happened -- proof, seconds old. A `status` read is this machine reading
+     * its own vault, which says the same words whether the computer has been
+     * offline for an hour or removed from the account on another machine an
+     * hour ago. Only the first earns the good tone; the second gets a sentence
+     * that says where it came from. */
+    serviceConfirmed: false,
   })
 }
 
@@ -214,13 +272,14 @@ function next(state, patch) {
    and this flow has no business owning a second copy of the rule. The code is
    carried beside the sentence for the attribute the section writes, never for
    the glass. */
-function refusalOf(result, remedy = '') {
+function refusalOf(result, remedy = '', { pressed = true } = {}) {
   return {
     refusal: refusalSentence(result, {
       fallback: 'The installed application did not answer this window.',
       remedy,
     }),
     refusalCode: refusalCodeOf(result),
+    refusalPressed: pressed,
   }
 }
 
@@ -283,8 +342,18 @@ export function reduce(state, event) {
       /* A status this window could not read is NOT "not connected". The button
          stays, because trying is still the person's move, and the sentence says
          why the screen could not answer the question first. */
-      if (waiting(state)) return next(state, refusalOf(result))
-      return next(state, { phase: 'idle', ...refusalOf(result) })
+      if (waiting(state)) return next(state, refusalOf(result, '', { pressed: false }))
+      /* AND IT IS NOT `idle` EITHER, WHICH IS THE HALF THAT WAS WRONG.
+       *
+       * `idle` draws "This computer is not on an account yet -- nothing has
+       * been sent anywhere." That is a VERDICT, and this branch is reached
+       * precisely when no verdict was obtained. Measured: a momentary BUSY or
+       * TIMEOUT on the mount-time read told a person whose computer was fully
+       * joined to their account that it was not on one -- the product denying,
+       * in its own voice, the one thing they had paid to make true. An
+       * unreadable answer gets its own line now, and `unknown` draws the same
+       * controls `idle` does, because trying is still the person's move. */
+      return next(state, { phase: 'unknown', ...refusalOf(result, '', { pressed: false }) })
     }
     if (result.connected === true) {
       return next(state, {
@@ -296,6 +365,9 @@ export function reduce(state, event) {
         endedBecause: null,
         refusal: '',
         refusalCode: null,
+        refusalPressed: false,
+        note: '',
+        serviceConfirmed: false,
       })
     }
     /* "NOT CONNECTED" IS WHAT A WAIT IS FOR, so it must not end one.
@@ -304,12 +376,28 @@ export function reduce(state, event) {
        Answering "no account yet" by throwing the code away would take the one
        thing the person came back for, on the strength of an answer that says
        nothing except that they have not typed it in yet. */
-    if (waiting(state)) return next(state, { device: null, claimedAtMs: null, refusal: '', refusalCode: null })
-    return next(state, { phase: 'idle', device: null, claimedAtMs: null, refusal: '', refusalCode: null })
+    if (waiting(state)) return next(state, { device: null, claimedAtMs: null, refusal: '', refusalCode: null, refusalPressed: false })
+    return next(state, { phase: 'idle', device: null, claimedAtMs: null, refusal: '', refusalCode: null, refusalPressed: false })
+  }
+
+  /* A CODE THAT WAS ALREADY OPEN HAS BEEN GIVEN UP, AND THE PERSON IS TOLD.
+   *
+   * SEEN ON GLASS: "Get a code" pressed twice opened a SECOND live claim and
+   * silently threw the first poll token away -- one scout held TC-YHTR-MMZH
+   * and TC-ZBSR-KGNF at the same time. If the first code had already been
+   * typed into the browser, the account page then listed a computer this
+   * machine could never collect, permanently. Every begin is routed through
+   * cancel-then-begin now, so only one claim can be open; this is the sentence
+   * that stops that being silent. It survives into `waiting` deliberately --
+   * it belongs beside the NEW code, which is the moment it matters. */
+  if (type === 'claim-dropped') {
+    return next(state, {
+      note: 'A code was already open for this computer, so it has been given up. If you have already typed that one into your browser, use the new one below instead and remove the half-finished computer on your account page.',
+    })
   }
 
   if (type === 'begin-requested') {
-    return next(state, { phase: 'starting', endedBecause: null, refusal: '', refusalCode: null })
+    return next(state, { phase: 'starting', endedBecause: null, refusal: '', refusalCode: null, refusalPressed: false })
   }
 
   if (type === 'begin-result') {
@@ -327,6 +415,7 @@ export function reduce(state, event) {
         phase: 'idle',
         refusal: 'The installed application answered without a code to show. Ask for one again.',
         refusalCode: null,
+        refusalPressed: false,
       })
     }
     const seconds = pollSeconds(result.intervalSeconds)
@@ -347,6 +436,7 @@ export function reduce(state, event) {
       endedBecause: null,
       refusal: '',
       refusalCode: null,
+      refusalPressed: false,
     })
   }
 
@@ -382,6 +472,9 @@ export function reduce(state, event) {
         endedBecause: null,
         refusal: '',
         refusalCode: null,
+        refusalPressed: false,
+        note: '',
+        serviceConfirmed: true,
       })
     }
     if (result.state === 'none') {
@@ -395,6 +488,7 @@ export function reduce(state, event) {
         nextPollAtMs: null,
         refusal: '',
         refusalCode: null,
+        refusalPressed: false,
       })
     }
     const seconds = pollSeconds(result.intervalSeconds ?? state.intervalSeconds)
@@ -403,6 +497,7 @@ export function reduce(state, event) {
       nextPollAtMs: Number.isFinite(nowMs) ? nowMs + seconds * 1000 : null,
       refusal: '',
       refusalCode: null,
+      refusalPressed: false,
     })
   }
 
@@ -443,6 +538,7 @@ export function reduce(state, event) {
       endedBecause: null,
       refusal: '',
       refusalCode: null,
+      refusalPressed: false,
     })
   }
 
@@ -460,6 +556,7 @@ export function reduce(state, event) {
       nextPollAtMs: Number.isFinite(nowMs) ? nowMs + seconds * 1000 : null,
       refusal: '',
       refusalCode: null,
+      refusalPressed: false,
     })
   }
 
@@ -490,6 +587,8 @@ export function reduce(state, event) {
       nextPollAtMs: null,
       refusal: '',
       refusalCode: null,
+      refusalPressed: false,
+      note: '',
     })
   }
 
@@ -502,6 +601,8 @@ export function reduce(state, event) {
       endedBecause: null,
       refusal: '',
       refusalCode: null,
+      refusalPressed: false,
+      note: '',
     })
   }
 
@@ -536,6 +637,11 @@ export function repaintNeeded(previous, next) {
     || previous.endedBecause !== next.endedBecause
     || previous.refusal !== next.refusal
     || previous.refusalCode !== next.refusalCode
+    /* It decides whether the sentence is drawn at all, so a change to it is a
+       change to the glass even when the sentence itself is the same. */
+    || previous.refusalPressed !== next.refusalPressed
+    || previous.note !== next.note
+    || previous.serviceConfirmed !== next.serviceConfirmed
     || (previous.device?.name || '') !== (next.device?.name || '')
 }
 

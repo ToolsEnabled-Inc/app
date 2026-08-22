@@ -474,20 +474,23 @@ test('a connected computer with no name still says where to take it off', async 
   await named.controller.checkStatus()
   assert.equal(named.controller.getState().phase, 'connected')
   const namedHtml = named.controller.markup()
-  assert.match(namedHtml, /Front desk is on your account/)
-  assert.match(namedHtml, /lists it under that name/)
-  assert.match(namedHtml, /sign in at toolsenabled\.ai and open your account page/)
+  assert.match(namedHtml, /This computer is joined as Front desk/)
+  assert.match(namedHtml, /Sign in at toolsenabled\.ai and open your account page/)
   assert.equal(/data-connect-action/.test(namedHtml), false,
     'nothing to press on a computer that is already joined')
+  /* AND IT DOES NOT SAY THIS IN GREEN. A `status` answer is this machine
+     reading its own vault; it says the same words whether the computer has been
+     offline for an hour or was removed from the account on another machine. */
+  assert.equal(/is-good/.test(namedHtml), false,
+    'a vault read was painted as a proven, current connection')
   named.controller.destroy()
 
   forgetRememberedClaim()
   const nameless = harness({ bridge: workingBridge({ status: async () => ({ ok: true, connected: true, name: '', deviceId: 'd', pairId: 'p' }) }) })
   await nameless.controller.checkStatus()
   const html = nameless.controller.markup()
-  assert.match(html, /This computer is on your account/)
-  assert.equal(/lists it under that name/.test(html), false, 'there is no name for it to mean')
-  assert.match(html, /sign in at toolsenabled\.ai and open your account page/,
+  assert.match(html, /This computer is joined to an account/)
+  assert.match(html, /Sign in at toolsenabled\.ai and open your account page/,
     'and the one thing this screen has to say survives both spellings')
   nameless.controller.destroy()
 })

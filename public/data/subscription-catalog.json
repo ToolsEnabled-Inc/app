@@ -10,7 +10,7 @@
     "the local runtime and every tool it dispatches",
     "direct machine-to-machine transport on your own network",
     "hosting the relay yourself (planned, not available yet)",
-    "pairing a second computer (peer enrollment and key rotation)",
+    "joining a second computer to your account, and the keys behind it",
     "the audit ledger, the kill switch, approvals, and every other safety control",
     "reading, exporting, or deleting your own data"
   ],

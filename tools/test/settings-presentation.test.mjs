@@ -72,7 +72,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const SECTIONS = [
   'Connect this computer', 'Home screen', 'System', 'Setup', 'Data & Privacy',
   'Research & Agents', 'Appearance', 'Text & Reading', 'Motion & Effects',
-  'Ledger', 'Data & Sim', 'Write',
+  'Ledger', 'What the screens show', 'Things it may do for you',
 ]
 
 test('every section lives in exactly one group', () => {
@@ -206,12 +206,12 @@ test('a remembered posture wins over the arrival rule, in both directions', () =
 test('a link that names a row still opens that row group, arrival rule or not', () => {
   /* The named section used to be 'Developer', which no longer exists. It has to
      be one that is NOT the first-visit group, or the assertion passes on the
-     arrival rule alone and stops testing the landing clause at all. 'Data & Sim'
+     arrival rule alone and stops testing the landing clause at all. 'What the screens show'
      is in `privacy` as of 2026-08-22 (it was in `screens`, which is gone); the
      arrival default is the group holding the first-visit section. The assertion
      below pins that difference rather than assuming it, so a future regroup
      that put the two together fails here instead of passing vacuously. */
-  const landing = 'Data & Sim'
+  const landing = 'What the screens show'
   const group = groupOfSection(landing)
   assert.ok(group, `${landing} is in a group`)
   assert.equal(

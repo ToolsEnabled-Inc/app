@@ -164,7 +164,13 @@ export const EMPTY_NODE = Object.freeze({
    fixed for two days earlier. */
 export const START_PANEL = Object.freeze({
   title: 'Start an agent here',
-  intro: 'Say what you want done and press Start. Everything else already has an answer.',
+  /* "Everything else already has an answer" IS ABOUT THE FIELDS AND READS AS
+     A PROMISE ABOUT THE PRESS. On the browser preview, and on any copy with no
+     assistant program installed, pressing Start does not run anything -- so a
+     panel that opens by saying everything is answered is the last thing a
+     person reads before a refusal. The claim it was making is a narrower and
+     more useful one: you only have to fill in the brief. */
+  intro: 'Say what you want done, and press Start. The brief is the only thing you have to fill in; every other field below already has an answer.',
   /* WHERE THE NEW AGENT IS GOING, and there are two of these because a node's
      name is not always known. The named form is a FUNCTION rather than a
      fragment a caller glues a name onto: a fragment invites `${name}` at the

@@ -408,6 +408,9 @@ export function homeView() {
        "nobody is signed in" -- so the first paint says exactly what it said
        before this screen learned to ask, instead of a verdict nothing measured. */
     providers: null,
+    /* Null until loadAccount() answers, and null means "not asked". The row it
+       feeds says so rather than guessing at either answer. */
+    account: null,
     approvals: null,
     /* What the person chose on the settings page, plus who is actually talking
        in whatever conversation this screen has. The decision needs both: the
@@ -1162,6 +1165,40 @@ export function homeView() {
     apply()
   }
 
+  /* IS THIS COMPUTER ON THE PERSON'S TOOLSENABLED ACCOUNT.
+   *
+   * WHY HOME ASKS AT ALL. The owner's report is "as a user I dont even see how
+   * after signing up that I now connect my computer", and the first screen's
+   * one sentence about other computers used to be a fleet fact pointing at a
+   * guide that says connecting is impossible. It is an account fact now, and an
+   * account fact has to be READ or it is a guess -- the row would otherwise
+   * tell a joined customer to go and join, on the screen they see most.
+   *
+   * ONE READ, AT MOUNT, AND NO TIMER. The answer changes only when somebody
+   * walks through the connect ceremony, and that ceremony's own screen reports
+   * itself. A poll here would spawn a child process per interval for a sentence
+   * that changes twice in a machine's life.
+   *
+   * IT CANNOT COLLIDE WITH THE CONNECT SCREEN'S OWN READ. shell/device-claim.cjs
+   * lets one child run at a time and refuses the second with DEVICE_CLAIM_BUSY;
+   * status() now joins an in-flight read rather than being refused, which is the
+   * repair that made this call safe to add at all.
+   *
+   * A REFUSAL IS SILENCE, exactly as loadProviders above: `known:false` renders
+   * the invitation, never a verdict built out of a failed request. */
+  async function loadAccount() {
+    const claim = globalThis.mcShell?.deviceClaim
+    if (!claim || typeof claim.status !== 'function') return
+    let answer = null
+    try { answer = await claim.status() } catch { answer = null }
+    if (destroyed) return
+    state.account = answer && answer.ok === true
+      ? { known: true, connected: answer.connected === true }
+      : { known: false, connected: false }
+    /* apply(), not settle(), for the reason loadProviders states at length. */
+    apply()
+  }
+
   /* Self-pacing rather than a fixed interval, so a machine with no queue is not
      charged twenty seconds of request forever, and a machine whose capability
      layer is still starting still picks the queue up once it answers. */
@@ -1322,6 +1359,7 @@ export function homeView() {
 
   void loadEngine()
   void loadProviders()
+  void loadAccount()
   void loadSessions(true)
   void loadUsage()
   void loadApprovals()

@@ -189,6 +189,17 @@ export function googleOptionMarkup({ google = null, busy = false } = {}) {
 
   if (google.available !== true) {
     const reason = google.reason || 'This copy did not say why.'
+    /* THE BUTTON STAYS, DISABLED, AND THAT IS A DECISION RATHER THAN AN
+     * OVERSIGHT. The 2026-08-22 triage lists it under "controls that cannot
+     * work" and asks for it to be taken off this row.
+     * tools/test/google-signin-disabled-control.test.mjs asks for the opposite,
+     * in as many words: "Hiding it is not the repair: a person told to sign in
+     * with Google would be hunting for a control that is not there." The defect
+     * the owner actually reported on 1.0.26 was that the disabled button LOOKED
+     * LIVE, and that is closed -- [data-google-signin] .ctl-btn:disabled in
+     * src/fleet-profile-settings.css, held there by that suite. What was still
+     * wrong on this row was the SENTENCE beside it, which was a build note
+     * addressed to us; see shell/google-signin-config.cjs. */
     /* SAID ONCE. Some refusals already name the alternative -- the
        not-configured one does, because it also travels through channels that no
        screen wraps -- and appending it unconditionally printed the same sentence
@@ -937,7 +948,22 @@ export function formMarkup({ mode = 'sign-in', busy = false, notice = null, stat
           <input class="fleet-profile-input" type="password" name="password" autocomplete="${creating ? 'new-password' : 'current-password'}" aria-labelledby="account-password-label" ${busy ? 'disabled' : ''}/>
         </div>
       </article>
-      ${creating ? scopeMarkup() : ''}
+      <!-- THE BUTTONS COME BEFORE THE EXPLANATION, AND THAT IS A MEASUREMENT
+           RATHER THAN A PREFERENCE.
+
+           At this application's own default window size -- 1400x832 -- all
+           three of these measured top=833 in an innerHeight of 832. Not
+           "hard to reach": one pixel below the last row of pixels the window
+           has, on a screen whose entire purpose is one of those three
+           presses. The cause was the scope notice, which is four paragraphs
+           about what an account here is and is not, sitting between the last
+           field and the actions.
+
+           Nothing was cut. The notice is directly under the buttons now,
+           where somebody reading down the form still meets it before they
+           leave the screen -- and where its height can no longer push the
+           only thing on the page a person can press off the bottom of the
+           window. -->
       <div class="setup-actions">
         <button type="button" class="ctl-btn" data-account-mode="${creating ? 'sign-in' : 'create'}" ${busy ? 'disabled' : ''}>${creating
           ? 'I already have an account'
@@ -946,6 +972,7 @@ export function formMarkup({ mode = 'sign-in', busy = false, notice = null, stat
         <button type="button" class="ctl-btn" data-account-home ${busy ? 'disabled' : ''}>Not now</button>
         <button type="submit" class="ctl-btn" ${busy ? 'disabled' : ''}>${busy ? 'Working…' : creating ? 'Create account' : 'Sign in'}</button>
       </div>
+      ${creating ? scopeMarkup() : ''}
     </form>
     ${creating ? '' : scopeMarkup()}
     <!-- TWO ROWS, ONE REASON, SO ONE SECTION.

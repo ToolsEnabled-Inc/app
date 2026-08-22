@@ -638,9 +638,18 @@ const PINNED_ABSOLUTE_CLAIMS = Object.freeze([
     pinnedBy: 'the demonstration answer turns on the one example toggle, src/data-source.js answers the mock source for every screen while it is on, and sourceIsBadged() marks that source on every surface; asserted by "the other answer reaches every screen"',
   },
   {
-    match: /These are the shipped defaults: nothing that acts is switched on/,
+    /* REWRITTEN 2026-08-22, AND THE REWRITE IS THE POINT. It read "These are
+       the shipped defaults: nothing that acts is switched on" -- directly above
+       a permission level reading Unrestricted, whose own row says the assistant
+       "can read, change, and delete any file on this computer and run any
+       program, without asking", on a profile that had never walked setup.
+       Both halves were true. Read one after the other they contradicted each
+       other, and the reassuring half was on top. The absolute claim is
+       unchanged and pinned by the same mechanism; what is new is the sentence
+       beside it that stops the reader taking it for the whole picture. */
+    match: /Nothing that acts is switched on, so this copy cannot start, send or approve anything yet/,
     kind: 'pinned',
-    pinnedBy: 'shown only when no profile is stored, where the flags are untouched and src/write-flags.js returns false for anything but the literal "enabled"; same mechanism the skip-equivalence test asserts',
+    pinnedBy: 'shown only when no profile is stored, where the flags are untouched and src/write-flags.js returns false for anything but the literal "enabled"; same mechanism the skip-equivalence test asserts. The permission-level clause beside it makes no absolute claim -- it points at the row below and says to read it',
   },
   {
     match: /Nothing that acts is switched on and the working folder is whatever was already recorded/,

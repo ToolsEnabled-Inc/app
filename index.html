@@ -47,8 +47,50 @@
       if (fontStacks[f]) document.documentElement.style.setProperty('--font-ui', fontStacks[f])
     } catch (e) {}
   </script>
+  <!-- WITH JAVASCRIPT OFF THIS PAGE RENDERED THE WORD "settings" AND NOTHING
+       ELSE, and it is the destination of the website's primary button.
+
+       MEASURED: /app/ with scripting disabled draws "settings", "Settings" and
+       "all settings →" — the three strings that happen to be in the static
+       shell — on a white page with no stylesheet, because every stylesheet in
+       this application is imported by a module. A stranger who arrives with a
+       script blocker on sees three words and concludes the product is broken.
+
+       THE STYLES ARE IN <head> AND THE SENTENCE IS IN <body>, which is the one
+       arrangement that works: <noscript> in the head may hold a <style>, and
+       the rule below has to hide chrome that is written before the message.
+       Everything here is self-contained — no variables, no imported sheet,
+       because with scripting off there is no sheet to import from. -->
+  <noscript>
+    <style>
+      .topbar, #stage, .drawer { display: none !important; }
+      body {
+        margin: 0;
+        background: #f7f8fa;
+        color: #0e1726;
+        font: 16px/1.55 "Segoe UI Variable", system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+      }
+      .noscript-note {
+        max-width: 34rem;
+        margin: 0 auto;
+        padding: 3rem 1.5rem;
+      }
+      .noscript-note h1 { font-size: 1.5rem; line-height: 1.25; margin: 0 0 1rem; }
+      .noscript-note p { margin: 0 0 1rem; }
+      .noscript-note a { color: #0e1726; }
+    </style>
+  </noscript>
 </head>
 <body>
+  <noscript>
+    <div class="noscript-note">
+      <h1>ToolsEnabled needs JavaScript to draw this page</h1>
+      <p>This page is the ToolsEnabled application itself, running in your browser. It is drawn entirely by script, so with JavaScript switched off there is nothing here to show you. Nothing is wrong with your computer and nothing failed to load.</p>
+      <p>Turn JavaScript on for this site and reload the page, and you will get a working preview of the product.</p>
+      <p>The preview is a look at the screens. The real thing is the version you install on your own computer, which is where agents actually run: <a href="/download/">download ToolsEnabled</a>.</p>
+    </div>
+  </noscript>
+
   <header class="topbar">
     <div class="tb-side tb-left">
       <button class="icon-btn" id="nav-back" title="Back" aria-label="Back">
@@ -56,8 +98,15 @@
       </button>
     </div>
     <div class="tb-side tb-right">
-      <span class="tb-settings-label" aria-hidden="true">settings</span>
-      <button class="icon-btn" id="open-settings" title="Settings" aria-label="Settings" aria-expanded="false" aria-controls="drawer">
+      <!-- THREE THINGS WORE THE WORD "SETTINGS" AT ONCE: this label, the
+           drawer it opens, and the whole page at #/settings. On home the left
+           arrow and this gear went to different places while looking like a
+           pair. A person cannot be told two destinations by one word, so the
+           quick panel is named for what it is -- the handful of controls for
+           the page you are on, plus theme and text -- and "Settings" is left
+           to mean the page. -->
+      <span class="tb-settings-label" aria-hidden="true">quick settings</span>
+      <button class="icon-btn" id="open-settings" title="Quick settings" aria-label="Quick settings" aria-expanded="false" aria-controls="drawer">
         <svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M19.4 13.6a1.7 1.7 0 0 1 .34 1.87l-.55 1.28a1.7 1.7 0 0 1-1.63 1.03l-1.16-.05a6.6 6.6 0 0 1-1.11.65l-.38 1.1a1.7 1.7 0 0 1-1.6 1.14h-1.4a1.7 1.7 0 0 1-1.6-1.14l-.38-1.1a6.6 6.6 0 0 1-1.1-.65l-1.17.05a1.7 1.7 0 0 1-1.63-1.03l-.55-1.28a1.7 1.7 0 0 1 .34-1.87l.79-.85a6.7 6.7 0 0 1 0-1.5l-.79-.85a1.7 1.7 0 0 1-.34-1.87l.55-1.28A1.7 1.7 0 0 1 6.1 5.42l1.16.05a6.6 6.6 0 0 1 1.11-.65l.38-1.1A1.7 1.7 0 0 1 10.35 2.6h1.4a1.7 1.7 0 0 1 1.6 1.13l.38 1.1c.39.18.76.4 1.1.65l1.17-.05a1.7 1.7 0 0 1 1.63 1.03l.55 1.28a1.7 1.7 0 0 1-.34 1.87l-.79.85a6.7 6.7 0 0 1 0 1.5l.79.85Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
       </button>
       <button class="icon-btn" id="nav-next" title="Next" aria-label="Next">
@@ -73,10 +122,10 @@
        main.js parks the header and the stage behind it with `inert` and moves
        focus in, otherwise reaching the drawer took 16 Tab presses through
        controls the drawer itself was covering (WCAG 2.2 SC 2.4.11). -->
-  <aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-label="Settings" aria-hidden="true">
+  <aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-label="Quick settings" aria-hidden="true">
     <div class="drawer-head">
-      <span>Settings</span>
-      <button class="icon-btn" id="close-settings" aria-label="Close settings">
+      <span>Quick settings</span>
+      <button class="icon-btn" id="close-settings" aria-label="Close quick settings">
         <svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       </button>
     </div>

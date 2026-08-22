@@ -207,7 +207,7 @@ function createGoogleSignIn({
       settled = true
       return refusal(
         'GOOGLE_SIGNIN_NOT_CONFIGURED',
-        'This copy has not been given a Google sign-in application id, so signing in with Google is not available. You can still make an account on this computer.',
+        'Signing in with Google is not switched on in this version. Nothing is wrong with your computer or your Google account. You can still make an account on this computer.',
       )
     }
     if (typeof openExternal !== 'function') {

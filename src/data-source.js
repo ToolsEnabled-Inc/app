@@ -101,6 +101,33 @@ export function currentDataSource() {
   return resolved
 }
 
+/* THERE ARE TWO WAYS A SCREEN ENDS UP ON THE EXAMPLE AND THEY NEED DIFFERENT
+ * WORDS, which is the whole of the free journey's front door.
+ *
+ * MEASURED. The website's primary button lands a stranger on /app/. Nothing
+ * there is on the desktop and no relay transport answers, so resolveDataSource
+ * says 'mock' -- correctly. Every sentence on the resulting screen then told
+ * them to turn off "Show the example fleet" in Settings, under What the screens
+ * switch is already OFF for them; the heading it names does not exist under
+ * that name; and flipping it changes nothing, because the toggle is not what
+ * put them in the example. So the product's front door gave an instruction that
+ * cannot be followed, to the one visitor least able to tell that.
+ *
+ * THE CORRECT SENTENCE ALREADY EXISTED ten characters away in the same file.
+ * All it needed was to be reachable, and this is the question that reaches it:
+ * is the example a CHOICE this person made, or the only thing this page could
+ * draw?
+ *
+ * `isExampleMode()` is the honest discriminator and a bridge-presence test is
+ * not: on the desktop with the toggle on, the agent bridge exists and works. */
+export function exampleWasChosen() {
+  return isExampleMode()
+}
+
+export function previewWithoutHost(source = resolved) {
+  return source === 'mock' && !isExampleMode()
+}
+
 /** Badge rule, in one place so no surface derives its own: mock is badged,
  *  real data -- local or relay alike -- never is. */
 export function sourceIsBadged(source = resolved) {

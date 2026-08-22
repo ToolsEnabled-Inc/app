@@ -155,7 +155,10 @@ function provenanceLine(row) {
      chosen it is ON, and the note is being injected. Telling that person their
      setting is "held back" would send them to turn a working switch off and on
      to fix nothing. */
-  if (!underResearchGate(row.id)) return 'This is on because it ships on. You have not changed it.'
+  /* NOT "This is on because it ships on." -- a sentence whose whole content is
+     that it is a sentence. It says WHAT ships on and what that means for the
+     person, which is the part they were reaching for. */
+  if (!underResearchGate(row.id)) return 'On is how this one ships. Nobody has changed it on this computer, and leaving it alone is fine.'
   return 'This reads as on, but nobody chose it, so the work is still held back. Turn it off and on again to choose it.'
 }
 
@@ -178,11 +181,27 @@ export function createResearchSettings({ shell = typeof window === 'undefined' ?
     return Boolean(master && master.present && master.value !== true)
   }
 
+  /* THE ACKNOWLEDGEMENT DOES NOT GET TO DELETE THE FENCE.
+   *
+   * THE DEFECT, and it is the worst kind: a person granted a permission, was
+   * told it had been granted, and it did nothing. `said` holds "this window
+   * just wrote that value", and it was returned FIRST -- above the heldByMaster
+   * test -- so the act of using a fenced switch erased the one line explaining
+   * that the switch is fenced. Before the press: "Held back: the first switch
+   * in this section is off, so nothing runs for a research project yet." After
+   * the press: "Recorded." And nothing ran.
+   *
+   * The two facts are both true and neither replaces the other, so they are
+   * COMPOSED. The acknowledgement goes first because it answers the press, and
+   * the fence follows because it is what the press did not do. */
   function statusFor(row) {
     const spoken = said.get(row.id)
-    if (spoken) return spoken
+    const held = row.present && heldByMaster(row)
+      ? 'Held back: the first switch in this section is off, so nothing runs for a research project yet.'
+      : ''
+    if (spoken) return held ? `${spoken} ${held}` : spoken
     if (!row.present) return row.reason || ''
-    if (heldByMaster(row)) return 'Held back: the first switch in this section is off, so nothing runs for a research project yet.'
+    if (held) return held
     if (row.enforcement && row.enforcement.declared === false) {
       return 'Nothing in this copy of the program reads this yet, so moving it changes nothing.'
     }

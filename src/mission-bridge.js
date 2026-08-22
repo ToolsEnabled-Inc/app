@@ -639,7 +639,16 @@ export function createLedgerArchiveController({
       'Computing the exact archive set. Nothing has moved.',
     ))
     let result
-    try { result = await postAction('ledger-archive', { dryRun: true }) }
+    /* `operation` IS REQUIRED AND WAS NEVER SENT. capability/src/lib/mission-bridge/actions.js
+       opens ledgerArchive with exact(input, [...], ['operation','dryRun']) and
+       refuses anything missing it as BRIDGE_INPUT_INVALID -- whose shared
+       sentence is "Correct what you typed above and try again", printed under a
+       row that has no input on it at all. So the row's only control refused
+       every press it ever received, blamed the person for a typing mistake they
+       could not have made, and then relabelled itself to invite the same dead
+       press again. Archive is the only operation this control offers; restore
+       has no surface here and is not implied by naming this one. */
+    try { result = await postAction('ledger-archive', { operation: 'archive', dryRun: true }) }
     catch (error) {
       result = { ok: false, code: 'BRIDGE_REQUEST_FAILED', reason: error?.message || 'preview failed' }
     }
@@ -650,9 +659,18 @@ export function createLedgerArchiveController({
          unresolved code falls to the generic remedy ("try once more"), which is
          the wrong advice about a two-step owner-gated move. */
       const code = refusalCodeOf(result) || 'BRIDGE_LEDGER_ARCHIVE_PREVIEW_INVALID'
+      /* THE REMEDY IS WRITTEN HERE BECAUSE THIS ROW HAS NO INPUT. The shared
+         table's sentence for a malformed request is "Correct what you typed
+         above and try again", which is sound advice everywhere except under a
+         control that is a single button with no field anywhere near it. A
+         person told to correct their typing on a row with nothing to type in
+         concludes the product is broken, and they are not wrong. */
       publish(archiveControlState(
         'idle', true, 'Preview again', 'No move confirmed',
-        `Nothing moved. ${refusalSentence({ code, reason: result?.reason }, { fallback: 'The preview receipt was incomplete.' })}`,
+        `Nothing moved. ${refusalSentence({ code, reason: result?.reason }, {
+          fallback: 'The preview receipt was incomplete.',
+          remedy: 'Nothing on this row was typed and nothing was changed. Press Preview again; if it keeps refusing, the ledger this reads is not answering and there is nothing here for you to correct.',
+        })}`,
         code,
       ))
       return state
@@ -679,7 +697,7 @@ export function createLedgerArchiveController({
       'Archive request pending. No move has been confirmed.',
     ))
     let result
-    try { result = await postAction('ledger-archive', { dryRun: false }) }
+    try { result = await postAction('ledger-archive', { operation: 'archive', dryRun: false }) }
     catch (error) {
       result = { ok: false, code: 'BRIDGE_REQUEST_FAILED', reason: error?.message || 'archive request failed' }
     }

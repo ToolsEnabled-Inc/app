@@ -48,8 +48,17 @@ function stepMarkup(step) {
   const body = isCommand
     ? `<code class="guide-command">${esc(step.text)}</code>`
     : `<span class="guide-step-do">${esc(step.text)}</span>`
+  /* THE LINK SAYS WHERE IT GOES, AND IT GOES TO THE ROW.
+   *
+   * Three steps on this page drew three identical buttons reading "Open
+   * Settings", under three different problems, and all three landed at the top
+   * of a page roughly six screens tall. The `?setting=` mechanism already
+   * existed and the home screen already used it properly. The label is the
+   * step's own now, so two buttons on one screen cannot be the same word
+   * meaning two destinations. A step with no href draws no link rather than a
+   * dead one. */
   const link = !isCommand && typeof step.href === 'string' && step.href
-    ? `<a class="guide-step-link" href="${esc(step.href)}">Open Settings</a>`
+    ? `<a class="guide-step-link" href="${esc(step.href)}">${esc(step.linkLabel || 'Open Settings')}</a>`
     : ''
   return `<li class="guide-step" data-step-kind="${esc(step.kind)}">
     ${body}
@@ -341,7 +350,7 @@ function paintAccounts(root, panel, answer) {
   const activeName = answer.active && typeof answer.active.name === 'string' ? answer.active.name : ''
 
   panel.innerHTML = `
-    <h4 class="guide-accounts-head">${esc(ACCOUNT_PANEL.heading)}</h4>
+    <h4 class="guide-accounts-head">${esc(ACCOUNT_PANEL.heading(program))}</h4>
     <p class="guide-step-note">${esc(ACCOUNT_PANEL.help)}</p>
     ${answer.damaged === true ? `<p class="guide-accounts-note">${esc(ACCOUNT_PANEL.unreadable)}</p>` : ''}
     ${mine.length
@@ -468,10 +477,10 @@ export function guideView() {
 
         <section class="guide-need guide-accounts" data-need="provider-accounts">
           <header class="guide-need-head">
-            <h2>Your own assistant sign-ins</h2>
+            <h2>Your Codex, Claude and Gemini sign-ins</h2>
             <p class="guide-need-tag">You can do this now</p>
           </header>
-          <p class="guide-need-body">An agent runs on one of these programs. Each one is a separate install with its own sign-in. ToolsEnabled never asks for those sign-ins and never keeps one. It starts the program, and the program uses the account you signed in to. Here is what to type, and what this copy can do with each one today.</p>
+          <p class="guide-need-body">An agent runs on one of these programs. Each one is a separate install with its own sign-in, and none of them is your ToolsEnabled account. ToolsEnabled never asks for those sign-ins and never keeps one. It starts the program, and the program uses the account you signed in to. Here is what to type, and what this copy can do with each one today.</p>
           ${PROVIDER_SETUP.map(providerMarkup).join('')}
         </section>
 

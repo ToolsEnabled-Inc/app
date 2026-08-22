@@ -109,14 +109,21 @@ test('a section anybody can clear says exactly how, and a section nobody can doe
     assert.ok(['self', 'none'].includes(need.fix), `${need.id} has an unrecognised fix kind`)
     assert.ok(need.steps.length > 0, `${need.id} offers no step at all`)
     for (const step of need.steps) {
-      assert.ok(['command', 'switch'].includes(step.kind), `${need.id} has an unrecognised step kind`)
+      assert.ok(['command', 'switch', 'link'].includes(step.kind), `${need.id} has an unrecognised step kind`)
       assert.ok(step.text.length > 0, `${need.id} has an empty step`)
       assert.ok(step.note.length > 0, `${need.id} has a step with no context`)
       /* A step that sends a person to a screen must carry the way there. A
          switch step with no href is "in Settings" with no Settings, which is
-         half an instruction and the exact shape of the dead end being repaired. */
+         half an instruction and the exact shape of the dead end being repaired.
+         AND IT MUST NAME THE ROW. Three of these landed at the top of a page
+         six screens tall, under three different problems, all wearing the same
+         label -- so the address must carry the `?setting=` the home screen has
+         used correctly all along. */
       if (step.kind === 'switch') {
-        assert.equal(step.href, SETTINGS_HREF, `${need.id} names a switch with no way to it`)
+        assert.ok(
+          step.href.startsWith(`${SETTINGS_HREF}?setting=`),
+          `${need.id} names a switch with no way to the ROW it means: ${step.href}`,
+        )
       }
     }
   }
@@ -150,6 +157,36 @@ test('every sentence a person will read is a non-empty string', () => {
     assert.ok(value.trim().length > 0, `empty: ${JSON.stringify(value)}`)
   }
   assert.equal(new Set(FIRST_RUN_NEEDS.map(need => need.id)).size, FIRST_RUN_NEEDS.length)
+})
+
+/* ---- THE DOOR THE OWNER COULD NOT FIND ---------------------------------
+ *
+ * "as a user I dont even see how after signing up that I now connect my
+ * computer." Measured on the rendered guide before this section existed: the
+ * word "account" appeared thirteen times and every one of them meant a Codex or
+ * Claude sign-in folder; "toolsenabled.ai", "signed up" and "code" appeared
+ * zero times. A person arriving from the home row about computers read a page
+ * that never mentioned the thing they had paid for. */
+test('the guide has a section about the ToolsEnabled account, and it leads to the connect screen', () => {
+  const account = FIRST_RUN_NEEDS.find(need => need.id === 'account')
+  assert.ok(account, 'the guide says nothing about the account a person just made')
+  assert.equal(account.fix, 'self', 'the one thing on this page a person can do today is marked as impossible')
+  assert.equal(FIRST_RUN_NEEDS[0].id, 'account', 'it is not the first thing on the page')
+  assert.match(account.body, /toolsenabled\.ai/i, 'the section never names the website they signed up at')
+  assert.match(account.body, /code/i, 'the section never mentions the code, which is the whole ceremony')
+  const door = account.steps.find(step => step.href === '#/settings?setting=connect_computer')
+  assert.ok(door, 'the account section carries no link to the connect screen')
+  assert.ok(door.linkLabel.length > 0, 'the link to the connect screen has no label of its own')
+})
+
+test('the section about the empty screens does not read as "you cannot connect a computer"', () => {
+  /* The flat statement stays -- it is true of the AGENT HOST and a reader who
+     does not get it flat keeps hunting. What it may not do is leave that as the
+     last word about connecting anything, on the page somebody reached from a
+     home row about computers. */
+  const host = FIRST_RUN_NEEDS.find(need => need.id === 'host')
+  assert.match(host.body, /no setting that connects one and no command that installs one/i)
+  assert.match(host.body, /ToolsEnabled account/i, 'the flat statement is left with nothing beside it')
 })
 
 test('every screen offers one door, at one address', () => {

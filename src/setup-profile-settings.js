@@ -201,9 +201,24 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
       </div>`
     }
     if (status === null) {
+      /* BOTH HALVES, IN ONE BREATH, BECAUSE THEY ARE BOTH TRUE AND ONE OF THEM
+       * IS THE ONE A PERSON NEEDS.
+       *
+       * "These are the shipped defaults: nothing that acts is switched on" was
+       * printed directly above a permission level reading Unrestricted, whose
+       * own row says the assistant "can read, change, and delete any file on
+       * this computer and run any program, without asking" -- on a profile that
+       * has never walked setup. Neither sentence is wrong. The write switches
+       * really are all off, and the level really is the widest one. Read one
+       * after the other they contradict each other flatly, and the reassuring
+       * one is on top.
+       *
+       * Whether the shipped default should BE the widest level is a product
+       * decision and is not made here. Saying the two things together is a copy
+       * fix, and it is this one. */
       return `<div class="fleet-profile-status is-quiet" data-setup-profile-status role="status">
         <strong>Setup has not been walked through on this computer</strong>
-        <span>These are the shipped defaults: nothing that acts is switched on. Walking through setup asks three questions and sets all of this together.</span>
+        <span>Nothing that acts is switched on, so this copy cannot start, send or approve anything yet. The permission level below is a separate choice and is still on the shipped default. Read what that level allows before you turn any of these switches on. Walking through setup asks three questions and sets all of it together.</span>
       </div>`
     }
     if (status === 'skipped') {
@@ -262,16 +277,30 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
     if (off.length === 0) return ''
     const tierLabel = TIER_CHOICES.find(choice => choice.tier === currentTier)?.label || currentTier
     const refused = new Set(profile.refusedWriteFlags)
-    return `<div class="settings-section-rows" data-setup-profile-withheld>
+    /* SEVEN OF THESE, ALL OPEN, ALL THE TIME.
+     *
+     * MEASURED on the packaged build: 1,850px of explanation between the last
+     * Setup row and the System heading, which pushed three of the page's four
+     * groups roughly six screens below the fold. Every other row on this page
+     * hides the identical content behind a disclosure -- src/guided-step.js
+     * draws it that way everywhere else -- so this run was the one place the
+     * page shouted instead of offering.
+     *
+     * NOT ONE WORD OF IT CHANGED. It is correct and it is worth reading; it is
+     * simply not worth reading before you have decided you want to. The summary
+     * says how many there are and what they are about, so somebody who does
+     * want them knows they are here. */
+    return `<details class="settings-section-rows guided-withheld-run" data-setup-profile-withheld>
+      <summary class="guided-summary">${off.length} switch${off.length === 1 ? '' : 'es'} this level leaves off, and what each one would give you</summary>
       ${off.map(flag => withheldMarkup(`write_${flag.id}`, {
         label: flag.label,
         reason: refused.has(flag.id)
           /* Not escaped here: withheldMarkup escapes what it is given, and
              escaping twice renders the quotation marks as their own source. */
           ? `It is off because the “${tierLabel}” permission level does not include it. Widening the level in the first row above is what would change that.`
-          : 'It is off because nothing has asked for it. The switch itself is in Settings → Write, and the row above sets several of them together.',
+          : 'It is off because nothing has asked for it. The switch itself is in Settings → Things it may do for you, and the row above sets several of them together.',
       })).join('')}
-    </div>`
+    </details>`
   }
 
   /* The record's sentence rides on the tier row's own description, so a person
@@ -366,12 +395,20 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
           <div class="settings-control"><button type="button" class="ctl-btn" data-setup-profile-action="walkthrough">Open setup</button></div>
         </article>
       </div>
-      ${withheldSectionMarkup(profile, currentTier)}
+      <!-- THE BANNER MOVED UP, ABOVE THE COLLAPSED RUN RATHER THAN BELOW IT.
+           Three of the Setup rows above are recorded and not yet acted on, and
+           they are drawn as segmented controls identical to the working ones
+           beside them. The sentence that explains that was roughly 1,900px
+           further down, under seven always-open blocks -- so the explanation
+           for a control was three screens away from the control. Each row now
+           says it itself (INTENT_RECORDED_ONLY, above), and the banner that
+           says it once for all of them sits directly under the last of them. -->
       <div class="fleet-profile-status is-warn" role="status">
         <strong>${INTENT_BANNER_TITLE}</strong>
         <span>${INTENT_BANNER_BODY}</span>
         <span>This screen asks for no subscription, key or password for Claude, ChatGPT or Google, and this program stores none. Those stay in their own programs. The account for this computer is its own setting, not one of these.</span>
       </div>
+      ${withheldSectionMarkup(profile, currentTier)}
     </section>`
   }
 
@@ -560,7 +597,7 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
       feedback = {
         tone: 'serious',
         title: 'The level changed, and this screen could not finish the change',
-        detail: 'This computer now records the level shown above. The switches below it may not have been brought into line with it. Open Settings → Write to check them.',
+        detail: 'This computer now records the level shown above. The switches below it may not have been brought into line with it. Open Settings → Things it may do for you to check them.',
       }
     } finally {
       busy = null

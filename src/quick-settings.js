@@ -212,10 +212,10 @@ function appRows() {
      uses for this switch, so the two surfaces can never describe one control
      two ways. */
   return `<label class="set-row set-toggle" title="Every screen shows the product's built-in example instead of your own activity, and each screen showing it is labelled as an example. It is what a signed-out visitor to the website sees.">
-    <span class="set-label">Example fleet</span>
+    <span class="set-label">Show the example fleet</span>
     <span class="toggle"><input type="checkbox" data-quick-example ${isExampleMode() ? 'checked' : ''}/><i></i></span>
   </label>
-  ${guidanceMarkup('example_mode', { section: 'Data & Sim', summary: 'What this shows, and what it risks' })}
+  ${guidanceMarkup('example_mode', { section: 'What the screens show', summary: 'What this does, and what it risks' })}
   <div class="set-row">
     <span class="set-label">Theme</span>
     ${segMarkup('theme-seg', 'theme', [['white', 'White'], ['tan', 'Tan'], ['black', 'Black']], currentTheme(), 'Theme')}

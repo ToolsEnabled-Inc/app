@@ -210,7 +210,7 @@ function switchedOffReason() {
      switches starting off. The Settings route stays HERE, unlike on the fleet
      page's panel, because this surface is also where somebody comes to turn the
      thing back off again and that lives in Settings. */
-  return `${because} Turning it on starts nothing by itself, it just puts the Start control here and you decide what to run. The same switch is in Settings, under Write.`
+  return `${because} Turning it on starts nothing by itself, it just puts the Start control here and you decide what to run. The same switch is in Settings, under Things it may do for you.`
 }
 
 function mountSessionControls(root, {

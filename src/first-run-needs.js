@@ -51,10 +51,28 @@
  */
 
 import { CODEX_SETUP_COMMANDS } from './agent-availability-copy.js'
+/* The one address of the connect screen. Read, never spelled: home, the
+   computers page, this guide and the System row all point at it, and a link is
+   only correct while every one of them agrees. src/device-claim-flow.js is a
+   pure state machine, so this import costs this module none of its
+   node-testability. */
+import { CONNECT_HREF } from './device-claim-flow.js'
 
 /** The one address. Every screen that links to the guide reads it from here. */
 export const GUIDE_HREF = '#/guide'
 export const SETTINGS_HREF = '#/settings'
+
+/* THE ADDRESS OF ONE ROW, NOT THE TOP OF A LONG PAGE.
+ *
+ * Three identical "Open Settings" buttons used to sit under three different
+ * problems on the guide and all three landed at the top of Settings -- which is
+ * roughly six screens above the row each one meant. The `?setting=` mechanism
+ * already existed and the home screen already used it correctly. These are the
+ * ids of the rows this page actually names. */
+const settingRow = id => `${SETTINGS_HREF}?setting=${id}`
+export const AGENT_SESSION_SETTING_HREF = settingRow('write_agent-session')
+export const THREAD_REPLY_SETTING_HREF = settingRow('write_thread-reply')
+export const EXAMPLE_MODE_SETTING_HREF = settingRow('example_mode')
 
 /* The control that appears on an empty screen. One object, so the fleet graph,
    the comms board, home and settings cannot end up offering four differently
@@ -181,6 +199,44 @@ export function commsQuietMarkup({ compact = true } = {}) {
  *   'none' — nobody can clear it from this window, and saying so IS the help.
  */
 export const FIRST_RUN_NEEDS = Object.freeze([
+  /* THE ONE THAT WAS MISSING, AND IT IS FIRST BECAUSE IT IS WHAT THE PERSON
+   * CAME HERE FOR.
+   *
+   * THE DEFECT, in the owner's own words: "as a user I dont even see how after
+   * signing up that I now connect my computer". Measured on the rendered guide
+   * before this entry existed: the word "account" appeared thirteen times and
+   * every single one of them meant a Codex or Claude sign-in folder;
+   * "toolsenabled.ai", "website", "signed up", "second computer" and "code"
+   * appeared zero times. Somebody arriving from the home row about computers
+   * read a page that never mentions the thing they paid for, and then read, two
+   * sections down, that there is no setting that connects one.
+   *
+   * IT IS `fix: 'self'` AND THAT IS NOT A PROMOTION OF A HALF-BUILT FEATURE.
+   * The connect screen is built, works end to end, and had no caller anywhere
+   * in src/ -- a scout got a real code, a countdown and three named steps out
+   * of it by typing the route by hand. The only thing missing was a door. */
+  Object.freeze({
+    id: 'account',
+    fix: 'self',
+    title: 'Joining this computer to your ToolsEnabled account',
+    body: 'If you signed up at toolsenabled.ai, this is the step that puts this computer on that account. The screen below gives you a short code; you type it into your account page in a browser, and the two halves meet. It is what lets you reach this computer from a browser later. It is a separate thing from the assistant sign-ins further down this page: those are your Codex and Claude accounts, not your ToolsEnabled one.',
+    steps: Object.freeze([
+      Object.freeze({
+        kind: 'link',
+        text: 'Open "Connect this computer" in Settings',
+        note: 'It shows you the code and counts down how long it is good for. Nothing is sent until you press the button there.',
+        href: CONNECT_HREF,
+        linkLabel: 'Open the connect screen',
+      }),
+      Object.freeze({
+        kind: 'link',
+        text: 'Sign in at toolsenabled.ai in a browser and open your account page',
+        note: 'That is where the code is typed. It can be a browser on any device, because the code is short enough to read off this screen and type on a phone.',
+        href: '',
+        linkLabel: '',
+      }),
+    ]),
+  }),
   Object.freeze({
     id: 'codex',
     fix: 'self',
@@ -201,7 +257,7 @@ export const FIRST_RUN_NEEDS = Object.freeze([
          the install; tools/test/first-run-needs.test.mjs now fails on any note
          that sends a person back to the stale window. */
       Object.freeze({ kind: 'command', text: CODEX_SETUP_COMMANDS.signIn, note: 'in a new terminal window once the install finishes. The window the install ran in cannot see the new program yet.' }),
-      Object.freeze({ kind: 'switch', text: 'Turn on "Run an agent session"', note: 'in Settings, under Write. Every action that writes anything ships switched off.', href: SETTINGS_HREF }),
+      Object.freeze({ kind: 'switch', text: 'Turn on "Run an agent session"', note: 'in Settings, under Things it may do for you. Every action that writes anything ships switched off.', href: AGENT_SESSION_SETTING_HREF, linkLabel: 'Open that setting' }),
     ]),
   }),
   Object.freeze({
@@ -212,10 +268,17 @@ export const FIRST_RUN_NEEDS = Object.freeze([
        screens read are packed into the read-only application archive at build
        time. No process on this machine writes them, so no action the reader
        takes will change them. */
-    body: 'Those screens read a report written by an agent host, and this copy of ToolsEnabled does not include one. There is no setting that connects one and no command that installs one, so nothing you do will fill those screens today. They say so rather than showing numbers that are not yours. This is the honest state of the product, not a fault on your computer.',
+    /* THE WORD "ONE" HAD NO ANTECEDENT A READER COULD SEE. Arriving here from
+       the home row about computers, "there is no setting that connects one"
+       read as "you cannot connect a computer" -- which is the opposite of true
+       and is the exact sentence the owner's report is about. The paragraph now
+       ends by naming the section that DOES do the other thing. The flat
+       statement itself is unchanged: it was right, and
+       tools/test/first-run-needs.test.mjs holds it in place. */
+    body: 'Those screens read a report written by an agent host, and this copy of ToolsEnabled does not include one. There is no setting that connects one and no command that installs one, so nothing you do will fill those screens today. They say so rather than showing numbers that are not yours. This is the honest state of the product, not a fault on your computer. It says nothing about your ToolsEnabled account. Joining this computer to that account is a different step. It works today, and it is the first section on this page.',
     quote: 'No local agent fleet host detected on this machine.',
     steps: Object.freeze([
-      Object.freeze({ kind: 'switch', text: 'To see what one of those screens looks like with data in it, turn its live source off', note: 'in Settings, under Data and Sim. Each screen then shows a worked example, labelled as an example.', href: SETTINGS_HREF }),
+      Object.freeze({ kind: 'switch', text: 'To see what one of those screens looks like with data in it, turn on "Show the example fleet"', note: 'in Settings, under What the screens show. Every screen then shows a worked example, labelled as an example.', href: EXAMPLE_MODE_SETTING_HREF, linkLabel: 'Open that setting' }),
     ]),
   }),
   Object.freeze({
@@ -227,7 +290,10 @@ export const FIRST_RUN_NEEDS = Object.freeze([
        nothing happen. */
     body: 'The box on the first page has no place to type. Sending replies is switched off, and there is no coordinator on this computer to send one to. Turning the switch on is worth doing so the box is ready. It will stay quiet until an agent host reports here.',
     steps: Object.freeze([
-      Object.freeze({ kind: 'switch', text: 'Turn on "Coordinator replies"', note: 'in Settings, under Write.', href: SETTINGS_HREF }),
+      /* THE SWITCH IS NOT CALLED THAT. src/write-flags.js labels the row "Reply
+         to your coordinator", and a guide that names a control nothing on the
+         page is called sends a person hunting through ninety rows. */
+      Object.freeze({ kind: 'switch', text: 'Turn on "Reply to your coordinator"', note: 'in Settings, under Things it may do for you.', href: THREAD_REPLY_SETTING_HREF, linkLabel: 'Open that setting' }),
     ]),
   }),
 ])

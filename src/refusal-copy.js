@@ -124,6 +124,23 @@ export const REFUSAL_REMEDY = Object.freeze({
   BRIDGE_REQUEST_REFUSED: 'Nothing was done. Check what you chose above, try once more, and if it keeps refusing leave it alone rather than pressing repeatedly.',
   BRIDGE_REFUSED: 'Nothing was done and this copy was not told why. Try once more, and if it refuses again, close ToolsEnabled and open it a second time.',
 
+  /* BUSY IS THE ONE REFUSAL ON THE CONNECT SCREEN A PERSON MEETS WITHOUT HAVING
+   * DONE ANYTHING, and until this entry existed it fell to the DEVICE_CLAIM_
+   * family floor -- "Open your account page to see which computers are joined"
+   * -- which is advice about somewhere else entirely for somebody who has just
+   * been told to wait.
+   *
+   * The diagnosis it follows reads "This computer is already in the middle of a
+   * connection step. Wait for that one to finish." The honest remedy is the
+   * length of the wait and what to do if it does not end, because the step it
+   * names is usually one this window started for itself: shell/main.cjs reads
+   * the vault at launch, and that read used to collide with the connect
+   * screen's own. Concurrent reads now join rather than refuse
+   * (shell/device-claim.cjs), so this should be rare -- and a rare refusal with
+   * no remedy is worse than a common one, because nobody has learned what it
+   * means. */
+  DEVICE_CLAIM_BUSY: 'Nothing was sent. A step this computer had already started is still finishing; give it a few seconds and press the button again. If it keeps saying this, close ToolsEnabled and open it a second time.',
+
   /* --- a reply that arrived but could not be trusted. These must never read as
          "it failed", because the work may well be running; the person's next
          move is to LOOK, not to retry. --- */

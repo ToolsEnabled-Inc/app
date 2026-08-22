@@ -133,6 +133,38 @@
   -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
 }
 .computers .graph-bar-trees::-webkit-scrollbar { display: none; }
+
+/* ON A PHONE THE BAR WRAPS, BECAUSE OTHERWISE ITS LAST SLOT IS NOWHERE.
+ *
+ * MEASURED at 390x844 in the browser preview, which is the destination of the
+ * website's primary button: .graph-bar is a single flex row whose scrollWidth
+ * is 490 inside a clientWidth of 349, it sets no overflow-x, and the page has
+ * no horizontal scroll of its own (documentElement 390/390). "Open agent
+ * detail" measured x=376 width=131 -- its whole box past the right edge of the
+ * screen, with nothing anywhere that scrolls to it and a wheel over it moving
+ * nothing. That control is the preview's only route into an agent, so on a
+ * phone the preview simply has no way in.
+ *
+ * WRAPPING RATHER THAN SCROLLING, because the trees slot inside this bar is
+ * already a horizontal scroller and nesting a second one under the same finger
+ * is a swipe that does the wrong thing about half the time. The tools drop to a
+ * second line, every control keeps its size, and the bar grows instead of
+ * hiding its own end. overflow-x is the backstop for anything that still cannot
+ * wrap -- a scrollbar nobody needs costs nothing, an unreachable button costs
+ * the visit. */
+@media (max-width: 720px) {
+  .computers .graph-bar {
+    height: auto;
+    min-height: 52px;
+    flex-wrap: wrap;
+    row-gap: 8px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    overflow-x: auto;
+  }
+  .computers .graph-bar-lead { max-width: 100%; }
+  .computers .graph-bar-lead::after { display: none; }
+}
 .computers .graph-hint {
   top: 12px;
   background: var(--sheet);

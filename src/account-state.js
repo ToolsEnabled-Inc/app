@@ -58,6 +58,14 @@ export const ACCOUNT_QUESTION_SUB = 'Sign in so the record of what your assistan
 export const ACCOUNT_SCOPE_LEAD = 'What this account is, before you make one.'
 export const ACCOUNT_SCOPE_NOTICE = Object.freeze([
   'It is an account on this computer. Nothing is sent anywhere, no email address is asked for, and no server holds it — so there is also no password reset. If you forget it, the account cannot be recovered and you make a new one.',
+  /* THE SENTENCE A PERSON WHO HAS JUST PAID IS LOOKING FOR, said where they are
+     looking. "as a user I dont even see how after signing up that I now connect
+     my computer." This card is titled "Who is using this copy?" and its first
+     line is "no server holds it" -- read at the exact moment somebody thinks
+     "here is where I sign in to the thing I bought". Every word of that first
+     line is true of THIS account, and saying only it is what ends the search.
+     Naming the other account, and where it is joined, costs one sentence. */
+  'It is not the ToolsEnabled account you may have made at toolsenabled.ai. That one is joined to this computer separately, in Settings, under "Connect this computer".',
   'Signing in with Google instead puts the verified email address from your Google account on the record. Google is what checks it, not this computer.',
   'Either way it is not a login to Claude or ChatGPT, and it does not carry a subscription. Those stay in their own programs; this one only answers who is using this copy.',
   'It records who asked for a piece of work. It is not a lock on this computer: anyone already signed in to Windows as you can remove it.',

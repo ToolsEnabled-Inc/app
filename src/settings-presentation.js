@@ -70,7 +70,7 @@ export const SETTINGS_GROUPS = Object.freeze([
     id: 'privacy',
     label: 'Your data',
     detail: 'What is kept, what is cleared out, and what the screens show',
-    sections: Object.freeze(['Data & Privacy', 'Ledger', 'Data & Sim']),
+    sections: Object.freeze(['Data & Privacy', 'Ledger', 'What the screens show']),
   }),
   Object.freeze({
     id: 'actions',
@@ -105,7 +105,7 @@ export const SETTINGS_GROUPS = Object.freeze([
        src/permission-guidance.js:514 is the artefact of this going wrong once
        already: a turnOnAt that outlived its section and pointed at
        "Settings → Developer", a heading that was not there. */
-    sections: Object.freeze(['Research & Agents', 'Write']),
+    sections: Object.freeze(['Research & Agents', 'Things it may do for you']),
   }),
   Object.freeze({
     id: 'appearance',

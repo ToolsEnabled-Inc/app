@@ -160,8 +160,8 @@ const SECTIONS = [
   'Text & Reading',
   'Motion & Effects',
   'Ledger',
-  'Data & Sim',
-  'Write',
+  'What the screens show',
+  'Things it may do for you',
   /* SIX SECTIONS THAT USED TO BE LISTED HERE ARE GONE, 2026-08-20: Fleet Graph,
      Metrics, Chat & Threads, Comms Board, Performance and Developer. Each was
      inert top to bottom -- every row in them wrote a `mc.set.<id>` key that
@@ -269,7 +269,7 @@ export const SETTINGS = [
   { id: 'reduce_motion', section: 'Motion & Effects', name: 'Reduce motion', desc: 'Turn animation off: things move instantly and nothing pulses in the background.', depth: 1, type: 'toggle', def: false },
   { id: 'glow', section: 'Motion & Effects', name: 'Glow intensity', desc: 'How brightly the glowing status lights shine.', depth: 1, type: 'range', min: 0, max: 200, step: 1, unit: '%', def: 100 },
 
-  { id: 'ledger_archive', section: 'Ledger', name: 'Clean up old R', desc: 'The first click only shows which completed or superseded requests would be archived. A second click moves exactly that list into the archive — nothing is moved without the preview.', depth: 1, type: 'action', def: null },
+  { id: 'ledger_archive', section: 'Ledger', name: 'Archive finished requests', desc: 'The first click only shows which completed or superseded requests would be archived. A second click moves exactly that list into the archive — nothing is moved without the preview.', depth: 1, type: 'action', def: null },
 
   /* 'offline_fallback' was removed 2026-08-13 rather than left as a row: it was
      declared here and read by NOTHING in the tree, so the toggle moved and
@@ -300,7 +300,7 @@ export const SETTINGS = [
    * wiring rather than trusting this comment. */
   {
     id: 'example_mode',
-    section: 'Data & Sim',
+    section: 'What the screens show',
     name: 'Show the example fleet',
     desc: 'Every screen shows the product’s built-in example instead of your own activity, and each screen showing it is labelled as an example. It is what a signed-out visitor to the website sees. Turn it off to see your own records again.',
     depth: 1,
@@ -315,7 +315,7 @@ export const SETTINGS = [
      state line says the current truth first and the shipped default after. */
   ...WRITE_ACTION_FLAGS.map(flag => ({
     id: `write_${flag.id}`,
-    section: 'Write',
+    section: 'Things it may do for you',
     name: flag.label,
     desc: flag.description,
     depth: ['dispatch', 'report-read'].includes(flag.id) ? 1 : 2,
@@ -569,11 +569,11 @@ function tierMarkup(section, depth, content, open) {
    touching the renderer. A section with no note gets no element at all rather
    than an empty one. */
 const SECTION_NOTES = Object.freeze({
-  'Data & Sim': Object.freeze({
+  'What the screens show': Object.freeze({
     text: 'This switch chooses between your own records and the product’s built-in example, for every screen at once. It does not connect anything. On a fresh install your own readings are empty, because nothing has reported to this copy yet, and this switch does not change that.',
     link: Object.freeze({ label: 'What this copy needs', href: GUIDE_HREF }),
   }),
-  Write: Object.freeze({
+  'Things it may do for you': Object.freeze({
     text: 'Every action that writes anything ships switched off, so a copy nobody has configured cannot send, start or approve anything by accident. Turning one on here is what makes its control appear.',
     link: Object.freeze({ label: 'What this copy needs', href: GUIDE_HREF }),
   }),
@@ -603,7 +603,7 @@ function sectionNoteMarkup(section) {
  * direction only: off. There is deliberately no "turn everything on" press
  * here. */
 const BULK_ROWS = Object.freeze({
-  Write: `<article class="settings-row settings-bulk-row">
+  'Things it may do for you': `<article class="settings-row settings-bulk-row">
     <div class="settings-copy">
       <div class="settings-name" id="settings-bulk-write-label">Everything off, in one press</div>
       <div class="settings-desc">Turns every switch in this section off, including the ones under the reveals below. Turning things ON stays one row at a time, so nothing acts without its own choice.</div>
@@ -793,8 +793,19 @@ export function settingsView({ query: routeQuery = null } = {}) {
     connectController.afterRender(root)
   }
 
+  /* THE ARITHMETIC CAME OUT, AND THE PROMISE STAYED.
+   *
+   * The footer used to read "N settings · M shown · search finds the hidden
+   * ones too". Both numbers were wrong and neither was useful. MEASURED: 21
+   * rows drawn under a claim of 17, because five section controllers each
+   * declare a constant count that nobody re-derives when a row is added or
+   * removed -- and with the groups collapsed the last line of the page read
+   * "37 settings · 0 shown", which is a page telling a person it is empty.
+   * Nobody has ever needed the total. What the sentence was FOR is the last
+   * clause: that a row you cannot see is still findable. That part is true, is
+   * the only part anyone acts on, and is all that is left. */
   function updateFooter() {
-    footer.textContent = `${SETTINGS.length + FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT + CHATBOX_SETTING_COUNT + RESEARCH_SETTING_COUNT + CONNECT_SETTING_COUNT} settings · ${shown} shown · search finds the hidden ones too`
+    footer.textContent = 'Some rows are inside closed groups. Search finds those too.'
   }
 
   function syncRail() {

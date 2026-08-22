@@ -352,8 +352,19 @@ test('cancel forgets the token, and a poll after it says nothing is in flight', 
   await claim.begin({ name: 'Desk PC' })
   assert.equal(claim.claimOpen(), true)
 
-  assert.deepEqual(claim.cancel(), { ok: true })
+  /* `dropped` SAYS WHETHER THERE WAS ANYTHING TO GIVE UP, and the surface
+     cannot see this module's variable to work that out for itself. Every "Get
+     a code" is routed through cancel-then-begin now -- a second press used to
+     open a second live claim and orphan the first poll token, leaving a
+     computer on the account page that this machine could never finish
+     connecting -- so most of those cancels find nothing and must stay silent.
+     The one that DID drop a live claim owes the person a sentence, because the
+     code it dropped may already be typed into their browser. */
+  assert.deepEqual(claim.cancel(), { ok: true, dropped: true })
   assert.equal(claim.claimOpen(), false)
+  /* And a cancel with nothing in flight says so, rather than inviting the
+     surface to print that sentence at somebody who never saw a code. */
+  assert.deepEqual(claim.cancel(), { ok: true, dropped: false })
 
   const spawnsBefore = spawn.calls.length
   const polled = await claim.poll()
@@ -417,10 +428,10 @@ test('a timed-out step does not wedge the next one', async () => {
   assert.equal(spawn.calls.length, 2)
 })
 
-test('two steps at once is refused by name rather than by racing on one vault', async () => {
+test('a step that WRITES is refused by name rather than by racing on one vault', async () => {
   const { claim, clock, spawn } = claimUnderTest({ script: [null] })
   const first = claim.status()
-  const second = await claim.status()
+  const second = await claim.begin({ name: 'Desk PC' })
 
   assert.equal(second.ok, false)
   assert.equal(second.code, CODES.BUSY)
@@ -428,6 +439,44 @@ test('two steps at once is refused by name rather than by racing on one vault', 
 
   clock.advance(STATUS_TIMEOUT_MS + 1)
   await first
+})
+
+/* ---- A READ IS NOT A WRITE, AND REFUSING IT COST A CUSTOMER THE PRODUCT -----
+ *
+ * WHAT WAS MEASURED. On a sterile profile, opening the connect screen drew a
+ * red alert reading "This computer is already in the middle of a connection
+ * step. Wait for that one to finish." -- four inches under "Nothing has been
+ * sent anywhere", before the person had touched anything. Three scouts
+ * reproduced it independently, roughly eight opens in fourteen.
+ *
+ * THE CAUSE. Two callers ask status during the same two seconds of every
+ * launch: shell/main.cjs awaits one before deciding whether to start the relay
+ * leg, and the renderer fires one when the connect section mounts. One child at
+ * a time is the right rule for anything that WRITES; status writes nothing, and
+ * its own comment says it is "safe to call at any cadence from any surface".
+ * Whichever caller lost the race was told a connection step was under way.
+ *
+ * The second asker joins the answer now. Nothing is cached beyond the flight --
+ * a remembered verdict here would be the same defect wearing the opposite face
+ * -- so the spawn count is what this asserts, twice: one child while it is in
+ * flight, and a fresh child for a question asked afterwards. */
+test('two READS at once share one child and one answer, instead of one being refused', async () => {
+  const { claim, spawn } = claimUnderTest({
+    script: [answers({ connected: false }), answers({ connected: false })],
+  })
+  const first = claim.status()
+  const second = claim.status()
+  assert.equal(spawn.calls.length, 1, 'a second child was spawned for a question already being asked')
+
+  const [one, two] = await Promise.all([first, second])
+  assert.deepEqual(one, { ok: true, connected: false })
+  assert.deepEqual(two, one, 'the joined caller got a different answer from the one it joined')
+
+  /* AND THE JOIN DOES NOT BECOME A CACHE. Asked again after it settled, the
+     vault is read again -- a screen that reopens must be able to learn that a
+     computer was connected in the meantime. */
+  await claim.status()
+  assert.equal(spawn.calls.length, 2, 'a later question was answered from a remembered verdict')
 })
 
 test('a child that floods stdout is stopped instead of being read to the end', async () => {

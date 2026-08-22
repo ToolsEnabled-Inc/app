@@ -10,7 +10,7 @@ import { StaticTreeGraph } from '../tree-graph.js'
    ask the host for a transport; DATA_SOURCE_EVENT is the host saying the world
    changed (sign-in, sign-out, the example toggle), on which this view
    re-resolves and remounts. */
-import { resolveDataSource, currentDataSource, DATA_SOURCE_EVENT } from '../data-source.js'
+import { resolveDataSource, currentDataSource, previewWithoutHost, DATA_SOURCE_EVENT } from '../data-source.js'
 /* The example fleet, in exactly the `{computers, graph}` shape mountProjection
    consumes — see src/sample-fleet.js for why it is copied literals rather than
    anything imported from the modules being deleted. When the source is mock,
@@ -43,6 +43,9 @@ import { COPY, readLocalSessions } from '../local-activity.js'
    src/first-run-needs.js owns the sentences; src/guide.css styles this page's
    copy of them (`.computers .graph-empty .host-absent`). */
 import { GUIDE_ACTION, hostAbsentMarkup } from '../first-run-needs.js'
+/* The one address of the connect screen, read rather than spelled. This page is
+   where a person goes first to add a computer, and it had no door at all. */
+import { CONNECT_HREF } from '../device-claim-flow.js'
 /* No bare identifier reaches a person from this page's controls; the code is
    carried as `data-refusal-code` instead. See src/refusal-copy.js. */
 import { markRefusalCode, refusalCodeOf, refusalSentence } from '../refusal-copy.js'
@@ -488,9 +491,22 @@ const START_NEEDS_APP_TEXT = 'Starting an agent needs the installed ToolsEnabled
    mock-sourced start surface answers with.
    MODULE SCOPE because startAgentForNode below — itself module-scope, and
    exported for the research dispatcher — is one of those surfaces. The
-   sentence names the switch's real home: Settings → Data & Sim, the one
+   sentence names the switch's real home: Settings → What the screens show, the one
    "Show the example fleet" toggle that replaced the per-view flags. */
-const EXAMPLE_BOARD_TEXT = 'This is the example fleet, so nothing here can start a real agent. Turn off “Show the example fleet” in Settings, under Data & Sim, to build a tree on your own computer.'
+/* AND IT IS A FUNCTION NOW, BECAUSE THE SENTENCE DEPENDS ON WHY THIS SCREEN IS
+   ON THE EXAMPLE. A person who turned the switch on is told which switch to
+   turn off. A visitor in a browser, who never touched a switch and cannot
+   reach that one, is told what this page is. See previewWithoutHost() in
+   src/data-source.js for the measurement that produced this branch. */
+const EXAMPLE_BOARD_TEXT = 'This is the example fleet, so nothing here can start a real agent. Turn off “Show the example fleet” in Settings, under What the screens show, to build a tree on your own computer.'
+const exampleBoardText = () => (previewWithoutHost() ? START_NEEDS_APP_TEXT : EXAMPLE_BOARD_TEXT)
+
+/* THE WAY BACK TO YOUR OWN COMPUTER, said correctly for whichever visitor is
+   reading it. Four places on this page used to name a switch; the browser
+   preview reaches none of them. */
+const exampleExitSentence = () => (previewWithoutHost()
+  ? 'This page is a preview of ToolsEnabled running in your browser. Install ToolsEnabled on your computer to see your own fleet and its controls.'
+  : 'Turn off “Show the example fleet” in Settings, under What the screens show, to see your own computer and its controls.')
 
 /* THE SENTENCE FOR THE ONE FAILURE THAT IS NOT A FAILED START.
  *
@@ -559,7 +575,7 @@ export async function startAgentForNode({ text, surface, tier, effort, profileId
       needsApp: false,
       sessionId: null,
       code: null,
-      sentence: EXAMPLE_BOARD_TEXT,
+      sentence: exampleBoardText(),
       needsAssistantProgram: false,
     }
   }
@@ -2730,7 +2746,7 @@ export function computersView({ initialComputer = null, navigate }) {
      person pressing a circle that does nothing, which is the state this whole
      feature was built to end. */
   function composeUnavailableReason() {
-    if (mockSource()) return EXAMPLE_BOARD_TEXT
+    if (mockSource()) return exampleBoardText()
     if (treeStoreProblem) return treeStoreProblem
     /* THE SWITCH THAT DECIDES WHETHER THIS PRODUCT MAY START AN AGENT, asked
        on the surface that actually starts them.
@@ -3054,7 +3070,7 @@ export function computersView({ initialComputer = null, navigate }) {
        counts, and under mock the null store's fallback below would otherwise
        claim the app is missing, which on a desktop with the example on is
        simply false. */
-    if (mockSource()) return { ok: false, message: EXAMPLE_BOARD_TEXT }
+    if (mockSource()) return { ok: false, message: exampleBoardText() }
     const store = treeStore
     if (!store) return { ok: false, message: treeStoreProblem || START_NEEDS_APP_TEXT }
     /* ASKED AGAIN HERE, AND THIS IS THE ONE THAT COUNTS. The panel's disabled
@@ -3528,6 +3544,7 @@ export function computersView({ initialComputer = null, navigate }) {
              It stays BELOW the hero and its "this is the record" caveat,
              because that caveat qualifies the number directly above it and
              separating the two would be trading one defect for another. -->
+        ${accountDoorMarkup()}
         <div class="rail-sec">${escapeMarkup(PROFILE_PANEL.overviewTitle)}</div>
         <div class="board-profile-slot" data-profile-slot></div>
         <div class="rail-sec">This computer</div>
@@ -3575,6 +3592,28 @@ export function computersView({ initialComputer = null, navigate }) {
     void mountProfilePanel(statsPage.querySelector('[data-profile-slot]'))
     mountResearchScopeControl()
     void paintAgentsOnRecord()
+  }
+
+  /* THE DOOR THIS PAGE DID NOT HAVE, ON THE PAGE PEOPLE COME TO FIRST FOR THIS.
+   *
+   * "as a user I dont even see how after signing up that I now connect my
+   * computer." Somebody looking for how to add a computer opens the page called
+   * Computers. Measured on a cold install: the only add-shaped control anywhere
+   * on it was "Empty spot. Press to start an agent here." Nothing named the
+   * account, the website, or the connect screen -- which exists, works end to
+   * end, and until this pass had no caller anywhere in src/.
+   *
+   * THE PREVIEW GETS A DIFFERENT SENTENCE AND NO LINK, because a browser has
+   * no installed application to open a claim with and a button that cannot work
+   * is the defect this whole pass is about. */
+  function accountDoorMarkup() {
+    if (previewWithoutHost()) {
+      return `<div class="rail-sec">Your ToolsEnabled account</div>
+        <p class="rail-prose is-dim">Putting a computer on your account is done from the installed application, on the computer you want to add. This page is a preview of it running in your browser.</p>`
+    }
+    return `<div class="rail-sec">Your ToolsEnabled account</div>
+      <p class="rail-prose is-dim">If you signed up at toolsenabled.ai, this is how this computer gets onto that account. The connect screen gives you a short code. You type it into your account page in a browser.</p>
+      <a class="rail-note-a host-absent-action" href="${escapeMarkup(CONNECT_HREF)}">Connect this computer</a>`
   }
 
   /* "AGENTS ON RECORD" NOW COUNTS THE RECORD, WHICH IT DID NOT BEFORE.
@@ -3680,7 +3719,7 @@ export function computersView({ initialComputer = null, navigate }) {
        OS-dialog picks) — a badged rail listing them would be your data inside
        the example, and creating or removing one is a write. */
     if (mockSource()) {
-      slot.innerHTML = '<p class="rail-prose is-dim">This is the example fleet, so it does not read or manage the session folders on your computer. Turn off “Show the example fleet” in Settings, under Data & Sim, to manage them.</p>'
+      slot.innerHTML = `<p class="rail-prose is-dim">This is the example fleet, so it does not read or manage the session folders on your computer. ${exampleExitSentence()}</p>`
       return
     }
     const bridge = typeof window === 'undefined' ? null : window.mcAgent
@@ -3881,7 +3920,7 @@ export function computersView({ initialComputer = null, navigate }) {
         <div class="board-box-h"><span class="bh-t">No launch controls on this board</span></div>
         <div class="board-cap">this is the example fleet, and nothing here starts anything.</div>
         <p class="board-absent-copy">Launch, team, loop and cloud controls are left out of the example on purpose: nothing on an example screen may start a real agent. They appear on the board that reads this computer.</p>
-        <p class="board-absent-copy">Turn off “Show the example fleet” in Settings, under Data &amp; Sim, to see your own computer and its controls.</p>
+        <p class="board-absent-copy">${exampleExitSentence()}</p>
       </div>`)
   }
 

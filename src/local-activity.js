@@ -49,6 +49,11 @@ import { CODEX_SETUP_COMMANDS } from './agent-availability-copy.js'
    neither is a reason to leave a person holding a statement with nowhere to take
    it. */
 import { GUIDE_ACTION, GUIDE_HREF } from './first-run-needs.js'
+/* The one address of the connect screen, read rather than spelled: four
+   surfaces link to it now and a link is only correct while all of them agree.
+   src/device-claim-flow.js is a pure state machine with no DOM in it, so
+   importing it here costs this module none of its testability. */
+import { CONNECT_HREF } from './device-claim-flow.js'
 /* THE MODEL ROW'S OWN NAME. `launchTier` is the table the start controls
    already use, so the runs list says "Sonnet" where the record kept the id it
    was started with, and no fourth copy of that mapping can drift from it. The
@@ -679,6 +684,8 @@ function groupDigits(value) {
  * @param {object} input.engine            from readAgentEngine
  * @param {object|null} input.providers    from providerSignInReading, or null
  *                                         when this caller has not asked
+ * @param {object|null} input.account      {known, connected}, or null when this
+ *                                         caller has not asked
  * @param {object|null} input.approvals    {readable, count, undelivered}
  * @param {object} input.chatbox           {runsMode, selection, agentsInSource}
  * @param {number} input.nowMs
@@ -700,6 +707,12 @@ export function describeHome(input) {
        rendered before this input existed. A default that assumed either answer
        would put a verdict on screen that nobody measured. */
     providers = null,
+    /* WHETHER THIS COMPUTER IS ON THE PERSON'S TOOLSENABLED ACCOUNT, as
+       {known, connected}. NULL means nobody has asked -- a plain browser has no
+       installed application to ask, and a window whose read was refused has
+       asked and learned nothing. Both must render the same thing, and it is not
+       a verdict either way. */
+    account = null,
     approvals = null,
     chatbox = null,
     nowMs = Date.now(),
@@ -846,16 +859,44 @@ export function describeHome(input) {
     } else if (mode === HOME_MODES.FLEET_UNREACHABLE) {
       facts.push({ id: 'peer', tone: 'warn', href: GUIDE_HREF, text: 'Nothing has been heard from them recently' })
     } else {
-      /* The one true thing to say when there is no fleet. NOT "no fleet host
-         was detected", which describes a search this product performed and
-         reads as a fault; and never beside a claim that it works here.
-
-         IT NOW LEADS SOMEWHERE, and that is the whole of LEGACY-ONB-001 as it
-         lands on this screen. The sentence was correct and terminal: a person
-         who wanted to know what a second computer would add, or whether they had
-         missed a step, had nowhere in the product to find out. The words do not
-         change -- they were right -- but the row is a link now. */
-      facts.push({ id: 'peer', tone: 'neutral', href: GUIDE_HREF, text: 'This is the only computer connected' })
+      /* THE OWNER'S OWN REPORT, AND THE ONE ROW ON THE FIRST SCREEN THAT COULD
+       * ANSWER IT: "as a user I dont even see how after signing up that I now
+       * connect my computer".
+       *
+       * WHAT THIS ROW USED TO SAY AND WHY IT WAS WORSE THAN NOTHING. "This is
+       * the only computer connected", linked to the guide. Every word of it was
+       * true and all of it was about the LAN fleet -- and it was the only
+       * sentence on the first screen using the word "connected", on a screen a
+       * person reaches minutes after paying for an account and being asked, on
+       * the website, to connect a computer. It sent them to a guide whose
+       * account content is about Codex and Claude folders, which says in as many
+       * words that "there is no setting that connects one". So the one place on
+       * home that mentions a second computer led to the one page that told them
+       * to stop looking.
+       *
+       * WHAT IT SAYS NOW IS THE ACCOUNT FACT, AND IT LEADS TO THE SCREEN THAT
+       * CHANGES IT. The fleet meaning of "connected" leaves the first screen
+       * entirely rather than sitting beside a fourth line on the densest screen
+       * in the product; `#/computers` is where a fleet is described, and it has
+       * its own door to the same place now.
+       *
+       * THREE SENTENCES BECAUSE THERE ARE THREE ANSWERS AND ONE OF THEM IS "WE
+       * HAVE NOT ASKED". `account` is null until this window has read the
+       * installed application's claim status, and a null is not a no -- the
+       * product has been burned by rounding exactly that up, in this file, in
+       * the engine row forty lines above. The unread case is written as an
+       * invitation, which asserts nothing and still leads somewhere. */
+      const joined = account && account.known === true ? account.connected === true : null
+      facts.push({
+        id: 'account',
+        tone: 'neutral',
+        href: CONNECT_HREF,
+        text: joined === true
+          ? 'This computer is on your ToolsEnabled account'
+          : joined === false
+            ? 'This computer is not on your ToolsEnabled account yet'
+            : 'Connect this computer to your ToolsEnabled account',
+      })
     }
 
     /* Decisions waiting. Omitted entirely when the count could not be read: a

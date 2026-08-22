@@ -542,8 +542,21 @@ body.reduce-motion .uring.crescent .cres-haze { animation: none; }
   background: var(--ink-4);
   transition: background 1.4s var(--ease);
 }
-/* Only the rows that go somewhere look like they go somewhere. */
-a.home-fact:hover span { text-decoration: underline; }
+/* Only the rows that go somewhere look like they go somewhere -- AND THEY HAVE
+   TO LOOK IT AT REST, not only under a pointer.
+
+   MEASURED: the one link out of the home screen was identical in colour,
+   weight, size and decoration to the two plain statements beside it. The only
+   things distinguishing it were `cursor: pointer` and a hover underline, and
+   neither exists for somebody who is not already moving a mouse across it.
+   That link is now the route to the connect screen -- the whole paid journey --
+   so it wears a resting underline and the hover just firms it up. */
+a.home-fact span {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 3px;
+}
+a.home-fact:hover span { text-decoration-color: currentColor; }
 a.home-fact:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--ink) 55%, transparent);
   outline-offset: 3px;

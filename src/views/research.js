@@ -1173,7 +1173,11 @@ export function researchView() {
     const host = moduleEl('designer').querySelector('[data-research-designer]')
     if (!host) return
     if (experimentsSignedOut) {
-      host.innerHTML = '<p class="research-observed-empty">Sign in to design experiments — they are kept with your account.</p>'
+      /* IT SAID "Sign in to design experiments" AND OFFERED NO WAY TO.
+         The nearest sign-in was five steps away through Settings, and the
+         sentence did not say where. A refusal that names a remedy has to carry
+         the remedy, which is this product's own rule everywhere else. */
+      host.innerHTML = '<p class="research-observed-empty">Experiments are kept with the account on this computer, so this needs somebody signed in. <a class="host-absent-action" href="#/account">Set up who is using this copy</a></p>'
       return
     }
     const { damaged } = experimentsSnapshot()

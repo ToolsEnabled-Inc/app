@@ -1009,13 +1009,13 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
         ${on.length ? on.map(flag => `<article class="settings-row setup-choice">
           <div class="settings-copy">
             <div class="settings-name">${esc(flag.label)}</div>
-            <div class="settings-desc">This is a control this program will now offer you. The same switch is in Settings → Write.</div>
+            <div class="settings-desc">This is a control this program will now offer you. The same switch is in Settings → Things it may do for you.</div>
             ${guidanceMarkup(`write_${flag.id}`, { probe, summary: 'What this lets happen, and what it risks' })}
           </div>
         </article>`).join('') : `<article class="settings-row setup-choice">
           <div class="settings-copy">
             <div class="settings-name">None</div>
-            <div class="settings-desc">Nothing that acts is switched on. Every screen still reads and reports; turn on what you want when you want it, here or in Settings → Write.</div>
+            <div class="settings-desc">Nothing that acts is switched on. Every screen still reads and reports; turn on what you want when you want it, here or in Settings → Things it may do for you.</div>
           </div>
         </article>`}
       </div>

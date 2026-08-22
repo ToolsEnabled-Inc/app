@@ -21,7 +21,13 @@
  */
 
 export const ACCOUNT_PANEL = Object.freeze({
-  heading: 'Accounts you have added',
+  /* THE PROGRAM'S NAME IS IN THE HEADING, and that is not decoration. On the
+     rendered guide the word "account" appeared thirteen times and every one of
+     them meant a Codex or Claude sign-in folder -- read by somebody who had
+     arrived looking for the ToolsEnabled account they had just paid for. A
+     heading reading "Accounts you have added", under a program's name but
+     above a form, is exactly the shape that confusion takes. */
+  heading: (program) => `${program} accounts you have added`,
 
   /* The whole idea in two short sentences. "One account, one folder" is the
      rule the engine actually enforces, said as a person would say it. */

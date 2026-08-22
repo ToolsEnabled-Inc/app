@@ -252,11 +252,20 @@ const SUBJECTS = [
     id: 'other computers',
     positive: [/^connected to /i],
     negative: [
-      /only computer connected/i,
       /could not be reached/i,
       /nothing has been heard from them/i,
       /running in a browser/i,
     ],
+  },
+  /* THE THIRD SUBJECT, AND IT IS THE ONE THE OWNER REPORTED. "This is the only
+     computer connected" used to be the first screen's only sentence carrying
+     that word, and it meant the LAN fleet, on a screen a person reaches minutes
+     after being asked on the website to connect a computer. The row is an
+     ACCOUNT row now, so the same no-contradiction rule has to hold over it. */
+  {
+    id: 'this computer is on the account',
+    positive: [/is on your ToolsEnabled account/i],
+    negative: [/is not on your ToolsEnabled account yet/i],
   },
 ]
 
@@ -1229,17 +1238,16 @@ test('a screen that cannot run agents offers a way to find out what it needs', (
 })
 
 test('the sentence about other computers is a link, in every state where it is a dead end', () => {
-  /* "This is the only computer connected" and "Nothing has been heard from them
-     recently" were both terminal statements: true, unexplained, and with nowhere
-     to take them. The wording does not change -- it was right -- but the row
-     leads somewhere now. A reachable state that says one of these and carries no
-     href is the defect coming back. */
+  /* "Nothing has been heard from them recently" is a terminal statement: true,
+     unexplained, and with nowhere to take it. The wording does not change -- it
+     was right -- but the row leads somewhere. A reachable state that says it and
+     carries no href is the defect coming back. */
   let checked = 0
   for (const { label, input } of ALL) {
     const { facts } = describeHome(input)
     for (const fact of facts) {
       if (fact.id !== 'peer') continue
-      if (!/only computer connected|nothing has been heard from them/i.test(fact.text)) continue
+      if (!/nothing has been heard from them/i.test(fact.text)) continue
       assert.equal(fact.href, '#/guide', `a terminal statement with no way out, with ${label}`)
       checked += 1
     }
@@ -1247,6 +1255,49 @@ test('the sentence about other computers is a link, in every state where it is a
   /* A loop that matched nothing would pass silently, which is the same as not
      having written it. */
   assert.ok(checked > 0, 'the matrix never reached the state this test is about')
+})
+
+/* ---- THE ROW THE OWNER COULD NOT FIND A DOOR FROM ---------------------------
+ *
+ * "as a user I dont even see how after signing up that I now connect my
+ * computer." Three scouts converged on the same finding: the connect screen
+ * exists, works end to end, and had no caller anywhere in src/. The home row
+ * that mentioned a second computer led to the guide, whose account content is
+ * about Codex and Claude folders and which states in as many words that
+ * connecting is impossible.
+ *
+ * These three assertions are the whole of the repair as it lands on this
+ * screen, and the third is the one that is easiest to lose later: a window that
+ * has NOT asked must not print a verdict either way. */
+test('the account row leads to the connect screen and never guesses', () => {
+  const base = {
+    fleetConfigured: false,
+    sessions: readLocalSessions({ ok: true, total: 0, verified: true, entries: [] }),
+    engine: readAgentEngine({ ok: true }),
+    nowMs: NOW,
+  }
+  const rowOf = account => describeHome({ ...base, account }).facts.find(fact => fact.id === 'account')
+
+  for (const [label, account] of [
+    ['nobody asked', null],
+    ['asked and refused', { known: false, connected: false }],
+    ['joined', { known: true, connected: true }],
+    ['not joined', { known: true, connected: false }],
+  ]) {
+    const row = rowOf(account)
+    assert.ok(row, `no account row at all with ${label}`)
+    assert.equal(row.href, '#/settings?setting=connect_computer', `the account row led nowhere with ${label}`)
+  }
+
+  assert.match(rowOf({ known: true, connected: true }).text, /is on your ToolsEnabled account/i)
+  assert.match(rowOf({ known: true, connected: false }).text, /is not on your ToolsEnabled account yet/i)
+  /* An unread answer is not a no. This file's engine row was repaired for
+     exactly this error in the other direction, and the rule is the same one. */
+  for (const unread of [null, { known: false, connected: false }]) {
+    const text = rowOf(unread).text
+    assert.doesNotMatch(text, /is not on your ToolsEnabled account yet/i, 'an unread answer was rendered as a no')
+    assert.doesNotMatch(text, /is on your ToolsEnabled account/i, 'an unread answer was rendered as a yes')
+  }
 })
 
 /* ---- "AGENTS CAN RUN ON THIS COMPUTER" IS A CLAIM ABOUT THE COMPUTER --------

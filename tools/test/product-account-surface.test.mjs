@@ -1142,6 +1142,14 @@ test('every absolute-shaped sentence in the account copy is classified', () => {
 })
 
 test('the shared settings row is classified too', () => {
+  /* THE ROW IS HEADED "Who is using this copy" NOW, and the rename is the
+     point rather than an accident. Headed "Your account", it answered a
+     question nobody asked it: somebody who had just paid at toolsenabled.ai
+     opened Settings, read "Your account lives on this computer and nowhere
+     else", and stopped looking. The sentence was true of THIS row and was read
+     as an answer about the hosted account. It still makes absolute-shaped
+     promises, so it is still pinned here; the row's own heading is what
+     changed. */
   const row = SETTINGS.match(/<div class="settings-desc">[^<]*account lives on this computer[^<]*<\/div>/)
   assert.ok(row, 'the account settings row is gone or reworded; re-register its promises')
   assert.ok(REGISTERED_CLAIMS.some(entry => row[0].includes(entry.claim)),

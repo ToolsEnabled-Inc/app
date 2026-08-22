@@ -266,10 +266,17 @@ function resolveGoogleSignInConfig({
     })
   }
 
-  /* THE ABSENCE. Stated as a fact with the next step in it, not as an error. */
+  /* THE ABSENCE. Stated as a fact with the next step in it, not as an error.
+   *
+   * AND NOT AS A BUILD NOTE ADDRESSED TO US. "This copy has not been given a
+   * Google sign-in application id yet" is a sentence about our release process,
+   * printed to a customer, beside a button they cannot press -- and it is the
+   * state EVERY copy is in today. "Application id" is not a thing a person has,
+   * has not been given, or can do anything about. What they need to know is
+   * that this door is not open here and the other one works. */
   return refusal(
     'GOOGLE_SIGNIN_NOT_CONFIGURED',
-    'This copy has not been given a Google sign-in application id yet, so signing in with Google is not available. Making an account on this computer works now and does the same job.',
+    'Signing in with Google is not switched on in this version. Nothing is wrong with your computer or your Google account. Make an account on this computer instead; it does the same job here.',
   )
 }
 

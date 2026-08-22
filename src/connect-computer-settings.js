@@ -128,12 +128,56 @@ function statusLine(state) {
        part that must survive both spellings, because there is no control in
        this window that removes a computer from an account and the account page
        is genuinely the only place. */
+    /* THE GREEN CAME OFF, AND IT HAD TO.
+     *
+     * "My Windows computer is on your account" was drawn in the good tone from
+     * a DPAPI vault read on this machine and nothing else. It said exactly that
+     * -- word for word, still green -- when the computer had been offline for
+     * an hour, when the relay leg had never started, and when somebody had
+     * removed the computer from the account page on a different machine. A
+     * claim that cannot turn off is not a status, it is a decoration.
+     *
+     * WHAT IS ACTUALLY KNOWN is what the sentence now says: this computer holds
+     * a credential for an account, and it has been asked nothing since. The
+     * account page is the only thing that can say whether the account still
+     * lists it, so the sentence sends people there rather than reassuring them
+     * here. The service does compute `collected` / `waiting` / `never-collected`
+     * and nothing in this window asks for it yet; when a verb exists to ask, the
+     * good tone belongs on that answer and on no other. */
     const name = state.device?.name?.trim()
-    const undo = `To take it off again, sign in at ${ACCOUNT_PAGE_HOST} and open your account page.`
+    const when = Number.isFinite(Number(state.claimedAtMs))
+      ? new Date(Number(state.claimedAtMs)).toLocaleDateString()
+      : ''
+    const joined = when
+      ? `This computer was joined to an account on ${when}.`
+      : 'This computer holds a credential for an account.'
+    /* THE ONE MOMENT THE GOOD TONE IS EARNED: the account service confirmed the
+       collection to this window, seconds ago, on the poll that ended the wait.
+       Every other route into this phase is a vault read, and a vault read
+       cannot know. */
+    if (state.serviceConfirmed) {
+      return {
+        tone: 'is-good',
+        title: name ? `${name} is now on your account` : 'This computer is now on your account',
+        detail: `Your account page confirmed it just now. To take it off again, sign in at ${ACCOUNT_PAGE_HOST} and open your account page.`,
+      }
+    }
     return {
-      tone: 'is-good',
-      title: name ? `${name} is on your account` : 'This computer is on your account',
-      detail: name ? `Your account page lists it under that name. ${undo}` : undo,
+      tone: '',
+      title: name ? `This computer is joined as ${name}` : 'This computer is joined to an account',
+      detail: `${joined} That is read from this computer's own record, and it is the only thing this screen can check. Sign in at ${ACCOUNT_PAGE_HOST} and open your account page to see whether it is still listed there, or to take it off.`,
+    }
+  }
+  if (phase === 'unknown') {
+    /* THE REFUSAL IS THE DETAIL, so nothing is lost by not drawing it as an
+       alarm. It says what the read hit; the title says what that means for the
+       person, which is "we do not know", and never "you are not connected". */
+    return {
+      tone: '',
+      title: 'This screen could not check whether this computer is joined',
+      detail: state.refusal
+        ? `${state.refusal} You can still ask for a code below; if this computer is already on your account, the account page is where to see it.`
+        : 'The installed application did not answer. You can still ask for a code below.',
     }
   }
   if (phase === 'starting') return { tone: '', title: 'Asking for a code', detail: 'The installed application is opening a code for this computer.' }
@@ -178,7 +222,7 @@ function statusLine(state) {
  * defect as a switch that does nothing; it just fails quietly. */
 function rowDetail(state) {
   if (state.phase === 'connected') {
-    return 'This computer is already joined. There is nothing to press here, and nothing is sent from this screen.'
+    return 'This computer is already joined, so there is nothing to press here and nothing is sent from this screen. Removing it is done on your account page in a browser.'
   }
   if (state.phase === 'waiting' || state.phase === 'orphaned') {
     return 'Type the code into your browser, on your account page. Your password never passes through this window.'
@@ -196,6 +240,13 @@ function rowDetail(state) {
   if (state.phase === 'absent') {
     return 'Nothing can be sent from this window, because it has no way to reach the installed application.'
   }
+  /* THE ROW STOPPED PROMISING "NOTHING IS SENT UNTIL YOU PRESS THE BUTTON"
+     WHILE THE REQUEST WAS ALREADY ON THE WIRE. rowDetail had branches for five
+     phases and none for `starting`, so the one moment the sentence is flatly
+     untrue is the moment it was printed -- under a button reading "Asking...". */
+  if (state.phase === 'starting') {
+    return 'The request is on its way. Nothing about your account is sent from this screen except the name above.'
+  }
   return 'Nothing is sent until you press the button. The code is shown here and typed on your account page, so your password never passes through this window.'
 }
 
@@ -204,7 +255,17 @@ function rowDetail(state) {
 function endedDetail(state) {
   if (state.endedBecause === 'gone') return 'It was either entered already or it ran out of time.'
   if (state.endedBecause === 'not-tracked') return 'The installed application is no longer holding a code for this computer.'
-  if (state.endedBecause === 'stopped') return 'You stopped waiting for it, so it was given up. Nothing was joined to your account.'
+  /* THE SECOND HALF OF THIS WAS A GUESS DRESSED AS A FACT, and it is the one
+     case that leaves somebody with a permanently broken row on their account
+     page. cancel() drops the poll token in the installed application and
+     NOTHING ELSE -- shell/device-claim.cjs says so in its own comment: there is
+     no cancel endpoint, and the claim goes on existing on the service until it
+     expires. So a person who had already typed the code into their browser
+     before pressing Stop had very much joined something to their account, and
+     this screen sent them away reassured that they had not. What it can honestly
+     say is what THIS computer will now do, and what to look for if the other
+     half already happened. */
+  if (state.endedBecause === 'stopped') return 'This computer has given the code up and will not finish that connection. If you had already entered it on your account page, the computer it added there cannot finish either. Remove it on that page, then ask for a new code here.'
   return 'It ran out of time before it was entered.'
 }
 
@@ -249,8 +310,27 @@ function statusMarkup(state) {
  * the state, so that attribute stays the one place to look. */
 function refusalMarkup(state) {
   if (!state.refusal) return ''
+  /* AND ONLY FOR A REFUSAL THAT FOLLOWED A PRESS. A red alert about a step the
+     person never started -- "This computer is already in the middle of a
+     connection step. Wait for that one to finish." -- was the first thing a
+     brand-new customer met on this screen, four inches under "Nothing has been
+     sent anywhere." Reproduced on three independent sterile profiles. A
+     background read that was refused is explained by the status line above
+     (see the `unknown` branch of statusLine); it is not an alarm, and it must
+     not take role="alert". */
+  if (state.refusalPressed === false) return ''
   const machineChannel = state.refusalCode ? ` data-refusal-code="${esc(state.refusalCode)}"` : ''
   return `<p class="connect-refusal" data-connect-refusal role="alert"${machineChannel}>${esc(state.refusal)}</p>`
+}
+
+/* SOMETHING TRUE THAT IS NOT AN ALARM. Drawn beside the refusal slot and
+   styled apart from it: a note is news, a refusal is a wall, and a person who
+   cannot tell them apart reads every one of them as a wall. Today there is one
+   note -- a code that was already open has been given up -- and it is announced
+   politely rather than with role="alert", because nothing has gone wrong. */
+function noteMarkup(state) {
+  if (!state.note) return ''
+  return `<p class="connect-note" data-connect-note>${esc(state.note)}</p>`
 }
 
 /* The name box. `maxlength` is the whole of the repair described at
@@ -259,16 +339,27 @@ function refusalMarkup(state) {
    does not appear rather than a refusal that arrives after a round trip. The
    limit is also written under the box, because a box that silently stops
    accepting characters is its own small mystery. */
+/* AN EXAMPLE, NOT THE SAME WORDS THE BOX IS ALREADY FILLED WITH.
+ *
+ * The value and the placeholder used to be the identical string, so a box
+ * carrying a real, submittable name read as an empty box wearing a hint --
+ * and everybody left it alone. The owner's two computers both enrolled as "My
+ * Windows computer", and the account page then drew two identical rows
+ * distinguishable only by date, next to a destructive button. A placeholder
+ * that shows only when the box is EMPTY, and shows something nobody would
+ * mistake for the default, is what makes the filled box read as filled. */
+const NAME_EXAMPLE = 'Office desktop'
+
 function nameFieldMarkup(state, disabled) {
   const value = state.name || defaultDeviceName({ profileLabel: profileLabel(), platform: state.platform })
   return `<label class="connect-name">
     <span>Name for this computer</span>
     <input class="fleet-profile-input" data-connect-field="name" value="${esc(value)}"
-      placeholder="${esc(defaultDeviceName({ platform: state.platform }))}"
+      placeholder="${esc(NAME_EXAMPLE)}"
       maxlength="${MAX_DEVICE_NAME}"
       autocomplete="off" spellcheck="false" ${disabled ? 'disabled' : ''}/>
   </label>
-  <small>This is the name your account page will show, up to ${MAX_DEVICE_NAME} characters. Change it before you ask for a code.</small>`
+  <small>This is the name your account page will show, up to ${MAX_DEVICE_NAME} characters. Change it now if you want to. Nothing in this window renames a computer once it is joined, so pick a name that tells this machine apart from your others.</small>`
 }
 
 /* THE THREE STEPS, SPELLED OUT, IN THE ORDER A PERSON DOES THEM. The website
@@ -278,10 +369,17 @@ function nameFieldMarkup(state, disabled) {
    screen and typed into any browser, including one on another device, which is
    what most people will actually do. */
 function stepsMarkup() {
+  /* THERE ARE FOUR STEPS AND THE SCREEN USED TO NAME THREE. An account with a
+     password is asked for a six-digit emailed code before it may add a
+     computer (SECOND_FACTOR_REFUSED on the account service), and nobody was
+     told -- while a ten-minute clock ran on this screen. It is written as a
+     conditional because it genuinely is one: an account created with Google
+     never sees it. */
   return `<ol class="connect-steps">
     <li>Sign in at <span class="connect-host">${esc(ACCOUNT_PAGE_HOST)}</span>.</li>
     <li>Open your account page.</li>
     <li>Enter the code above and confirm it.</li>
+    <li>If your account has a password, the page emails you a six-digit code as well. Enter that too, and keep this screen open while you fetch it.</li>
   </ol>`
 }
 
@@ -379,7 +477,7 @@ function bodyMarkup(state, nowMs) {
     const device = state.device
     if (!device?.name) return ''
     return `<div class="fleet-profile-fields">
-      <p class="connect-known">On your account as <span class="connect-host">${esc(device.name)}</span>.</p>
+      <p class="connect-known">This computer's own record has it joined as <span class="connect-host">${esc(device.name)}</span>.</p>
     </div>`
   }
   if (phase === 'waiting') {
@@ -396,6 +494,7 @@ function bodyMarkup(state, nowMs) {
       ${codeMarkup(state, nowMs)}
       <p class="connect-known">It will be listed as <span class="connect-host">${esc(state.claimedName || nameToClaim(state))}</span>.</p>
       ${stepsMarkup()}
+      ${noteMarkup(state)}
       ${refusalMarkup(state)}
       ${buttonMarkup(state)}
     </div>`
@@ -409,12 +508,14 @@ function bodyMarkup(state, nowMs) {
   if (phase === 'ended' || phase === 'orphaned') {
     return `<div class="fleet-profile-fields">
       ${nameFieldMarkup(state, false)}
+      ${noteMarkup(state)}
       ${refusalMarkup(state)}
       ${buttonMarkup(state)}
     </div>`
   }
   return `<div class="fleet-profile-fields">
     ${nameFieldMarkup(state, phase === 'starting')}
+    ${noteMarkup(state)}
     ${refusalMarkup(state)}
     ${buttonMarkup(state)}
   </div>`
@@ -752,7 +853,7 @@ export function createConnectComputerSettings({
   async function cancel({ thenBegin = false } = {}) {
     if (torn || inFlight) return
     inFlight = true
-    await ask('cancel')
+    const given = await ask('cancel')
     inFlight = false
     if (torn) return
     /* TWO ENDINGS, AND THE PERSON MEANT DIFFERENT THINGS BY THEM. "Stop
@@ -763,7 +864,15 @@ export function createConnectComputerSettings({
        screen narrating its own internals. `restart` is the event that clears
        without a verdict, which is what it was always for. */
     apply({ type: thenBegin ? 'restart' : 'cancelled' })
-    if (thenBegin) await begin()
+    if (!thenBegin) return
+    /* A CLAIM THAT WAS ACTUALLY GIVEN UP IS SAID OUT LOUD, and only one that
+       was. The application answers `dropped` because this window cannot see
+       its poll token; from `idle` the honest answer is almost always false and
+       nothing is printed. The case this exists for is the one that cost a
+       scout a permanently uncollectable computer: a claim opened, the screen
+       rebuilt or the answer still in flight, "Get a code" pressed again. */
+    if (given && given.dropped === true) apply({ type: 'claim-dropped' })
+    await begin()
   }
 
   function handleClick(event) {
@@ -771,7 +880,17 @@ export function createConnectComputerSettings({
     if (!button || !hostRoot?.contains(button)) return
     if (button.getAttribute?.('aria-disabled') === 'true') return
     const action = button.dataset.connectAction
-    if (action === 'begin') void begin()
+    /* EVERY BEGIN GOES THROUGH CANCEL FIRST, and "Get a code" is no longer the
+       exception. SEEN ON GLASS: one scout held TC-YHTR-MMZH and TC-ZBSR-KGNF
+       live at the same moment, because pressing this button while a claim was
+       already open in the installed application opens a second one and drops
+       the first token on the floor -- and a code already typed into the browser
+       then produces a computer on the account page that this machine can never
+       finish connecting. The window where that happens is not exotic: the
+       mount-time status answers before the mount-time poll does, so for about
+       a second the screen shows an idle "Get a code" over a claim it has not
+       yet heard about. */
+    if (action === 'begin') void cancel({ thenBegin: true })
     else if (action === 'copy') copyCode()
     else if (action === 'cancel') void cancel()
     /* "Get a new code" is one press for the person and two calls here: the

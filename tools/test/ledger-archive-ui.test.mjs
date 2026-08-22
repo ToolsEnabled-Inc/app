@@ -42,7 +42,7 @@ function receipt(dryRun, overrides = {}) {
 test('settings contains the owner-gated cleanup button wired to the bounded controller', () => {
   const source = readFileSync(new URL('../../src/views/settings.js', import.meta.url), 'utf8')
   const bridge = readFileSync(new URL('../../src/mission-bridge.js', import.meta.url), 'utf8')
-  assert.match(source, /name: 'Clean up old R'/)
+  assert.match(source, /name: 'Archive finished requests'/)
   assert.match(source, /data-setting-action="ledger-archive"/)
   assert.match(source, /createLedgerArchiveController/)
   assert.match(bridge, /'ledger-archive': '\/v1\/actions\/ledger-archive'/)
@@ -60,7 +60,16 @@ test('first click performs only a dry-run and second explicit click moves the ex
   })
 
   await controller.click()
-  assert.deepEqual(posts, [{ action: 'ledger-archive', body: { dryRun: true } }])
+  /* `operation` IS REQUIRED BY THE ACTION AND WAS NEVER SENT.
+     capability/src/lib/mission-bridge/actions.js opens ledgerArchive with
+     exact(input, [...], ['operation', 'dryRun']) and refuses anything missing
+     it as BRIDGE_INPUT_INVALID -- whose shared sentence is "Correct what you
+     typed above and try again", printed under a row that has no input on it.
+     So the row's only control refused every press it ever received and blamed
+     the person for a typing mistake they could not have made. This assertion
+     is what stops the field being dropped again; the fake postAction above is
+     why nothing caught it the first time. */
+  assert.deepEqual(posts, [{ action: 'ledger-archive', body: { operation: 'archive', dryRun: true } }])
   assert.equal(controller.getState().phase, 'confirm')
   assert.match(controller.getState().message, /R54/)
   assert.match(controller.getState().message, /R241/)
@@ -68,7 +77,7 @@ test('first click performs only a dry-run and second explicit click moves the ex
   assert.match(controller.getState().message, /Select again/)
 
   await controller.click()
-  assert.deepEqual(posts[1], { action: 'ledger-archive', body: { dryRun: false } })
+  assert.deepEqual(posts[1], { action: 'ledger-archive', body: { operation: 'archive', dryRun: false } })
   assert.equal(controller.getState().phase, 'success')
   assert.match(controller.getState().message, /R54, R241/)
   assert.ok(states.some(state => state.phase === 'pending-preview'))

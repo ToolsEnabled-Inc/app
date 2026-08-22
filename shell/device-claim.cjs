@@ -451,17 +451,47 @@ function createDeviceClaim({
     })
   }
 
+  /* THE ONE STATUS READ EVERY ASKER SHARES.
+   *
+   * THE DEFECT THIS CLOSES, and it is the worst thing the connect screen did.
+   * `runVerb` allows one child at a time and refuses the second with
+   * DEVICE_CLAIM_BUSY -- correct for anything that WRITES. But status is a
+   * read, its own comment two lines down says it is "safe to call at any
+   * cadence from any surface", and two callers ask it during the same two
+   * seconds of every launch: shell/main.cjs awaits one before deciding whether
+   * to start the relay leg, and the renderer fires one the moment the connect
+   * section mounts. Whichever lost the race was told "This computer is already
+   * in the middle of a connection step. Wait for that one to finish." -- drawn
+   * as a red alert on a sterile profile, about a step nobody had started, on
+   * the most important screen in the product. Three scouts reproduced it
+   * independently, roughly eight opens in fourteen.
+   *
+   * A SECOND ASKER NOW JOINS THE ANSWER instead of being refused. Nothing is
+   * cached beyond the flight: the moment the spawn settles the slot is empty
+   * again, so this is strictly "do not ask the same question twice at once"
+   * and never "remember what the vault said". A stale answer here would be the
+   * defect wearing the opposite face. */
+  let statusInFlight = null
+
   return {
     /* Is this computer connected to an account? A read: it starts nothing on
        the account side, and it is safe to call at any cadence from any
        surface. */
-    async status() {
-      const result = await runVerb(['status'], statusTimeoutMs)
-      if (!result.ok) return result
-      const connected = result.answer.connected === true
-      lastKnownConnected = connected
-      if (!connected) return Object.freeze({ ok: true, connected: false })
-      return connectedReply(result.answer)
+    status() {
+      if (statusInFlight) return statusInFlight
+      statusInFlight = (async () => {
+        const result = await runVerb(['status'], statusTimeoutMs)
+        if (!result.ok) return result
+        const connected = result.answer.connected === true
+        lastKnownConnected = connected
+        if (!connected) return Object.freeze({ ok: true, connected: false })
+        return connectedReply(result.answer)
+      })()
+      /* Cleared on settle, not by the awaiter, so a caller that walks away
+         mid-flight cannot leave the slot held by a promise nobody is reading. */
+      const clear = () => { statusInFlight = null }
+      statusInFlight.then(clear, clear)
+      return statusInFlight
     },
 
     /* Open a claim and return the code the person types on the account page.
@@ -550,8 +580,16 @@ function createDeviceClaim({
        stops existing here, which is the half that matters: this computer will
        not collect a credential nobody is waiting for. */
     cancel() {
+      /* WHETHER THERE WAS ANYTHING TO GIVE UP IS REPORTED, because the surface
+         cannot see this variable and the difference matters to a person. Every
+         "Get a code" is routed through cancel-then-begin now (a second press
+         used to open a second live claim and orphan the first token), so most
+         of these find nothing and must stay silent; the one that DID drop a
+         live claim owes the person a sentence, because the code it dropped may
+         already be typed into their browser. */
+      const dropped = pending !== null
       pending = null
-      return Object.freeze({ ok: true })
+      return Object.freeze({ ok: true, dropped })
     },
 
     /* WHAT relayMachineIsEnrolled() ASKS. Synchronous on purpose: the relay

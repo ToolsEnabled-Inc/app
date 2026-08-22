@@ -233,12 +233,23 @@ test('an answer that says yes and carries no code is not painted as a code', () 
 })
 
 test('a status this window could not read is not reported as "not connected"', () => {
+  /* AND `idle` IS A REPORT OF "NOT CONNECTED", which is what this test used to
+     accept. `idle` draws "This computer is not on an account yet -- nothing has
+     been sent anywhere", so a momentary BUSY or TIMEOUT on the mount-time read
+     told a fully joined customer their computer was not on an account: the
+     product denying, in its own voice, the one thing they had paid to make
+     true. An unread answer has its own phase now, and it draws the same
+     controls idle does, because trying is still this person's move. */
   const state = reduce(initialState({}), {
     type: 'status',
     result: { ok: false, code: 'BRIDGE_BOOTSTRAP_PROOF_UNAVAILABLE', reason: 'The audited connection is not answering yet.' },
   })
-  assert.equal(state.phase, 'idle', 'trying is still this person’s move')
+  assert.equal(state.phase, 'unknown', 'an unread answer was rounded to a verdict')
   assertHumanSentence(state.refusal, 'the unreadable-status sentence')
+  /* AND IT IS NOT SHOUTED. Nobody pressed anything; this is the mount-time
+     read. The status line carries the sentence, and the alert slot stays
+     empty -- see refusalMarkup() in src/connect-computer-settings.js. */
+  assert.equal(state.refusalPressed, false, 'a refusal nobody caused was marked as one they did')
 })
 
 test('every refusal shape produces a whole sentence, including the empty ones', () => {
@@ -465,7 +476,7 @@ test('an already-connected computer shows the state instead of the button, and w
   await rig.controller.checkStatus()
   const html = rig.controller.markup()
   assert.match(html, /data-connect-phase="connected"/)
-  assert.match(html, /Front desk is on your account/)
+  assert.match(html, /This computer is joined as Front desk/)
   assert.equal(/data-connect-action="begin"/.test(html), false, 'no button to do what is already done')
   assert.match(html, new RegExp(`sign in at ${ACCOUNT_PAGE_HOST.replace('.', '\\.')} and open your account page`, 'i'),
     'taking it off again is named, and it is not a screen in this application')

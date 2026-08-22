@@ -24,6 +24,23 @@
   text-decoration: none;
 }
 
+/* AND IT IS NOT DRAWN OVER THE TWO SCREENS WHOSE PRIMARY BUTTON IT COVERS.
+ *
+ * MEASURED at 1446x906 on #/account: this panel is `position: fixed`,
+ * `z-index: 190`, `pointer-events: auto`, and it sat over the centre of "Create
+ * account". elementFromPoint at that button's centre returned the banner, and a
+ * real mouse click navigated to Settings -- so the one action a person came to
+ * that screen to take silently did something else. Home, guide, agent and
+ * settings were already suppressed for the same reason; account and subscribe
+ * were missed, and they are the two screens where the thing underneath is the
+ * whole point of the visit.
+ *
+ * `:not(.is-serious)` matches the existing rules exactly: a serious notice is a
+ * fault report and still shows everywhere, because a covered button is a better
+ * outcome than an unreported broken profile. */
+body[data-route="account"] .fleet-profile-notice:not(.is-serious),
+body[data-route="subscribe"] .fleet-profile-notice:not(.is-serious) { display: none; }
+
 .fleet-profile-notice.is-serious { border-left-color: var(--s-serious); }
 .fleet-profile-notice:hover { color: var(--ink); border-color: var(--ink-3); }
 .fleet-profile-notice:focus-visible {

@@ -73,7 +73,7 @@ function declaredRows() {
      family this used to add collapsed into the literal `example_mode` row,
      which the regex above sees directly.) */
   const write = [...read('src/write-flags.js').matchAll(/id:\s*'([^']+)'/g)]
-    .map(match => ({ id: `write_${match[1]}`, section: 'Write' }))
+    .map(match => ({ id: `write_${match[1]}`, section: 'Things it may do for you' }))
   assert.ok(write.length > 0, 'the flag table was read')
   return [...literal, ...write]
 }

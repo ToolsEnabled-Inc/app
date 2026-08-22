@@ -10,6 +10,12 @@ import {
    -- and this section used to print them raw. The translation leads with the
    sentence a person can act on and keeps the exact field named at the end. */
 import { humanizeProfileErrors } from './settings-presentation.js'
+/* WHETHER A WORKED EXAMPLE IS ACTUALLY ON SCREEN. This section used to assert
+   it from `configured`, which is a different question; see initialFeedback. */
+import { isExampleMode } from './data-source.js'
+/* The one address of the connect screen, read rather than spelled. See
+   src/device-claim-flow.js: four surfaces link to it now. */
+import { CONNECT_HREF } from './device-claim-flow.js'
 
 export const FLEET_PROFILE_SETTING_COUNT = 6
 
@@ -57,10 +63,24 @@ function initialFeedback() {
     }
   }
   if (!state.configured) {
+    /* IT USED TO SAY "showing sample data" WHETHER OR NOT ANY WAS SHOWING, and
+     * the same install contradicted it three ways at once: "What the screens
+     * show" read "My own activity", "Show the example fleet" read Off, and
+     * #/computers drew an honest empty state. Two scouts found it independently.
+     *
+     * The two facts were welded together and only one of them followed from
+     * `configured`. Whether a profile names other computers is this section's
+     * business; whether a worked example is on screen is `example_mode`'s, and
+     * that switch is the only thing that decides it. So the sample sentence is
+     * printed when a sample is actually on screen and not otherwise. */
     return {
       tone: 'quiet',
-      title: 'No fleet profile saved — showing sample data',
-      detail: 'Everything on screen right now is the labelled sample demonstration, not your machines. ToolsEnabled already works fully on this one computer with nothing configured here; add a machine below only if you also want to connect another.',
+      title: isExampleMode()
+        ? 'No other computers added, and the example fleet is switched on'
+        : 'No other computers added',
+      detail: isExampleMode()
+        ? 'The screens are showing the product’s built-in example rather than your own records, because "Show the example fleet" is on. ToolsEnabled already works fully on this one computer with nothing configured here; add a machine below only if you also want to connect another.'
+        : 'ToolsEnabled already works fully on this one computer with nothing configured here. The screens are showing your own records, which are empty until something has run. Add a machine below only if you also want to connect another.',
     }
   }
   if (state.rawProfile?.dataSource && !globalThis.mcFleetProfile) {
@@ -272,13 +292,44 @@ export function createFleetProfileSettings() {
           <div class="settings-control fleet-inline-control"><input class="fleet-profile-input" data-profile-field="label" value="${esc(draft.label)}" aria-labelledby="fleet-profile-name-label" placeholder="required" autocomplete="off" ${locked}/></div>
         </article>
 
+        <!-- WHAT THIS ROW IS CALLED, AND WHY IT IS NO LONGER CALLED "YOUR
+             ACCOUNT".
+
+             THE DEFECT. Somebody who has just paid at toolsenabled.ai opens
+             Settings, finds a row headed "Your account", and reads "Your
+             account lives on this computer and nowhere else". That ends the
+             search. It was true of THIS row -- a local sign-in that names who
+             is using this copy -- and it was read as an answer about the
+             account they had made ten minutes earlier on the website. Three
+             scouts found it; two independently proposed the same replacement,
+             and the first-run setup card already uses this exact heading, so
+             the rename costs nothing and buys consistency.
+
+             The row now says what it is NOT, and names the screen that does
+             the other job rather than leaving somebody to find it. -->
         <article class="settings-row">
           <div class="settings-copy">
-            <div class="settings-name">Your account</div>
-            <div class="settings-desc">Sign in with Google, or with an account you make here — then sign out or change your password. Your account lives on this computer and nowhere else; signing in with Google means Google checks who you are, and no Google password or token is kept here. It is not a login to Claude or ChatGPT, it carries no subscription, and there is no licence check — those programs keep their own sign-ins and this one never asks for them.</div>
+            <div class="settings-name">Who is using this copy</div>
+            <div class="settings-desc">A name for whoever is at this computer. Your account lives on this computer and nowhere else. Sign in with Google, or with a name and password you make here, then sign out or change it whenever you like. Signing in with Google means Google checks who you are. No Google password or token is kept here. It is not your ToolsEnabled account. It is not a login to Claude or ChatGPT, it carries no subscription, and there is no licence check. Those programs keep their own sign-ins and this one never asks for them.</div>
           </div>
           <div class="settings-control fleet-inline-control">
-            <a class="ctl-btn" href="#/account">Open sign-in</a>
+            <a class="ctl-btn" href="#/account">Set up who is using this copy</a>
+          </div>
+        </article>
+
+        <!-- AND THE ROW THAT ANSWERS THE QUESTION THE ONE ABOVE KEPT BEING
+             ASKED. "as a user I dont even see how after signing up that I now
+             connect my computer." The connect screen is a section of this same
+             page, several screens down, and until now nothing in the System
+             group -- the group a first-time visitor is landed in -- said it
+             existed. -->
+        <article class="settings-row">
+          <div class="settings-copy">
+            <div class="settings-name">Your ToolsEnabled account</div>
+            <div class="settings-desc">The account you made at toolsenabled.ai, if you made one. Putting this computer on it is done further down this page. That screen gives you a short code. You type it into your account page in a browser, and this computer is then reachable from there.</div>
+          </div>
+          <div class="settings-control fleet-inline-control">
+            <a class="ctl-btn" href="${esc(CONNECT_HREF)}">Connect this computer</a>
           </div>
         </article>
 

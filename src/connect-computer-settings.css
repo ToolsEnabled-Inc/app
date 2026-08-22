@@ -149,6 +149,21 @@
   max-width: calc(var(--s5) * 24);
 }
 
+/* A NOTE IS NOT A REFUSAL AND MUST NOT LOOK LIKE ONE. Same shape, same
+   measure, so it reads as part of the same conversation -- and the warn rule
+   rather than the serious one, because nothing has gone wrong: something the
+   person could not see has been dealt with, and they are being told. */
+.connect-note {
+  margin: var(--s2) 0;
+  padding: var(--s2) 0 var(--s2) var(--s3);
+  border-left: 2px solid var(--s-warn);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 520;
+  line-height: 1.5;
+  max-width: calc(var(--s5) * 24);
+}
+
 .connect-name {
   display: grid;
   gap: var(--s1);

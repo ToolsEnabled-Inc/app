@@ -62,7 +62,7 @@ function settingsCatalogue() {
     const section = after.match(/section: '([^']+)'/)
     if (section) rows.push({ id: match[1], section: section[1] })
   }
-  for (const flag of WRITE_ACTION_FLAGS) rows.push({ id: `write_${flag.id}`, section: 'Write' })
+  for (const flag of WRITE_ACTION_FLAGS) rows.push({ id: `write_${flag.id}`, section: 'Things it may do for you' })
   return rows
 }
 

@@ -620,7 +620,15 @@ const closeDrawer = () => {
 const openDrawer = () => {
   // built fresh at every open, for the page that is on screen (owner R1520:
   // per-page settings, not the same simulation-flavoured list everywhere)
-  renderQuickSettings(drawer.querySelector('.drawer-body'), resolve(parse()).name)
+  const route = resolve(parse()).name
+  /* "all settings ->" IS NOT DRAWN ON THE SETTINGS PAGE. Opened from #/settings
+     it was a link to the page underneath it, which either does nothing visible
+     or scrolls somebody to the top of the page they were already reading and
+     shuts the panel they had just opened. A door out of a room you are standing
+     in is not a door. */
+  const allSettings = document.querySelector('.drawer-all')
+  if (allSettings) allSettings.hidden = route === 'settings'
+  renderQuickSettings(drawer.querySelector('.drawer-body'), route)
   setDrawer(true)
   // focus follows the surface that just covered the page — the close button
   // is the drawer's first stop, so Tab continues through the page group and

@@ -215,7 +215,13 @@ export function subscribeView({ query, fetchImpl, submitImpl } = {}) {
             <label class="sub-label" for="sub-email">Email for the subscription</label>
             <input class="sub-input" id="sub-email" name="email" type="email" autocomplete="email"
                    inputmode="email" spellcheck="false" aria-describedby="sub-email-note sub-error-email" />
-            <p class="sub-note" id="sub-email-note">The receipt and the licence key go here. Nothing else is sent to it.</p>
+            <!-- IT SAID "the licence key goes here" ON A PAGE THAT TWICE SAYS LICENCES
+           ARE NEVER CHECKED. Both were true and together they read as a
+           contradiction: what arrives is proof of what you are paying for, and
+           nothing on this computer ever asks for it. And the address had no
+           stated relationship to the account somebody made at toolsenabled.ai,
+           which is the question a person actually has here. -->
+            <p class="sub-note" id="sub-email-note">Your receipt goes here, and so does what proves the subscription. Use the same address as your ToolsEnabled account if you have one, so the two line up. Nothing else is sent to it.</p>
             <p class="sub-field-error" id="sub-error-email" hidden></p>
           </div>
           ${seatPlans.length ? `<div class="sub-field" id="sub-seats-field" hidden>

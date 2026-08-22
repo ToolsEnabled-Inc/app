@@ -390,7 +390,7 @@ export const SUBJECTS = Object.freeze({
       'An assistant given a job will read and change files inside your chosen folder without asking again for each one.',
       'A job written loosely can be read more broadly than you meant, and the work is done before you see it.',
     ]),
-    turnOnAt: 'Settings → Write → Hand out work to agents',
+    turnOnAt: 'Settings → Things it may do for you → Hand out work to agents',
     externalCapability: 'audited-connection',
   }),
   'write_decision': Object.freeze({
@@ -402,7 +402,7 @@ export const SUBJECTS = Object.freeze({
     risks: Object.freeze([
       'An approval recorded here is what other parts of the system act on, so an approval given by mistake is acted on.',
     ]),
-    turnOnAt: 'Settings → Write → Approve or decline',
+    turnOnAt: 'Settings → Things it may do for you → Approve or decline',
     externalCapability: 'audited-connection',
   }),
   'write_queue': Object.freeze({
@@ -413,7 +413,7 @@ export const SUBJECTS = Object.freeze({
     risks: Object.freeze([
       'Closing an item tells everything else that the work is finished. If it was not, the rest of the system now believes it was.',
     ]),
-    turnOnAt: 'Settings → Write → Take or finish queued work',
+    turnOnAt: 'Settings → Things it may do for you → Take or finish queued work',
     externalCapability: 'audited-connection',
   }),
   'write_thread-reply': Object.freeze({
@@ -424,7 +424,7 @@ export const SUBJECTS = Object.freeze({
     risks: Object.freeze([
       'A reply is sent and recorded as soon as you send it, and assistants act on what it says. There is no draft step.',
     ]),
-    turnOnAt: 'Settings → Write → Reply to your coordinator',
+    turnOnAt: 'Settings → Things it may do for you → Reply to your coordinator',
     externalCapability: 'audited-connection',
   }),
   'write_report-read': Object.freeze({
@@ -435,7 +435,7 @@ export const SUBJECTS = Object.freeze({
     risks: Object.freeze([
       'Very little. This reads a file in your chosen folder and changes nothing. It is here as a switch because reading a file is still reaching your disk, and this product does not do that without being asked.',
     ]),
-    turnOnAt: 'Settings → Write → Read agent reports',
+    turnOnAt: 'Settings → Things it may do for you → Read agent reports',
     externalCapability: 'audited-connection',
   }),
   'write_agent-session': Object.freeze({
@@ -448,7 +448,7 @@ export const SUBJECTS = Object.freeze({
       'A running assistant reads and changes files inside the folder you chose, and does so while you are watching rather than asking about each one.',
       'Turning this on starts nothing by itself. It puts the control there; you decide what to run.',
     ]),
-    turnOnAt: 'Settings → Write → Run an agent session',
+    turnOnAt: 'Settings → Things it may do for you → Run an agent session',
     externalCapability: 'codex-installed',
   }),
   'write_cloud-launch': Object.freeze({
@@ -462,7 +462,7 @@ export const SUBJECTS = Object.freeze({
       'Whatever the task is given to work on leaves this computer.',
       'Each launch still asks you for approval first, so nothing starts without a second press.',
     ]),
-    turnOnAt: 'Settings → Write → Launch Codex Cloud tasks',
+    turnOnAt: 'Settings → Things it may do for you → Launch Codex Cloud tasks',
     externalCapability: 'codex-cloud-account',
   }),
 
@@ -481,7 +481,7 @@ export const SUBJECTS = Object.freeze({
     risks: Object.freeze([
       'None to your computer. The example is invented data fed through the same screens as your own, and every screen showing it says so.',
     ]),
-    turnOnAt: 'Settings → Data & Sim',
+    turnOnAt: 'Settings → What the screens show',
   }),
 
   /* --- the rows that decide something durable --- */
