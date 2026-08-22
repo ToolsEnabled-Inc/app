@@ -129,8 +129,8 @@ body[data-route="settings"] .fleet-profile-notice { display: none; }
   gap: var(--s3);
 }
 
-/* The rail mirrors the page's two levels: six group lines, and the seventeen
-   category buttons indented under whichever groups are open. */
+/* The rail mirrors the page's two levels: the group lines, and the category
+   buttons indented under whichever groups are open. */
 .settings-rail-group {
   display: flex;
   flex-direction: column;
@@ -190,8 +190,8 @@ body[data-route="settings"] .fleet-profile-notice { display: none; }
 
 .settings-main { min-width: 0; }
 
-/* ---------- the six top-level groups ----------
-   Collapsed by default, a first visit is six scannable lines; what a person
+/* ---------- the top-level groups ----------
+   Collapsed by default, a first visit is a few scannable lines; what a person
    opens is remembered. The head is one full-width button: name and glyph,
    then a one-line description, then — only while closed — the section names,
    so anything can still be FOUND without opening a thing. */
@@ -201,19 +201,61 @@ body[data-route="settings"] .fleet-profile-notice { display: none; }
   scroll-margin-top: var(--s3);
 }
 
+/* THE GROUP HEAD STAYS ON SCREEN WHILE YOU ARE INSIDE THE GROUP, and this is
+ * the fix for the owner's "one long list" rather than a flourish.
+ *
+ * MEASURED on a real 1002x650 window: the 'Start here' group is 5768px tall --
+ * eleven screenfuls in a 532px scroller. Everywhere inside it a person sees
+ * only "HOME SCREEN", rows, "SETUP", rows, "SYSTEM", rows: three headings of
+ * identical weight in a row, with nothing anywhere saying they are all one
+ * group. The nesting existed in the DOM and left the screen 500px ago. Stuck to
+ * the top, the group is on screen at every scroll position, so a section title
+ * can never again be read as a peer of the thing containing it.
+ *
+ * `.settings-rail` beside it is already `position: sticky` in this same file,
+ * so this is the page's own idiom rather than a new one. The background has to
+ * be opaque and has to be a token: `.settings-group-head` was
+ * `background: transparent`, and rows scrolling under a transparent sticky head
+ * are legible-through, which is worse than not sticking at all. --bg is themed
+ * (white/tan/black), so this follows the theme like everything else. */
 .settings-group-head {
+  position: sticky;
+  /* NEGATIVE, AND THE NUMBER IS NOT ARBITRARY: it is `.view-pad`'s own top
+     padding. MEASURED with top:0 -- the head pinned 8px BELOW the scrollport
+     edge, and elementFromPoint in that 8px slot answered the "Get a code"
+     button scrolling past above the header. A sticky bar with a letterbox of
+     live content over it reads as a paint fault. Pinning 8px higher closes the
+     slot; the head keeps 12px of top padding, so 4px of it stays visible while
+     pinned and all of it when the head is at rest. */
+  top: calc(var(--s2) * -1);
+  z-index: 2;
   display: grid;
   gap: 2px;
   width: 100%;
   padding: var(--s3) 0;
   border: none;
-  background: transparent;
+  background: var(--bg);
   text-align: left;
   cursor: pointer;
 }
 
+/* THE GROUP AND THE SECTION WERE THE SAME LABEL, ONE PIXEL APART.
+ *
+ * MEASURED: `.settings-group-name` computed 12px/660, uppercase, letter-spaced,
+ * rgb(79,95,112); `.settings-section-title` computed 11px/660, uppercase,
+ * letter-spaced, rgb(79,95,112) -- the same weight, the same colour, the same
+ * caps, at the same left edge. On the "Data & privacy" group the page therefore
+ * printed DATA & PRIVACY as the group line and DATA & PRIVACY again as the
+ * section title directly beneath it, and a reader had no way to tell which of
+ * the two was the container. (That duplicate is gone: the group was regrouped
+ * in src/settings-presentation.js. The type collision was the reason it read so
+ * badly, and it applied to every other group too.)
+ *
+ * --ink, not --ink-2: the group is now the strong one and the section title
+ * stays the quiet one. No new size, no new weight, no new colour -- the two
+ * tokens this page already uses, put on the two levels in the right order. */
 .settings-group-name {
-  color: var(--ink-2);
+  color: var(--ink);
   font-family: var(--font-ui);
   font-size: 12px;
   font-weight: 660;
@@ -249,7 +291,26 @@ body[data-route="settings"] .fleet-profile-notice { display: none; }
   border-radius: var(--r-md);
 }
 
-.settings-group-body { padding-top: var(--s2); }
+/* EVERYTHING IN A GROUP IS DRAWN INSIDE IT, which until now nothing on the page
+ * said. Every section sat at x=208 -- the same left edge as the group head
+ * above it -- with `padding-left: 0` and no rule, so the group was a heading
+ * followed by more headings rather than a container with things in it.
+ *
+ * THIS IS THE RAIL'S OWN GEOMETRY, COPIED ACROSS THE PAGE. `.settings-rail-
+ * sections` in this same file already indents a group's sections under a
+ * hairline, and the rail is the half of this screen that reads correctly: it
+ * shows START HERE with its four children stepped in under a vertical line.
+ * The main column now shows what the rail was already showing. */
+.settings-group-body {
+  padding-top: var(--s2);
+  padding-left: var(--s4);
+  border-left: 1px solid var(--line-2);
+}
+
+/* The last section in a group carries a 48px tail sized for the NEXT section.
+   At the end of a group that tail is 48px of ruled empty column, which reads as
+   a group still going. The group's own margin closes the gap instead. */
+.settings-group-body > .settings-section:last-child { margin-bottom: var(--s3); }
 
 .settings-section,
 .settings-results {
@@ -273,6 +334,72 @@ body[data-route="settings"] .fleet-profile-notice { display: none; }
 .settings-tier-inner {
   display: flex;
   flex-direction: column;
+}
+
+/* ---------- #/account: the space between one section and the next ----------
+ *
+ * WHY THIS SCREEN NEEDS A RULE AND #/settings DOES NOT. On the settings page
+ * every section is its own <section class="settings-section">, and that
+ * element's own `margin-bottom: calc(var(--s5) * 2)` is the gap. The account
+ * screen is rendered INTO one .settings-section by src/views/account.js -- all
+ * four of its groups live inside it -- so there is no wrapper to hang the gap
+ * on, and the join between a list and the next heading is the only place left
+ * to put it. Without it the headings draw and the groups still run together,
+ * which is the defect the headings exist to fix.
+ *
+ * --s5, NOT THE SETTINGS PAGE'S 48px. Measured on a real 1002x650 window: this
+ * screen's primary action was already below the fold before any heading was
+ * added, so four joins at 48px would spend 192px this screen does not have.
+ *
+ * SCOPED TO [data-account-section] rather than written as a bare adjacency.
+ * The bare form happens not to match anything on #/settings today -- a title
+ * there is always the first child of its section -- and "happens not to match"
+ * is not a fence.
+ *
+ * `.setup-lede` IS NOT IN THIS LIST. It already carries a var(--s4) tail sized
+ * for whatever follows the page title, and stacking the join on top of that put
+ * 40px between the lede and the screen's first heading -- 24 of them spent
+ * above the fold on the one screen that cannot afford them. */
+[data-account-section] .settings-section-rows + .settings-section-title,
+[data-account-section] .settings-section-note + .settings-section-title,
+[data-account-section] .fleet-profile-status + .settings-section-title,
+[data-account-section] .setup-actions + .settings-section-title {
+  margin-top: var(--s5);
+}
+
+/* A BUTTON THAT CANNOT BE PRESSED HAS TO LOOK LIKE ONE, on the whole screen
+ * and not only on the row a customer happened to report.
+ *
+ * The finding is written up in full beside the Google row's own copy of this
+ * rule in src/fleet-profile-settings.css: a `.ctl-btn` carrying `disabled`
+ * computed `cursor: pointer`, `opacity: 1`, the full .ctl-btn card and --elev-1,
+ * and the unconditional `.ctl-btn:hover` in styles.css still lifted and
+ * brightened it under the pointer -- pixel-for-pixel a live control that eats
+ * the click. Every `.ctl-btn:disabled` rule in the product is scoped to
+ * .board-page, .computers .stats-page, .agentv-panels .ctl-actions or
+ * .fleet-profile-section, and none of those reach this screen.
+ *
+ * THE REST OF THE SCREEN HAS THE SAME HOLE. "Create account", "Sign in" and
+ * "Not now" all render `disabled` while a sign-in is in flight, and so does
+ * "Change", "Change password", both sign-out buttons and the removal control
+ * while the shell is answering. Same values as the Google row's rule, so the
+ * screen is consistent with itself.
+ *
+ * THE :hover TWIN IS NOT REDUNDANT: `.ctl-btn:hover` is unconditional, so
+ * without it a button dimmed by the block above brightens and rises again at
+ * exactly the moment somebody is deciding whether it can be pressed.
+ *
+ * SCOPED TO THIS SCREEN, DELIBERATELY. A bare `.ctl-btn:disabled` would reach
+ * every surface in the product, including ones nobody has looked at. */
+[data-account-section] .ctl-btn:disabled,
+[data-account-section] .ctl-btn:disabled:hover {
+  cursor: not-allowed;
+  opacity: .48;
+  transform: none;
+  box-shadow: none;
+  background: rgba(255,255,255,calc(0.62 * var(--wa)));
+  border-color: var(--line);
+  color: var(--ink-2);
 }
 
 /* ONE ROW ANATOMY: name — state sentence — description — control — disclosure.
@@ -342,6 +469,23 @@ body[data-route="settings"] .fleet-profile-notice { display: none; }
   margin-left: calc(-1 * var(--s3) - 2px);
   background: color-mix(in oklab, var(--ink) 4%, transparent);
   border-radius: var(--r-sm, 4px);
+}
+
+/* ...AND IT MUST NOT COLLIDE WITH THE GROUP RULE IT NOW SITS INSIDE.
+ *
+ * The rule above hangs the accent 14px to the LEFT of the row, out into the
+ * gutter. On #/settings that gutter is now the group body's own 16px indent,
+ * so MEASURED on the driven build: the landed accent drew at left=213 and the
+ * group's containment hairline at left=210. A 2px accent three pixels from a
+ * 1px hairline is not "this is the row you asked for", it is one smudged line.
+ *
+ * Inside a group the accent is drawn on the row's OWN left edge instead of out
+ * in the gutter -- same 2px, same colour, 16px clear of the group rule. The
+ * landed row is the only row on the page that indents, which is a signal
+ * rather than a cost, and nothing is under a pointer when a page lands.
+ * Search results and #/account keep the original rule untouched. */
+.settings-group-body .settings-row.is-landed {
+  margin-left: 0;
 }
 .settings-copy { min-width: 0; }
 .settings-name {

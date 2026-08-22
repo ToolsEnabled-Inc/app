@@ -116,7 +116,7 @@
     },
     "publish": {
       "provider": "generic",
-      "url": "https://toolsenabled.com/updates/win/x64",
+      "url": "https://toolsenabled.ai/updates/win/x64",
       "channel": "latest",
       "publishAutoUpdate": true,
       "updaterCacheDirName": "toolsenabled-updater"

@@ -41,9 +41,20 @@ import {
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
-/* The eleven sections the page renders today, in its own order. If the page
+/* The twelve sections the page renders today, in its own order. If the page
    gains or loses one, this list and the groups must move together -- the source
    assertions below are what notice the drift.
+
+   'Connect this computer' JOINED THIS LIST ON 2026-08-22, and its absence until
+   then was the finding rather than an oversight. The section was rendered by
+   src/views/settings.js and placed by a hand-written branch in that same file,
+   because groupOfSection() answered null for it -- so it was genuinely not part
+   of the grouping model this suite describes, and listing it here would have
+   failed "every section lives in exactly one group" truthfully. The branch is
+   gone and the name is in the 'start' group, so it belongs here now. The cost
+   of the shim was not a mis-drawn section: the group head prints
+   `group.sections` while CLOSED, so the one line whose job is "find it without
+   opening anything" never said the words "connect this computer".
 
    IT WAS SEVENTEEN UNTIL 2026-08-20. Six went in one edit -- Fleet Graph,
    Metrics, Chat & Threads, Comms Board, Performance and Developer -- because
@@ -59,8 +70,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
    setting the installed application enforces, which stopped being only the
    research family when `agent.tool_summary` joined it. */
 const SECTIONS = [
-  'Home screen', 'System', 'Setup', 'Data & Privacy', 'Research & Agents',
-  'Appearance', 'Text & Reading', 'Motion & Effects',
+  'Connect this computer', 'Home screen', 'System', 'Setup', 'Data & Privacy',
+  'Research & Agents', 'Appearance', 'Text & Reading', 'Motion & Effects',
   'Ledger', 'Data & Sim', 'Write',
 ]
 
@@ -196,8 +207,10 @@ test('a link that names a row still opens that row group, arrival rule or not', 
   /* The named section used to be 'Developer', which no longer exists. It has to
      be one that is NOT the first-visit group, or the assertion passes on the
      arrival rule alone and stops testing the landing clause at all. 'Data & Sim'
-     is in `screens`; the arrival default is the group holding the first-visit
-     section. The assertion below pins that difference rather than assuming it. */
+     is in `privacy` as of 2026-08-22 (it was in `screens`, which is gone); the
+     arrival default is the group holding the first-visit section. The assertion
+     below pins that difference rather than assuming it, so a future regroup
+     that put the two together fails here instead of passing vacuously. */
   const landing = 'Data & Sim'
   const group = groupOfSection(landing)
   assert.ok(group, `${landing} is in a group`)

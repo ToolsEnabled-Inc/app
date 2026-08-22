@@ -7,8 +7,10 @@
  * hard to read... can we nest the settings menu more and more cleanly"), kept
  * DOM-free so a plain node test can hold it still.
  *
- * WHY THE GROUPS ARE DATA HERE AND NOT MARKUP IN THE VIEW. Seventeen category
- * buttons is a list a person reads; six groups is a list a person scans. The
+ * WHY THE GROUPS ARE DATA HERE AND NOT MARKUP IN THE VIEW. Twelve category
+ * buttons is a list a person reads; four groups is a list a person scans. (It
+ * was seventeen under six when this was written; the counts move as sections
+ * come and go, and the ratio is the point rather than either number.) The
  * mapping has two failure modes that only a table can be tested against: a
  * section in no group silently vanishes from the page, and a section in two
  * renders twice. tools/test/settings-presentation.test.mjs holds both.
@@ -21,19 +23,54 @@
  */
 
 export const SETTINGS_GROUPS = Object.freeze([
-  /* The first-visit spine: what the first page shows, what the walkthrough
-     recorded, and this computer's own machines and account. */
+  /* The first-visit spine: joining this computer to an account, what the first
+     page shows, what the walkthrough recorded, and this computer's own machines.
+   *
+   * 'Connect this computer' IS IN THIS ARRAY AS OF NOW, and adding it retired a
+   * whole placement mechanism. src/views/settings.js used to hand-place this one
+   * section at the top of this group because groupOfSection() answered null for
+   * it, and its own comment named the retirement condition: the moment the name
+   * appears here, the ordinary path renders it and the branch stops firing. Two
+   * ways to place a section on one page is how a page ends up with two ideas of
+   * where things go.
+   *
+   * IT IS FIRST, AND THAT IS THE HALF A READER FEELS. The group head prints
+   * `group.sections` while it is CLOSED -- that line exists so anything can be
+   * found without opening a thing -- so for as long as this section was outside
+   * the model, the closed 'Start here' line read "Home screen · Setup · System"
+   * and never said the words "connect this computer". The owner's report was
+   * "as a user I dont even see how after signing up that I now connect my
+   * computer", and the one line whose job is findability was omitting it. */
   Object.freeze({
     id: 'start',
     label: 'Start here',
-    detail: 'The first page, what setup recorded, and this computer',
-    sections: Object.freeze(['Home screen', 'Setup', 'System']),
+    detail: 'Connecting this computer, the first page, and what setup recorded',
+    sections: Object.freeze(['Connect this computer', 'Home screen', 'Setup', 'System']),
   }),
+  /* THIS GROUP HELD ONE SECTION, AND THAT SECTION HAD THE GROUP'S OWN NAME.
+   *
+   * MEASURED on a real 1002x650 window: the page drew "DATA & PRIVACY" as the
+   * group line and "DATA & PRIVACY" again as the section title directly under
+   * it, in the same 11-12px uppercase grey, over a single row. The rail said it
+   * twice as well. A category of one is not a category, and a category of one
+   * that repeats its own name is the clearest thing on the page telling a reader
+   * the nesting is decorative.
+   *
+   * WHAT JOINED IT, AND WHY THESE THREE ARE ONE QUESTION. 'Ledger' and
+   * 'Data & Sim' came from the `screens` group, which is gone (see below). All
+   * three answer "what happens to the records this computer holds": what is kept
+   * when you uninstall, what is cleared out of the ledger, and which set of
+   * records every screen is showing you. Nothing about any row changed.
+   *
+   * THE LABEL HAD TO MOVE WITH THE CONTENTS. "Data & privacy" over a group that
+   * also holds archiving and the example switch would be the group line
+   * overclaiming, which is the failure the `screens` subtitle was rewritten for
+   * on 2026-08-20. It is also what stops the name being said twice. */
   Object.freeze({
     id: 'privacy',
-    label: 'Data & privacy',
-    detail: 'What stays on this computer when you leave',
-    sections: Object.freeze(['Data & Privacy']),
+    label: 'Your data',
+    detail: 'What is kept, what is cleared out, and what the screens show',
+    sections: Object.freeze(['Data & Privacy', 'Ledger', 'Data & Sim']),
   }),
   Object.freeze({
     id: 'actions',
@@ -51,26 +88,20 @@ export const SETTINGS_GROUPS = Object.freeze([
     detail: 'Theme, text, and motion',
     sections: Object.freeze(['Appearance', 'Text & Reading', 'Motion & Effects']),
   }),
-  /* THIS GROUP LOST FOUR OF ITS SIX SECTIONS ON 2026-08-20, and the group after
-     it lost both of its own and is gone. Fleet Graph, Metrics, Chat & Threads,
-     Comms Board, Performance and Developer were inert top to bottom: every row
-     in them wrote a key nothing read. Their rows and headings were removed
-     (docs/design/UNBUILT-SETTINGS-ROWS-2026-08-20.md keeps the wording), and a
-     group whose every section is gone must go too -- a group line that opens
-     onto nothing is the same lie one level up. */
-  /* THE SUBTITLE CHANGED WITH THE CONTENTS, WHICH IS THE POINT OF THE WHOLE
-     EDIT. "Each page's own knobs, and what each page reads" was accurate over
-     six sections of per-page knobs. The knobs are precisely what was removed --
-     they were the rows nothing read -- so leaving that sentence would have made
-     the GROUP LINE the last surviving overclaim on the page, promising a person
-     something to adjust per screen and opening onto what each page reads plus
-     one archive button. A heading is a claim like any other. */
-  Object.freeze({
-    id: 'screens',
-    label: 'Screen by screen',
-    detail: 'What each page reads, and clearing out old records',
-    sections: Object.freeze(['Ledger', 'Data & Sim']),
-  }),
+  /* THE 'screens' GROUP IS GONE, AND ITS OWN COMMENT WROTE THE RULE THAT ENDED
+     IT. It lost four of its six sections on 2026-08-20 -- Fleet Graph, Metrics,
+     Chat & Threads, Comms Board, Performance and Developer were inert top to
+     bottom, every row in them writing a key nothing read
+     (docs/design/UNBUILT-SETTINGS-ROWS-2026-08-20.md keeps the wording) -- and
+     the rule it recorded was "a group whose every section is gone must go too:
+     a group line that opens onto nothing is the same lie one level up".
+
+     What it had left was 'Ledger' and 'Data & Sim': two sections, ONE ROW EACH.
+     "Screen by screen · What each page reads, and clearing out old records" is a
+     group line promising a per-screen register and opening onto two switches.
+     That is the same overclaim one notch quieter, and it was already the second
+     rewrite of that subtitle. Both sections moved into 'Your data' above, where
+     the question they answer is actually asked. Neither row changed. */
 ])
 
 const GROUP_BY_SECTION = new Map(
@@ -87,7 +118,7 @@ export function groupOfSection(section) {
 
 /* ---------- remembered open-state ----------
  *
- * Collapsed by default: a first visit shows the six group lines and nothing
+ * Collapsed by default: a first visit shows the group lines and nothing
  * else, which is the "scan in one glance" the nesting exists for. What a
  * person opens stays open across visits and restarts. This is remembered UI
  * posture like a scroll position, not a user setting: it grants nothing,

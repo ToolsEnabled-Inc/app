@@ -38,6 +38,23 @@ export const CONNECT_SECTION = 'Connect this computer'
    same rule the chat box section's agent list is counted by. */
 export const CONNECT_SETTING_COUNT = 1
 
+/* THE ADDRESS OF THE ONE STEP THAT TURNS THIS INTO THE PRODUCT.
+ *
+ * `#/settings?setting=connect_computer` lands on this row, the way every other
+ * landable row on that page is reached. Until this id existed nothing anywhere
+ * could send a person here: requestedSetting() in src/views/settings.js resolves
+ * the query against that page's own tables, this section's rows are not in
+ * SETTINGS (they are the installed application's business, like the research
+ * rows), and the row carried no data-setting-id at all -- so the best any link
+ * could do was drop somebody at the top of Settings. The owner's report was
+ * "as a user I dont even see how after signing up that I now connect my
+ * computer".
+ *
+ * IT IS EXPORTED, NOT SPELLED TWICE. The row renders it as its data-setting-id
+ * and the settings page resolves it; a link that names it is only correct while
+ * those two agree, so they read the same constant. */
+export const CONNECT_SETTING_ID = 'connect_computer'
+
 /* WHAT A PERSON IS TOLD TO TYPE INTO THEIR BROWSER, written once because a
  * wrong address here sends somebody to a page that cannot help them.
  *

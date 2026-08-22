@@ -99,6 +99,7 @@ import {
 import {
   CONNECT_SECTION,
   CONNECT_SETTING_COUNT,
+  CONNECT_SETTING_ID,
   createConnectComputerSettings,
 } from '../connect-computer-settings.js'
 /* WHY A SECTION ON THIS PAGE NEEDS A SENTENCE ABOVE ITS SWITCHES.
@@ -114,8 +115,8 @@ import {
  * the product is fake data. */
 import { GUIDE_HREF } from '../first-run-needs.js'
 /* HOW THIS PAGE IS ARRANGED, NOT WHAT IT STORES. The first outside user found
-   seventeen flat categories hard to read, so they nest under six groups a
-   person scans in one glance. The groups, the remembered open-state, the
+   seventeen flat categories hard to read, so they nest under a handful of
+   groups a person scans in one glance (four of them today, twelve sections). The groups, the remembered open-state, the
    truth-first sentence beside a switch and the System refusal translation are
    all data and pure functions in one DOM-free module, where a node test can
    hold them still. Every row id, storage key and default is untouched. */
@@ -135,10 +136,10 @@ import '../guide.css'
 
 const SECTIONS = [
   CHATBOX_SECTION,
-  /* FIRST IN THE 'Start here' GROUP WHEN IT RENDERS, WHICH IS NOT DECIDED HERE
-     -- this list says what the page draws, and renderSectioned decides where.
-     See CONNECT_HOME_GROUP below for where this one is placed and why that
-     placement is a shim rather than the answer. */
+  /* WHAT the page draws; WHERE it draws it is src/settings-presentation.js's
+     answer, like every other section here. This one used to be the exception --
+     hand-placed by this file because the group table did not name it -- and the
+     table names it now, first in 'Start here'. */
   CONNECT_SECTION,
   'System',
   'Setup',
@@ -171,42 +172,27 @@ const SECTIONS = [
      docs/design/UNBUILT-SETTINGS-ROWS-2026-08-20.md. */
 ]
 
-/* WHERE THE CONNECT SECTION RENDERS UNTIL THE GROUP MODEL NAMES IT, AND WHY
- * THAT IS A SHIM RATHER THAN THE ANSWER.
+/* THE HAND-PLACEMENT SHIM FOR 'Connect this computer' IS GONE, and it was
+ * retired by the condition it named for itself.
  *
- * src/settings-presentation.js owns the section-to-group table, and its own
- * header states the rule this page depends on: a section in no group VANISHES
- * from the page -- renderSectioned puts it after every group, below the last
- * one, which for a first-run step is the same as hiding it. That table is not
- * this file's to edit today. So the page places this one section itself, at the
- * top of the group whose subtitle already describes it ("the first page, what
- * setup recorded, and this computer"), and every rule below asks homeGroupOf()
- * rather than groupOfSection() so the placement is written once.
+ * It read: "The moment 'Connect this computer' appears in the 'start' group's
+ * `sections` array, groupOfSection() answers for it, this branch stops firing
+ * and the ordinary path renders it." That name is now in the array
+ * (src/settings-presentation.js), so the branch, CONNECT_HOME_GROUP,
+ * connectIsPlacedByThisPage() and homeGroupOf() are all deleted rather than
+ * left to sit dead. Every rule that used to ask homeGroupOf() now asks
+ * groupOfSection(), which is the one table again.
  *
- * IT UNDOES ITSELF. The moment 'Connect this computer' appears in the 'start'
- * group's `sections` array, groupOfSection() answers for it, this branch stops
- * firing and the ordinary path renders it -- no double render, nothing to
- * remember to delete. The one-line change that retires this is reported with
- * the work; until it lands, the section is on the page instead of under it.
+ * WHAT THE SHIM COST WHILE IT LIVED, measured on a real 1002x650 window: the
+ * section rendered in the right place, so nothing looked broken -- but the
+ * group head prints `group.sections` while it is CLOSED, and that line is the
+ * page's whole answer to "find something without opening anything". A section
+ * outside the model is not in that array, so the closed 'Start here' line read
+ * "Home screen · Setup · System" and never said the words the owner used:
+ * "as a user I dont even see how after signing up that I now connect my
+ * computer". A second placement mechanism did not move the section; it moved
+ * the section out of the sentence that advertises it.
  */
-const CONNECT_HOME_GROUP = 'start'
-
-function connectIsPlacedByThisPage() {
-  return groupOfSection(CONNECT_SECTION) === null
-}
-
-/* The group a section renders inside, including the one this page places
-   itself. Everything that counts rows, lights the rail or decides what is left
-   over reads this rather than the shared model directly. */
-function homeGroupOf(section) {
-  const declared = groupOfSection(section)
-  if (declared) return declared
-  if (section === CONNECT_SECTION) {
-    return SETTINGS_GROUPS.find(group => group.id === CONNECT_HOME_GROUP) || null
-  }
-  return null
-}
-
 /* SEVENTY-FOUR ROWS WERE REMOVED FROM THIS CATALOGUE ON 2026-08-20, and the
  * reason is the same one written under `offline_fallback` below.
  *
@@ -539,7 +525,26 @@ function rowMarkup(setting, searchResult = false) {
   </article>`
 }
 
+/* A REVEAL THAT REVEALS NOTHING IS NOT DRAWN, and this is a nesting defect
+ * rather than a tidy-up.
+ *
+ * MEASURED on a real 1002x650 window, before this guard: SIX of the seven
+ * catalogue-driven sections carried a pressable "0 more ⌄" under their rows --
+ * Data & Privacy, Appearance, Text & Reading, Motion & Effects, Ledger and
+ * Data & Sim have no row below depth 1 between them. Write, the one section
+ * that does have a second depth, then carried "advanced · 0 more" and
+ * "everything · 0 more" INSIDE its opened tier, because nothing lives at depth
+ * 3 or 4 anywhere on this page any more.
+ *
+ * The owner's report was that the nesting is messy. A control offering to
+ * unfold an empty fold is the page claiming a level it does not have, on the
+ * screen whose whole complaint is about levels -- and it is the same family as
+ * the six titled-but-empty headings removed on 2026-08-20, one rung down.
+ *
+ * The count is derived at render time, so a section that gains a depth-2 row
+ * gets its reveal back with no edit here. */
 function revealMarkup(section, depth, count, prefix, open) {
+  if (!count) return ''
   const controlId = `settings-tier-${SECTIONS.indexOf(section)}-${depth}`
   return `<button class="settings-reveal" type="button" data-reveal-section="${escapeHtml(section)}" data-reveal-depth="${depth}" data-reveal-count="${count}" data-reveal-prefix="${prefix}" aria-controls="${controlId}" aria-expanded="${open ? 'true' : 'false'}">${revealInner(prefix, count, open)}</button>`
 }
@@ -626,8 +631,12 @@ function sectionMarkup(section, level) {
     revealMarkup(section, 3, at(3).length + at(4).length, 'advanced', level >= 3),
     depth3,
   ].join('')
-  const depth2 = tierMarkup(section, 2, depth2Content, level >= 2)
   const hidden = items.filter(setting => setting.depth > 1).length
+  /* ...and the tier the reveal would have opened goes with it. An empty tier
+     draws nothing today (max-height 0, overflow hidden) but it carries the
+     indent rule and the two corner hairlines that MEAN "there is more nested
+     here", and syncSectionDepth already tolerates a section with no tier. */
+  const depth2 = hidden ? tierMarkup(section, 2, depth2Content, level >= 2) : ''
 
   return `<section class="settings-section" data-settings-section="${escapeHtml(section)}">
     <h2 class="settings-section-title">${escapeHtml(section)}</h2>
@@ -676,6 +685,16 @@ function requestedSetting(query) {
      they are, and the row itself carries data-setting-id like every other row,
      which is what markLanding and scrollToLanding look for. */
   if (PRODUCT_SETTING_IDS.includes(id)) return { id, section: RESEARCH_SECTION, depth: 1 }
+  /* AND SO IS CONNECTING THIS COMPUTER, for the same reason and a sharper one.
+     Until this line nothing in the product could link to the one step that
+     turns it from a program on one machine into the product: the row is not in
+     SETTINGS -- it is the installed application's business, like the research
+     rows above -- so the best any link could do was drop somebody at the top of
+     this page. The owner's words were "as a user I dont even see how after
+     signing up that I now connect my computer". The id is read from
+     src/device-claim-flow.js, which is also what the row stamps on itself, so
+     the link and the landing cannot drift apart. */
+  if (id === CONNECT_SETTING_ID) return { id, section: CONNECT_SECTION, depth: 1 }
   return byId.get(id) || null
 }
 
@@ -697,14 +716,14 @@ export function settingsView({ query: routeQuery = null } = {}) {
   const chatboxController = createChatboxSettings()
   const researchController = createResearchSettings()
   const connectController = createConnectComputerSettings()
-  /* The rail is the same two levels the page is: six group lines, and the
-     familiar seventeen category buttons nested under whichever are open. */
+  /* The rail is the same two levels the page is: the group lines, and the
+     category buttons nested under whichever of them are open. */
   const railMarkup = () => SETTINGS_GROUPS.map(group => {
     const open = openGroups.has(group.id)
     return `<div class="settings-rail-group ${open ? 'is-open' : ''}" data-rail-group-wrap="${escapeHtml(group.id)}">
       <button type="button" class="settings-rail-head" data-rail-group="${escapeHtml(group.id)}" aria-expanded="${open ? 'true' : 'false'}">${escapeHtml(group.label)}</button>
       <div class="settings-rail-sections" ${open ? '' : 'hidden'}>
-        ${placedSections(group).map(section => `<button type="button" data-category="${escapeHtml(section)}">${escapeHtml(section)}</button>`).join('')}
+        ${group.sections.map(section => `<button type="button" data-category="${escapeHtml(section)}">${escapeHtml(section)}</button>`).join('')}
       </div>
     </div>`
   }).join('')
@@ -779,7 +798,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
   }
 
   function syncRail() {
-    const activeGroup = homeGroupOf(activeSection)
+    const activeGroup = groupOfSection(activeSection)
     for (const head of rail.querySelectorAll('button[data-rail-group]')) {
       head.classList.toggle('is-active', activeGroup?.id === head.dataset.railGroup)
     }
@@ -814,20 +833,9 @@ export function settingsView({ query: routeQuery = null } = {}) {
 
   function countShown() {
     return SECTIONS.reduce((total, section) => {
-      const group = homeGroupOf(section)
+      const group = groupOfSection(section)
       return group && !openGroups.has(group.id) ? total : total + sectionShownCount(section)
     }, 0)
-  }
-
-  /* The sections that render inside one group, in order. It is group.sections
-     for every group the shared model already describes completely; the 'start'
-     group additionally gets the connect section at the FRONT, because a person
-     who has just signed up meets it before the walkthrough's record of what
-     they answered. See CONNECT_HOME_GROUP: this branch stops firing the moment
-     the shared table names the section itself. */
-  function placedSections(group) {
-    if (group.id !== CONNECT_HOME_GROUP || !connectIsPlacedByThisPage()) return group.sections
-    return [CONNECT_SECTION, ...group.sections]
   }
 
   /* One nest level above the sections. `hidden` on the body is the guard: a
@@ -843,7 +851,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
         <span class="settings-group-list">${group.sections.map(section => escapeHtml(section)).join(' · ')}</span>
       </button>
       <div class="settings-group-body" id="settings-group-${escapeHtml(group.id)}" ${open ? '' : 'hidden'}>
-        ${placedSections(group).map(sectionNodeMarkup).join('')}
+        ${group.sections.map(sectionNodeMarkup).join('')}
       </div>
     </section>`
   }
@@ -881,7 +889,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
   }
 
   function renderSectioned() {
-    const grouped = new Set(SETTINGS_GROUPS.flatMap(placedSections))
+    const grouped = new Set(SETTINGS_GROUPS.flatMap(group => group.sections))
     /* A section the group model does not know renders ungrouped at the end
        rather than vanishing; the presentation suite keeps this branch empty. */
     sectionsNode.innerHTML = SETTINGS_GROUPS.map(groupMarkup).join('')
@@ -1130,7 +1138,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
       setGroupOpen(id, opening)
       if (opening) {
         const group = SETTINGS_GROUPS.find(candidate => candidate.id === id)
-        if (group) activeSection = placedSections(group)[0]
+        if (group) activeSection = group.sections[0]
         syncRail()
         requestAnimationFrame(() => {
           sectionsNode.querySelector(`.settings-group[data-settings-group="${id}"]`)
@@ -1143,12 +1151,11 @@ export function settingsView({ query: routeQuery = null } = {}) {
     if (!button) return
     activeSection = button.dataset.category
     /* A category press is a statement of destination: its group opens if it
-       was closed, so the press always lands somewhere rather than nowhere.
-       homeGroupOf, not groupOfSection: a section this page places itself has a
-       rail button like any other, and a press on it that opened nothing would
-       be a control doing nothing visible -- the defect this whole section was
-       built to stop repeating. */
-    const group = homeGroupOf(activeSection)
+       was closed, so the press always lands somewhere rather than nowhere. One
+       table answers for every rail button now, so there is no longer a class of
+       button whose press could open nothing -- which is the defect this whole
+       section was built to stop repeating. */
+    const group = groupOfSection(activeSection)
     if (group && !openGroups.has(group.id)) setGroupOpen(group.id, true)
     syncRail()
     if (query.trim()) {

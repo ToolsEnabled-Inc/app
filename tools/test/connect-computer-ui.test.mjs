@@ -28,9 +28,11 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { groupOfSection } from '../../src/settings-presentation.js'
 import {
   ACCOUNT_PAGE_HOST,
   CONNECT_SECTION,
+  CONNECT_SETTING_ID,
   clockShouldRun,
   defaultDeviceName,
   initialState,
@@ -541,16 +543,59 @@ test('the settings page renders the section and tears it down with the rest', ()
 })
 
 test('the section is placed inside a group rather than left to fall off the end', () => {
-  /* src/settings-presentation.js states the rule this pins: a section in no
-     group renders after every group, which for a first-run step is the same as
-     hiding it. Until that table names this section, the page places it -- and
-     the placement has to undo itself the moment the table does, or the section
-     renders twice. */
+  /* THIS USED TO PIN THE SHIM; IT NOW PINS THE OUTCOME THE SHIM EXISTED FOR.
+   *
+   * src/settings-presentation.js states the rule: a section in no group renders
+   * after every group, which for a first-run step is the same as hiding it.
+   * Until 2026-08-22 the shared table did not name this section and
+   * src/views/settings.js hand-placed it, so this test asserted that the
+   * hand-placement was present and self-cancelling. The table names it now, the
+   * branch is deleted, and asserting on the branch would be asserting that the
+   * workaround is still there.
+   *
+   * WHAT THE SHIM COST WHILE IT LIVED is what the last assertion here guards.
+   * The section rendered in the right place, so nothing looked broken -- but
+   * the group head prints `group.sections` while CLOSED, and that line is the
+   * page's whole answer to "find something without opening anything". A section
+   * outside the model is not in that array, so the closed 'Start here' line
+   * read "Home screen · Setup · System" and never said the words the owner
+   * used: "as a user I dont even see how after signing up that I now connect
+   * my computer". */
+  const group = groupOfSection(CONNECT_SECTION)
+  assert.ok(group, `${CONNECT_SECTION} is in no group and would render below every group`)
+  assert.equal(group.id, 'start', 'the connect step belongs to the first-visit group')
+  assert.equal(group.sections[0], CONNECT_SECTION,
+    'it is first in its group: a person who has just signed up meets it before the record of what setup asked them')
+
+  /* ONE PLACEMENT MECHANISM, NOT TWO. A second way to put a section on this
+     page is how a page ends up with two ideas of where things go -- and if both
+     fired at once the section would render twice. */
   const source = read('src/views/settings.js')
-  assert.ok(source.includes("const CONNECT_HOME_GROUP = 'start'"), 'the page still places it in Start here')
-  assert.ok(source.includes('function placedSections(group)'), 'and places it in one function')
-  assert.ok(source.includes('connectIsPlacedByThisPage()'),
-    'the shim is conditional on the shared table not naming the section itself')
-  assert.ok(source.includes('new Set(SETTINGS_GROUPS.flatMap(placedSections))'),
-    'the leftover pass reads the same placement, or the section renders twice')
+  for (const shim of ['CONNECT_HOME_GROUP', 'placedSections', 'connectIsPlacedByThisPage', 'homeGroupOf']) {
+    assert.equal(new RegExp(`^(?!\s*[*/]).*\b${shim}\b`, 'm').test(source), false,
+      `${shim} is still live code; the hand-placement was retired, so this is a second placement mechanism`)
+  }
+
+  /* And the closed group line -- the findability sentence -- really does name
+     it, which is the half a reader feels. */
+  assert.ok(group.sections.includes(CONNECT_SECTION),
+    'the closed group head lists group.sections; a section missing from it cannot be found without opening the group')
+})
+
+test('a link can reach the step that connects this computer', () => {
+  /* Until this id existed nothing in the product could send a person to the one
+     screen that joins this computer to their account: the row is not in
+     SETTINGS (it is the installed application's business, like the research
+     rows), so requestedSetting() resolved nothing and the best any link could do
+     was drop somebody at the top of Settings. Driven end to end by
+     tools/test-account-harness drivers; pinned here so the id, the row's stamp
+     and the page's resolver cannot drift apart. */
+  assert.equal(typeof CONNECT_SETTING_ID, 'string')
+  assert.ok(CONNECT_SETTING_ID.length > 0, 'the connect row needs a landable id')
+  const section = read('src/connect-computer-settings.js')
+  assert.ok(section.includes('data-setting-id="${esc(CONNECT_SETTING_ID)}"'),
+    'the row must stamp the id markLanding and scrollToLanding look for')
+  const page = read('src/views/settings.js')
+  assert.ok(page.includes('if (id === CONNECT_SETTING_ID) return { id, section: CONNECT_SECTION, depth: 1 }'),
+    'requestedSetting must resolve the connect id, or a link that names it lands nowhere')
 })

@@ -59,6 +59,40 @@ export const esc = value => String(value ?? '')
   .replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;')
 
+/* A SECTION ON THIS SCREEN IS A HEADING AND ITS OWN LIST.
+ *
+ * "the settings nestings are messy and could be nested better. And each section
+ * should be a seperate list instead of one long list" (owner). MEASURED on a
+ * real 1002x650 window before this existed: the signed-in screen was ONE
+ * `.settings-section-rows` holding ten rows and no heading at all, 962px of it,
+ * with "Change password", "Sign out" and "Remove this program's data from this
+ * computer" as three adjacent, visually identical rows -- the irreversible one
+ * indistinguishable from the two that are not. The signed-out screen was four
+ * lists, two of them a single row, none of them labelled.
+ *
+ * `.settings-section-title` IS NOT A NEW CLASS AND NOT A NEW LOOK. It is what
+ * src/views/settings.js already puts over a run of settings rows, and
+ * src/setup.css says of its own `.setup-subtitle` that it is "exactly
+ * .settings-section-title". The rule under the heading is what makes a list
+ * read as a list rather than as more of the one above it.
+ *
+ * IT IS NOT A `<section>`. src/views/account.js renders this whole screen INTO
+ * one `<section class="settings-section">`, so a section per group would nest
+ * one inside another and inherit its 48px tail four times over -- on a screen
+ * whose primary action is already below the fold. Heading plus list, at one
+ * depth, is the whole structure.
+ *
+ * AN EMPTY GROUP DRAWS NOTHING, headline included. A titled heading over no
+ * rows is the same lie one level up, and this screen has groups whose rows are
+ * conditional -- the sign-in method row is not rendered for every account.
+ */
+function sectionMarkup(title, rows, attributes = '') {
+  const body = rows.filter(Boolean).join('')
+  if (body === '') return ''
+  return `<h2 class="settings-section-title">${esc(title)}</h2>
+    <div class="settings-section-rows"${attributes ? ` ${attributes}` : ''}>${body}</div>`
+}
+
 export function expiryText(expiresAtMs, now = Date.now()) {
   if (!Number.isSafeInteger(expiresAtMs)) return ''
   const days = Math.max(0, Math.round((expiresAtMs - now) / 86_400_000))
@@ -114,6 +148,19 @@ export function scopeMarkup() {
  * told "sign in with Google" hunting for a control that is not there, and would
  * make the owner's one remaining setup step invisible. A control that says why
  * it cannot be used is a working screen; a missing control is a mystery.
+ *
+ * AND IT HAS TO LOOK DISABLED, which is the half that was missing and the half
+ * a customer found. The owner installed 1.0.26 from the site, pressed this
+ * button and reported that it did not work. Measured in the running window: the
+ * button was `disabled` and therefore ate the click, while its computed style
+ * was `cursor: pointer`, `opacity: 1`, the full .ctl-btn card and the base
+ * `.ctl-btn:hover` lift -- indistinguishable from a live control. So the
+ * sentence beside it was doing all the work and the control was quietly
+ * contradicting it. The rule that makes the two agree is
+ * [data-google-signin] .ctl-btn:disabled in src/fleet-profile-settings.css,
+ * which src/views/account.js and src/views/setup.js both import, and
+ * tools/test/google-signin-disabled-control.test.mjs holds it there. Every
+ * state below that renders a `disabled` control depends on it.
  *
  * THE TEST-PROVIDER BANNER IS NOT DEBUG DRESSING. When a build is pointed at a
  * local identity provider instead of Google, this says so on the screen where
@@ -199,8 +246,13 @@ export function unavailableMarkup({ state = null, reset = {}, busy = false } = {
          opened in a browser rather than in the installed application. Neither
          of those has anything to do with what is sold. Prices are not something
          a broken sign-in should be able to hide. -->
-    <div class="settings-section-rows" data-account-subscription-block>${subscriptionMarkup()}</div>
-    <div class="settings-section-rows">${resetMarkup({ reset, busy })}</div>
+    <!-- THE SAME SECTION THE SIGNED-OUT SCREEN GIVES THESE TWO, and the same
+         name, because on this screen the heading is even truer: these are
+         exactly the two things that never needed the account store to work. -->
+    ${sectionMarkup('Without an account', [
+      subscriptionMarkup(),
+      resetMarkup({ reset, busy }),
+    ], 'data-account-subscription-block data-reset-block')}
     <div class="setup-actions">
       <div class="setup-actions-spacer"></div>
       <button type="button" class="ctl-btn" data-account-home>Back to ToolsEnabled</button>
@@ -376,14 +428,22 @@ export function cartMarkup({ cart = null } = {}) {
   </article>`
 }
 
+/* TWO SECTIONS, NOT ONE RUN OF FIVE ROWS, and the split is the point rather
+ * than a tidy-up. "Your settings" and "Your history" answer "what of mine is
+ * held here"; the card, the purchase list and the plans answer "what is about
+ * to be spent, and with what". A person arrives on this screen with one of
+ * those two questions, never both, and until the headings existed the five rows
+ * were one undifferentiated block they had to read end to end to find out which
+ * ones were theirs. */
 export function belongingsMarkup({ data = null, payment = null, history = null, cart = null } = {}) {
-  const rows = []
+  const yours = []
+  const money = []
 
   if (data && data.ok === true) {
     const adopted = data.adopted && data.adopted.count > 0
       ? ` They were already on this computer when you made this account, and became yours on ${esc(dateText(data.adopted.atMs))}.`
       : ''
-    rows.push(`<article class="settings-row" data-account-data-settings>
+    yours.push(`<article class="settings-row" data-account-data-settings>
       <div class="settings-copy">
         <div class="settings-name">Your settings</div>
         <div class="settings-desc">${data.settingCount === 0
@@ -392,7 +452,7 @@ export function belongingsMarkup({ data = null, payment = null, history = null, 
       </div>
     </article>`)
   } else {
-    rows.push(`<article class="settings-row" data-account-data-settings>
+    yours.push(`<article class="settings-row" data-account-data-settings>
       <div class="settings-copy">
         <div class="settings-name">Your settings</div>
         <div class="settings-desc">Could not be read on this computer, so this does not say how many there are. ${esc((data && data.reason) || '')}</div>
@@ -401,7 +461,7 @@ export function belongingsMarkup({ data = null, payment = null, history = null, 
   }
 
   if (history && Number.isSafeInteger(history.mine)) {
-    rows.push(`<article class="settings-row" data-account-data-history>
+    yours.push(`<article class="settings-row" data-account-data-history>
       <div class="settings-copy">
         <div class="settings-name">Your history</div>
         <div class="settings-desc">${history.mine === 0
@@ -413,7 +473,7 @@ export function belongingsMarkup({ data = null, payment = null, history = null, 
 
   if (payment && payment.ok === true && payment.attached === true) {
     if (payment.present === true) {
-      rows.push(`<article class="settings-row" data-account-data-payment data-payment-state="on-file">
+      money.push(`<article class="settings-row" data-account-data-payment data-payment-state="on-file">
         <div class="settings-copy">
           <div class="settings-name">Your payment method</div>
           <div class="settings-desc">A card is on file for this account. It is held encrypted by Windows in this installation’s own vault, under <code>${esc(payment.vaultKey)}</code>, and this screen has not read it — no number, expiry or security code is shown here or anywhere else in this program.</div>
@@ -423,14 +483,14 @@ export function belongingsMarkup({ data = null, payment = null, history = null, 
       /* THE MIDDLE STATE, and the reason this function has three branches. The
          binding exists and this installation's vault does not hold the record.
          "No card on file" would be false; so would "on file". */
-      rows.push(`<article class="settings-row" data-account-data-payment data-payment-state="attached-not-here">
+      money.push(`<article class="settings-row" data-account-data-payment data-payment-state="attached-not-here">
         <div class="settings-copy">
           <div class="settings-name">Your payment method</div>
           <div class="settings-desc">A card is attached to this account under <code>${esc(payment.vaultKey)}</code>, but this installation’s own vault does not hold that record, so it cannot be used from here yet. This is not the same as having no card.</div>
         </div>
       </article>`)
     } else {
-      rows.push(`<article class="settings-row" data-account-data-payment data-payment-state="unknown">
+      money.push(`<article class="settings-row" data-account-data-payment data-payment-state="unknown">
         <div class="settings-copy">
           <div class="settings-name">Your payment method</div>
           <div class="settings-desc">A card is attached to this account under <code>${esc(payment.vaultKey)}</code>. This computer could not read its vault just now, so whether the record is there is unknown — which is not the same as it being gone. ${esc(payment.detail || '')}</div>
@@ -438,14 +498,14 @@ export function belongingsMarkup({ data = null, payment = null, history = null, 
       </article>`)
     }
   } else if (payment && payment.ok === true) {
-    rows.push(`<article class="settings-row" data-account-data-payment data-payment-state="none">
+    money.push(`<article class="settings-row" data-account-data-payment data-payment-state="none">
       <div class="settings-copy">
         <div class="settings-name">Your payment method</div>
         <div class="settings-desc">No card is attached to this account. Nothing in this program can charge anything without one, and attaching one is not a payment.</div>
       </div>
     </article>`)
   } else {
-    rows.push(`<article class="settings-row" data-account-data-payment data-payment-state="unknown">
+    money.push(`<article class="settings-row" data-account-data-payment data-payment-state="unknown">
       <div class="settings-copy">
         <div class="settings-name">Your payment method</div>
         <div class="settings-desc">This copy could not check whether a card is attached, so it does not say. Unknown is not the same as none.</div>
@@ -455,14 +515,18 @@ export function belongingsMarkup({ data = null, payment = null, history = null, 
 
   /* Directly under the card, because what is about to be spent and what it
      would be spent with are one subject to the person reading them. */
-  rows.push(cartMarkup({ cart }))
+  money.push(cartMarkup({ cart }))
 
   /* Next to the card, because the two are the same subject to the person
      reading them, and last because it is the only row here that goes somewhere
      rather than reporting something. */
-  rows.push(subscriptionMarkup())
+  money.push(subscriptionMarkup())
 
-  return rows.join('')
+  /* "What is yours" first, because it is the section a person arrives on this
+     screen for; money second, because it is the one they arrive on it to act
+     on and an action belongs under the facts it depends on. */
+  return sectionMarkup('What is yours on this computer', yours)
+    + sectionMarkup('Money', money)
 }
 
 /* THE NAME THIS PROGRAM SHOWS, AND THE CONTROL THAT CHANGES IT.
@@ -641,11 +705,25 @@ export function resetMarkup({ reset = {}, busy = false } = {}) {
   </article>`
 }
 
+/* FOUR SECTIONS, NOT TEN ROWS IN A ROW.
+ *
+ * Measured before the grouping, on a real 1002x650 window: one list, ten rows,
+ * no heading anywhere on the screen, and "Change password", "Sign out" and
+ * "Remove this program's data from this computer" drawn as three adjacent
+ * identical rows -- the one that cannot be undone looking exactly like the two
+ * that can.
+ *
+ * THE GROUPS ARE WHAT A PERSON CAME TO DO, not which builder emits the row.
+ * Who you are · What is yours on this computer · Money · Leaving. Every one of
+ * them holds at least two rows: a heading over a single row is a category the
+ * screen invented, and this codebase already refuses that one level up (see the
+ * six empty settings headings removed on 2026-08-20).
+ *
+ * LEAVING IS LAST AND IS THE ONLY SECTION HOLDING SOMETHING IRREVERSIBLE, which
+ * is the whole reason the rule above it is worth the 24px it costs.
+ */
 export function signedInMarkup({ state, busy = false, notice = null, now = Date.now(), data = null, payment = null, history = null, cart = null, reset = {} } = {}) {
-  return `<h1 class="setup-title">Signed in as ${esc(state.displayName)}</h1>
-    ${statusMarkup({ notice, state })}
-    <div class="settings-section-rows">
-      <article class="settings-row">
+  const accountRow = `<article class="settings-row">
         <div class="settings-copy">
           <div class="settings-name">Account</div>
           <div class="settings-desc">${state.signInMethod === 'google'
@@ -657,22 +735,21 @@ export function signedInMarkup({ state, busy = false, notice = null, now = Date.
             ? `${esc(state.verifiedEmail || state.username)} — an account on this computer, and Google is what checked who you are. Work your assistant does is recorded against it. ${esc(expiryText(state.expiresAtMs, now))}`
             : `${esc(state.username)} — an account on this computer only. Work your assistant does is recorded against it. ${esc(expiryText(state.expiresAtMs, now))}`}</div>
         </div>
-      </article>
-      ${shownAsMarkup({ state, busy })}
-      ${belongingsMarkup({ data, payment, history, cart })}
-      ${state.signInMethod === 'google'
-        /* A GOOGLE ACCOUNT IS NOT OFFERED A PASSWORD CHANGE, because it has no
-           password on this computer to change. Showing the control and refusing
-           on press would send somebody hunting for a password they never set;
-           the store refuses it too (ACCOUNT_GOOGLE_NO_PASSWORD), so the screen
-           and the store agree rather than one covering for the other. */
-        ? `<article class="settings-row" data-account-signin-method="google">
+      </article>`
+
+  const signInMethodRow = state.signInMethod === 'google'
+    /* A GOOGLE ACCOUNT IS NOT OFFERED A PASSWORD CHANGE, because it has no
+       password on this computer to change. Showing the control and refusing
+       on press would send somebody hunting for a password they never set;
+       the store refuses it too (ACCOUNT_GOOGLE_NO_PASSWORD), so the screen
+       and the store agree rather than one covering for the other. */
+    ? `<article class="settings-row" data-account-signin-method="google">
         <div class="settings-copy">
           <div class="settings-name">How you sign in</div>
           <div class="settings-desc">With Google, as <code>${esc(state.verifiedEmail || state.username)}</code>. Google checked that address, so there is no password here to change — change it in your Google account. This program holds no Google password and no Google token.</div>
         </div>
       </article>`
-        : `<article class="settings-row" data-account-signin-method="local">
+    : `<article class="settings-row" data-account-signin-method="local">
         <div class="settings-copy">
           <div class="settings-name">Change password</div>
           <div class="settings-desc">Changing it signs you out here and ends every other sign-in to this account, including any that was copied off this computer.</div>
@@ -680,8 +757,9 @@ export function signedInMarkup({ state, busy = false, notice = null, now = Date.
         <div class="settings-control fleet-inline-control">
           <button type="button" class="ctl-btn" data-account-mode="change-password" ${busy ? 'disabled' : ''}>Change password</button>
         </div>
-      </article>`}
-      <article class="settings-row">
+      </article>`
+
+  const signOutRow = `<article class="settings-row">
         <div class="settings-copy">
           <div class="settings-name">Sign out</div>
           <div class="settings-desc">“Sign out” ends this sign-in on this computer. “Sign out everywhere” also refuses any saved sign-in taken from this computer earlier — use it if you think a copy of it exists.</div>
@@ -695,9 +773,13 @@ export function signedInMarkup({ state, busy = false, notice = null, now = Date.
           <button type="button" class="ctl-btn" data-account-sign-out ${busy ? 'disabled' : ''}>${busy ? 'Working…' : 'Sign out'}</button>
           <button type="button" class="ctl-btn" data-account-sign-out-everywhere ${busy ? 'disabled' : ''}>Sign out everywhere</button>
         </div>
-      </article>
-      ${resetMarkup({ reset, busy })}
-    </div>
+      </article>`
+
+  return `<h1 class="setup-title">Signed in as ${esc(state.displayName)}</h1>
+    ${statusMarkup({ notice, state })}
+    ${sectionMarkup('Who you are', [accountRow, shownAsMarkup({ state, busy }), signInMethodRow])}
+    ${belongingsMarkup({ data, payment, history, cart })}
+    ${sectionMarkup('Leaving', [signOutRow, resetMarkup({ reset, busy })])}
     <div class="setup-actions">
       <div class="setup-actions-spacer"></div>
       <button type="button" class="ctl-btn" data-account-home>Back to ToolsEnabled</button>
@@ -783,15 +865,44 @@ export function changeDisplayNameMarkup({ state, busy = false, notice = null } =
     </form>`
 }
 
+/* THE SIGNED-OUT SCREEN, IN TWO SECTIONS INSTEAD OF FOUR UNLABELLED LISTS.
+ *
+ * WHAT WAS WRONG WITH THE NESTING, measured rather than judged. Three different
+ * levels of this screen were drawn as the same 11px uppercase micro-label: the
+ * page's LEDE (ACCOUNT_QUESTION_SUB, which belongs to the h1 above it) and the
+ * "Or use an account on this computer" DIVIDER between the two ways to sign in.
+ * A reader had no way to tell which of them opened a section and which was a
+ * sentence about the title. Below them sat two more lists of one row each --
+ * Subscriptions and the removal control -- with no heading at all, landing under
+ * the sign-in form as though they were more of it.
+ *
+ * SO EACH ONE GOES BACK TO ITS OWN LEVEL. The lede becomes `.setup-lede`, which
+ * src/setup.css already declares for exactly that job. The divider becomes the
+ * body sentence it always was, in the `settings-section-note host-absent-body`
+ * pairing src/views/settings.js uses for a sentence under a section title. Only
+ * the two real sections get `.settings-section-title`.
+ *
+ * "How you sign in" HOLDS TWO LISTS AND THAT IS NOT A THIRD NESTING LEVEL. They
+ * are two ANSWERS to one question with an "Or" between them, which is what the
+ * divider has always said; the form has to be its own <form> element and cannot
+ * be folded into the list above it. The heading is what was missing.
+ *
+ * "Without an account" IS THE HONEST NAME FOR THE OTHER TWO, and the reason is
+ * already written beside each of them: somebody who is not signed in can still
+ * see what is sold, and can still take their data off this computer. That
+ * shared reason is the section, and it is why neither has to stand alone as a
+ * category of one.
+ */
 export function formMarkup({ mode = 'sign-in', busy = false, notice = null, state = null, google = null, reset = {} } = {}) {
   const creating = mode === 'create'
   return `<h1 class="setup-title">${esc(ACCOUNT_QUESTION)}</h1>
-    <p class="setup-subtitle">${esc(ACCOUNT_QUESTION_SUB)}</p>
+    <p class="setup-lede">${esc(ACCOUNT_QUESTION_SUB)}</p>
     ${statusMarkup({ notice, state })}
+    <h2 class="settings-section-title">How you sign in</h2>
     <div class="settings-section-rows" data-account-google-block>
       ${googleOptionMarkup({ google, busy })}
     </div>
-    <p class="setup-subtitle" data-account-or>${google && google.available === true
+    <p class="settings-section-note host-absent-body" data-account-or>${google && google.available === true
       ? 'Or use an account on this computer.'
       : 'Use an account on this computer.'}</p>
     <form class="settings-section-rows" data-account-form="${creating ? 'create' : 'sign-in'}" autocomplete="on">
@@ -837,17 +948,23 @@ export function formMarkup({ mode = 'sign-in', busy = false, notice = null, stat
       </div>
     </form>
     ${creating ? '' : scopeMarkup()}
-    <!-- ...AND STILL ABLE TO SEE WHAT IS SOLD. The other copy of this row sits
+    <!-- TWO ROWS, ONE REASON, SO ONE SECTION.
+         ...STILL ABLE TO SEE WHAT IS SOLD. The other copy of the plans row sits
          in the belongings list, which only a signed-in person has. A signed-out
          visitor is the one most likely to be looking for prices. Leaving it out
          here would put the page behind a sign-in that has nothing to do with
-         it. -->
-    <div class="settings-section-rows" data-account-subscription-block>${subscriptionMarkup()}</div>
-    <!-- SIGNED OUT, AND STILL ABLE TO LEAVE. Somebody who never made an account
-         still has a vault, a permission level and a settings file on this disk,
-         and somebody who has forgotten their password cannot sign in to reach a
-         control at all -- there is no password reset here. -->
-    <div class="settings-section-rows" data-reset-block>${resetMarkup({ reset, busy })}</div>`
+         it.
+         ...AND STILL ABLE TO LEAVE. Somebody who never made an account still
+         has a vault, a permission level and a settings file on this disk, and
+         somebody who has forgotten their password cannot sign in to reach a
+         control at all -- there is no password reset here.
+         BOTH OF THE -block NAMES STAY, on the one list that holds both rows, so
+         a selector written against either still finds the element that really
+         does contain what it names. -->
+    ${sectionMarkup('Without an account', [
+      subscriptionMarkup(),
+      resetMarkup({ reset, busy }),
+    ], 'data-account-subscription-block data-reset-block')}`
 }
 
 /* The one place that decides which of the above a given state paints.

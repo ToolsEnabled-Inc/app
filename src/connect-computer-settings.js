@@ -40,6 +40,7 @@ import { FLEET_PROFILE_RESOLUTION } from './fleet-profile.js'
 import {
   ACCOUNT_PAGE_HOST,
   CONNECT_SECTION,
+  CONNECT_SETTING_ID,
   MAX_DEVICE_NAME,
   clockShouldRun,
   defaultDeviceName,
@@ -59,7 +60,7 @@ import {
    driven browser reaches least often, so they have to be reachable from a
    plain node process. */
 
-export { CONNECT_SECTION, CONNECT_SETTING_COUNT } from './device-claim-flow.js'
+export { CONNECT_SECTION, CONNECT_SETTING_COUNT, CONNECT_SETTING_ID } from './device-claim-flow.js'
 
 const esc = value => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -516,7 +517,7 @@ export function createConnectComputerSettings({
       ${statusMarkup(state)}
       ${refusalHasABody(state) ? '' : refusalMarkup(state)}
       <div class="settings-section-rows">
-        <article class="settings-row fleet-profile-block" data-connect-row>
+        <article class="settings-row fleet-profile-block" data-connect-row data-setting-id="${esc(CONNECT_SETTING_ID)}">
           <div class="settings-copy">
             <div class="settings-name">Join this computer to your account</div>
             <div class="settings-desc">${esc(rowDetail(state))}</div>
@@ -571,11 +572,23 @@ export function createConnectComputerSettings({
        SELECTOR rather than by node, since none of the old nodes exist after the
        line below. A control the new state does not draw is simply not there,
        and nothing is focused, which is the honest outcome. */
+    /* AND SO DOES "THIS IS THE ROW YOU ASKED FOR", for the same reason and by
+       the same means. src/views/settings.js marks a linked-to row `is-landed`
+       once, after it renders the page; the line below then replaces this whole
+       section and the mark goes with it. MEASURED on the driven build, arriving
+       from the home screen at #/settings?setting=connect_computer: the row was
+       marked, the first poll answer landed, and the accent was gone before a
+       person could have read it -- on the one row in this product a link exists
+       to reach. Captured by id and put back, exactly as the focus is, and the
+       two reads are kept adjacent because both are only true for the instant
+       before the swap. */
     const wasFocused = focusedControl()
+    const wasLanded = current.querySelector('.settings-row.is-landed')?.dataset?.settingId || null
     /* The rebuilt copy button carries its resting label, so the acknowledgement
        cannot survive as a word on a button that no longer means it. */
     copiedAtMs = 0
     current.outerHTML = markup({ searchResult })
+    if (wasLanded) hostRoot.querySelector(`[data-setting-id="${wasLanded}"]`)?.classList?.add('is-landed')
     if (!wasFocused) return
     hostRoot.querySelector(wasFocused)?.focus?.()
   }
