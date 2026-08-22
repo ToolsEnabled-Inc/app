@@ -96,6 +96,7 @@ import {
   TRANSCRIPT_TRIMMED_NOTE,
   TREE_CONTEXT_LABEL, treeContextSummary,
   refusalNeedsAssistantProgram, roleLabel, runningLine, startRefusalSentence, startingLine,
+  startStallMs, startStalledLine,
   usageSentence,
 } from '../fleet-tree-copy.js'
 import { createTranscriptStore, TRANSCRIPT_LIMITS, transcriptSeedText } from '../session-transcript-store.js'
@@ -3163,7 +3164,7 @@ export function computersView({ initialComputer = null, navigate }) {
      * person can see, never an internal id. */
     const briefContext = briefContextFor(node, parent)
     const startText = composeNodeBrief({ message: draft.message, ...briefContext })
-    const result = await startAgentForNode({
+    const startInFlight = startAgentForNode({
       text: startText,
       surface: 'fleet-tree',
       tier: draft.tier,
@@ -3214,6 +3215,21 @@ export function computersView({ initialComputer = null, navigate }) {
         refreshTree()
       },
     })
+    /* THE LINE ABOVE PROMISES A FEW SECONDS, SO SOMETHING HAS TO NOTICE WHEN IT
+       IS NOT. The start settles on its own eventually -- at the transport's
+       five-minute ceiling -- and until it does, the busy line keeps saying a
+       few seconds. Disarmed in a `finally` so a start that THROWS cannot leave
+       a timer behind to overwrite its own refusal a minute later. */
+    const driving = currentDataSource() === 'relay'
+    const stallTimer = setTimeout(() => {
+      if (!destroyed) setOrgStatus(startStalledLine({ driving }), 'busy', { sticky: true })
+    }, startStallMs({ driving }))
+    let result
+    try {
+      result = await startInFlight
+    } finally {
+      clearTimeout(stallTimer)
+    }
     if (destroyed) return { ok: false, message: result.sentence || START_NEEDS_APP_TEXT }
 
     if (!result.ok) {

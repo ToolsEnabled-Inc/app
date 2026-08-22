@@ -1407,6 +1407,45 @@ export const START_PROGRESS = Object.freeze({
   running: 'Your agent is running. Open it any time to see what it is doing.',
 })
 
+/* WHEN "A FEW SECONDS" HAS STOPPED BEING TRUE.
+ *
+ * MEASURED on production on 2026-08-22, driving a real machine from a browser:
+ * a start the machine accepted, whose engine then never launched, left
+ * "Starting your agent. This takes a few seconds." on screen with the node
+ * reading "not started yet". The request does eventually fail -- at the
+ * transport's own five-minute ceiling. Five minutes is not "a few seconds", and
+ * for all of it the screen keeps promising one.
+ *
+ * TWO BUDGETS, BECAUSE A RELAY ROUND TRIP IS LEGITIMATELY SLOWER than an IPC
+ * call to a program on the same computer. Telling somebody driving a machine in
+ * another building that it is late, at the same moment we would tell somebody
+ * at their own desk, would cry wolf on every slow network.
+ *
+ * IT IS NOT A FAILURE MESSAGE. Nothing has been refused at this point and the
+ * start may still land, so the sentence says what is true -- it is late, it may
+ * still arrive -- and the one thing a person must not do, which is press Start
+ * again and get two agents for one job. */
+const START_STALL_HERE_MS = 20_000
+const START_STALL_DRIVING_MS = 45_000
+
+/** How long before a start that has not settled is worth mentioning. */
+export function startStallMs({ driving = false } = {}) {
+  return driving ? START_STALL_DRIVING_MS : START_STALL_HERE_MS
+}
+
+/** What to say when it has taken longer than it should. */
+export function startStalledLine({ driving = false } = {}) {
+  const lead = 'Still starting. This usually takes a few seconds, so something is holding it up, '
+    + 'and it may still arrive.'
+  const twice = 'Do not press Start again: that would start a second agent for the same job.'
+  /* Driving from a browser, the person cannot glance at the machine to see what
+     happened, so the sentence has to tell them where to look. At their own desk
+     they are already there. */
+  return driving
+    ? `${lead} ${twice} If nothing appears, open ToolsEnabled on that computer and look there.`
+    : `${lead} ${twice}`
+}
+
 /** What the panel says while the agent is starting. */
 export function startingLine(role) {
   if (!isKnownRole(role)) return START_PROGRESS.starting
