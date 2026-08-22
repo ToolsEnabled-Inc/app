@@ -158,6 +158,22 @@ export const UNAVAILABLE_TEXT = Object.freeze({
 
   /* The person is not doing anything wrong and there is nothing to repair: this
      is a queue, and it is worded as one. */
+  /* THE ONE REFUSAL A PERSON CANNOT CLEAR FROM WHERE THEY ARE STANDING, and
+     that is the point of it rather than a flaw in it.
+     A machine only accepts changes from a browser if it has been told it may
+     be driven from one. The switch lives ON that computer, its ruled default
+     is OFF, and nothing reachable over the relay can turn it on -- otherwise a
+     stolen session would be able to grant itself the very permission the
+     switch exists to withhold.
+     MEASURED on the live site on 2026-08-22, the first time a browser tried to
+     start an agent on a real machine: the code arrived intact, no sentence
+     existed for it, and the person was told "this copy was not told why. Try
+     once more. If it refuses again, close ToolsEnabled, open it" -- a loop with
+     no exit, and closing the app is the one thing that guarantees failure,
+     because a closed app cannot be reached at all.
+     So this sentence does not offer a remedy here. It says where the remedy
+     is, and why it is there. */
+  MC_AGENT_PRINCIPAL_READ_ONLY: 'this computer has not been told it may be driven from a browser, so it will show you anything and change nothing. That permission is given on the computer itself, on purpose: it is what stops someone who has your password from driving your machine. Open ToolsEnabled on that computer and turn on being driven from the web',
   MC_AGENT_SESSION_LIMIT: 'this copy is already running as many agents at once as it allows, so it did not start another. Wait for one to finish, or stop one in the tree, and then start this again',
   MC_AGENT_SESSION_EXISTS: 'an agent is already open under that name in this copy, so nothing new was started. Open the one that is already running, or start a fresh agent from another spot in the tree',
   /* A start that cannot be written down does not happen -- the same rule the
