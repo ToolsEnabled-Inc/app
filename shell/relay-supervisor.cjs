@@ -278,6 +278,9 @@ function createRelaySupervisor({
   let lastExitAt = null
   let lastReason = null
   let restartTimer = null
+  /* The last lines the leg said, for status(). See the note in the spawn path. */
+  const recentLines = []
+  const MAX_RECENT_LINES = 40
   let nextDelayMs = RESTART_FLOOR_MS
   let startedAt = 0
 
@@ -322,11 +325,48 @@ function createRelaySupervisor({
     startedAt = now()
     log(`relay leg started${credentials ? ' with the agent facade' : ' without an agent facade'}`)
 
-    /* The child's pipes are drained and dropped. They are read only so a
-       long-running child cannot block on a full pipe; nothing that arrives on
-       them reaches status(), and nothing is stored. */
-    if (spawned.stdout && typeof spawned.stdout.on === 'function') spawned.stdout.on('data', () => {})
-    if (spawned.stderr && typeof spawned.stderr.on === 'function') spawned.stderr.on('data', () => {})
+    /* THE CHILD'S OWN ACCOUNT OF WHY IT STOPPED, KEPT.
+     *
+     * These pipes were drained and dropped: read only so a long-running child
+     * could not block on a full pipe, with nothing stored and nothing reaching
+     * status(). The draining is still necessary and still happens. Throwing the
+     * lines away was the mistake.
+     *
+     * When a leg fails, those lines are the ONLY record anywhere of why.
+     * Measured 2026-08-22: an agent standing up a real machine could not find
+     * out why its leg would not connect, and got there in the end by killing
+     * the app and running tools/relay-shell.js by hand to watch it speak. That
+     * is not a diagnosis path anybody has on a customer's computer.
+     *
+     * It is the third time in one day the same shape has cost hours -- the
+     * relay could not say why it closed a socket, the session could not say why
+     * it rejected a frame, and this could not say why a leg died.
+     *
+     * THESE LINES DO NOT GO INTO status(), AND THAT IS DELIBERATE. This file's
+     * header already weighed exactly that and refused it: `lastReason` is
+     * derived from the EXIT, never from anything the child printed, so that no
+     * pair id, device id, machine name or path can reach a surface a page could
+     * render even if a future child forgets its manners. That reasoning is
+     * still right and I am not weakening it to save myself a lookup.
+     *
+     * So they go to the shell's own log when the leg dies -- where an operator
+     * reads them and no renderer can -- and status() keeps carrying a word from
+     * a closed set and three plain numbers.
+     *
+     * Bounded to the last 40 lines, because this is a hint for whoever is
+     * looking, not a log file. Long lines are clipped so a runaway child cannot
+     * grow it without bound. */
+    const keepLine = (chunk) => {
+      const text = String(chunk)
+      for (const raw of text.split(/[\r\n]+/)) {
+        const line = raw.trim()
+        if (!line) continue
+        recentLines.push(line.length > 300 ? `${line.slice(0, 300)}…` : line)
+        while (recentLines.length > MAX_RECENT_LINES) recentLines.shift()
+      }
+    }
+    if (spawned.stdout && typeof spawned.stdout.on === 'function') spawned.stdout.on('data', keepLine)
+    if (spawned.stderr && typeof spawned.stderr.on === 'function') spawned.stderr.on('data', keepLine)
     if (typeof spawned.on === 'function') {
       spawned.on('error', () => {
         /* An asynchronous spawn failure. The exit handler below still runs on
@@ -342,6 +382,14 @@ function createRelaySupervisor({
         const reason = signal
           ? REASONS.SIGNALLED
           : (code === 0 ? REASONS.EXITED_CLEAN : REASONS.EXITED_ERROR)
+        /* WHAT IT SAID ON THE WAY OUT. Only on a non-clean exit: a leg that
+           stopped because it was asked to has nothing to explain, and printing
+           its last forty lines every time would bury the one time it matters. */
+        if (reason !== REASONS.EXITED_CLEAN && recentLines.length > 0) {
+          log(`the relay leg's last words (${recentLines.length} line(s)):`)
+          for (const line of recentLines) log(`  | ${line}`)
+        }
+        recentLines.length = 0
         if (stopped) {
           lastReason = REASONS.STOPPED
           return

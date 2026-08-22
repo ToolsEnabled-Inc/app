@@ -643,3 +643,55 @@ test('a damaged settings record grants nothing, even if a value survived in it',
   }
   assert.equal(webDriveMayWrite(damaged), false)
 })
+
+/* WHEN A LEG DIES, SOMETHING MUST SAY WHY.
+ *
+ * The child's pipes were drained and dropped -- read only so a long-running
+ * child could not block on a full pipe, with nothing kept. The draining was
+ * right; discarding the lines was not. Those lines are the ONLY record anywhere
+ * of why a relay leg failed.
+ *
+ * Measured 2026-08-22: an agent standing up a real machine could not find out
+ * why its leg would not connect, and got there by killing the app and running
+ * tools/relay-shell.js by hand to watch it speak. Nobody has that path on a
+ * customer's computer.
+ *
+ * They go to the LOG and never to status(). This file's own header refused to
+ * let anything the child printed reach a surface a page could render, so that a
+ * child which forgets its manners cannot leak a pair id or a machine name
+ * through here. That defence is kept; the test below pins both halves. */
+test('a leg that dies badly leaves its last words in the log, and never in status()', () => {
+  const { supervisor, spawn, logged } = supervisorUnderTest()
+  supervisor.start()
+  const child = spawn.calls[0].child
+
+  child.stderr.emit('data', '[relay-shell] event online_fra_shell_admitted role=machine-a' + String.fromCharCode(10))
+  child.stderr.emit('data', '[relay-shell] not connected: RELAY_SHELL_LEASE_REFUSED' + String.fromCharCode(10))
+  child.emit('exit', 1, null)
+
+  const said = logged.join(String.fromCharCode(10))
+  assert.match(said, /last words/,
+    'a leg died and the supervisor said nothing about what it had been saying on the way out')
+  assert.match(said, /RELAY_SHELL_LEASE_REFUSED/,
+    'the reason the leg gave is exactly what somebody diagnosing this needs, and it was being thrown away')
+
+  /* AND NOT INTO status(). The header of relay-supervisor.cjs refuses to let
+     anything the child printed reach a surface a page can render, so that a
+     child which forgets its manners cannot leak a pair id or a machine name
+     through this module. That defence is deliberately kept. */
+  const status = supervisor.status()
+  assert.equal(JSON.stringify(status).includes('RELAY_SHELL_LEASE_REFUSED'), false,
+    'something the child printed reached status()')
+  assert.deepEqual(Object.keys(status).sort(), ['lastExitAt', 'lastReason', 'restarts', 'running'],
+    'status() grew a field; it carries a word from a closed set and three plain numbers, on purpose')
+})
+
+test('a leg that stops cleanly says nothing extra', () => {
+  const { supervisor, spawn, logged } = supervisorUnderTest()
+  supervisor.start()
+  const child = spawn.calls[0].child
+  child.stderr.emit('data', '[relay-shell] session closed' + String.fromCharCode(10))
+  child.emit('exit', 0, null)
+  assert.equal(logged.join(String.fromCharCode(10)).includes('last words'), false,
+    'a leg that stopped because it was asked to has nothing to explain, and printing forty lines every time buries the one time it matters')
+})
