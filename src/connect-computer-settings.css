@@ -55,6 +55,39 @@
   min-width: 0;
 }
 
+/* THE CODE AND ITS COPY BUTTON ON ONE LINE. `auto` on the button so it takes
+   only its label, `1fr` and min-width:0 on the code so the shrinking happens
+   there -- the code is already clamp()ed and can afford it; a button that
+   shrinks becomes a button with its label cut in half. `end` rather than
+   `center`, so the button's baseline sits with the hairline under the code
+   instead of floating beside 34px of type. */
+.connect-code-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--s3);
+  min-width: 0;
+  /* CAPPED, or the two do not read as one thing. MEASURED in the default
+     window: the row ran the full 1440px of the column, so the code ended around
+     x=770 and its Copy button sat at x=1800 -- a button a thousand pixels from
+     the thing it copies is a button about something else. 528px leaves about
+     440px for the code, and twelve mono characters at the clamp's 34px ceiling
+     need roughly 300px including the tracking. It also shortens the hairline
+     under the code to the width of the code, which is what a rule under a value
+     is for. */
+  max-width: calc(var(--s5) * 22);
+}
+
+/* Shorter than a .ctl-btn's 40px, because it is beside a line of text rather
+   than in a row of actions, and it must not read as the section's main
+   control -- that is "Stop waiting", further down. */
+.connect-copy {
+  height: 32px;
+  flex: none;
+  padding: 0 var(--s3);
+  white-space: nowrap;
+}
+
 /* The countdown. Tabular figures so the seconds place does not shove the
    sentence sideways once a second while somebody is reading the code above
    it. */
@@ -95,17 +128,25 @@
   line-height: 1.5;
 }
 
-/* A REFUSAL MUST NOT READ AS DESCRIPTION. It sits directly under the status
-   line, wearing the same left-rule idiom the System section's refusals wear, in
-   the serious colour -- so the eye lands on it before it lands on the button
-   that was just pressed. */
+/* A REFUSAL MUST NOT READ AS DESCRIPTION. It wears the same left-rule idiom the
+   System section's refusals wear, in the serious colour.
+
+   IT NOW SITS WITH THE BUTTON rather than at the top of the section -- see
+   refusalMarkup() in src/connect-computer-settings.js for the two measurements
+   that moved it -- so the rule below is what makes a sentence appearing in the
+   middle of a form read as an answer rather than as more form. `font-weight`
+   and --ink-2 over 12.5px: the row description directly above it is the same
+   size in the same colour, and at equal weight the new sentence was simply the
+   next paragraph. */
 .connect-refusal {
-  margin: var(--s2) 0 var(--s3);
+  margin: var(--s2) 0;
   padding: var(--s2) 0 var(--s2) var(--s3);
   border-left: 2px solid var(--s-serious);
   color: var(--ink-2);
   font-size: 12.5px;
+  font-weight: 560;
   line-height: 1.5;
+  max-width: calc(var(--s5) * 24);
 }
 
 .connect-name {
@@ -128,3 +169,19 @@
    mistake. The code above it is deliberately NOT capped: it is meant to be
    large. */
 .connect-section .connect-name .fleet-profile-input { max-width: calc(var(--s5) * 14); }
+
+/* A BUTTON THAT IS BUSY HAS TO LOOK BUSY, and until this rule there was no
+   `.ctl-btn` styling anywhere for either kind of "off": the section's own
+   "Asking..." button carried the full armed treatment and read as a live
+   control that did nothing when pressed -- the exact defect the whole of this
+   screen was written to stop repeating. It is aria-disabled rather than
+   disabled so it can keep the keyboard focus (see buttonMarkup() in
+   src/connect-computer-settings.js); `pointer-events` stays ON, because a
+   pointer that passes through a control is a control that cannot even be
+   hovered, and the press is refused in the handler instead. */
+.connect-section .ctl-btn[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: default;
+  transform: none;
+  box-shadow: none;
+}

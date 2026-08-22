@@ -78,6 +78,23 @@ export function pollSeconds(value) {
    box readable without deciding for anyone what their computer may be called. */
 const DEFAULT_NAME_MAX = 48
 
+/* HOW LONG A NAME MAY BE, RESTATED HERE SO THE BOX CAN STOP AT IT.
+ *
+ * The authority is MAX_NAME_LENGTH in shell/device-claim.cjs and it stays the
+ * authority -- this number never decides anything, it only lets the box refuse
+ * a sixty-fifth keystroke instead of letting somebody fill it, press the
+ * button, and be told by a round trip that the name they cannot see all of is
+ * too long. SEEN ON GLASS: two hundred characters pasted in produced
+ * DEVICE_CLAIM_NAME_INVALID as a sentence two hundred pixels above the button,
+ * and forty party-popper emoji produced it too -- because that limit counts the
+ * same units an <input maxlength> counts, so what looked like forty characters
+ * was eighty. A box that stops is the only version of that a person can see
+ * happening.
+ *
+ * IT IS A CEILING AND NEVER A PASS. The shell still checks; a name that gets
+ * past this box because it was set some other way is still refused there. */
+export const MAX_DEVICE_NAME = 64
+
 /* The name this computer will carry on the account page. A label the person
    already chose for this system beats anything guessed from a browser they are
    not looking at, so it goes first. */
@@ -144,8 +161,14 @@ export const CLAIM_PHASES = Object.freeze([
 
 /* Why a code stopped being usable. Each is a different sentence to a person and
    the same offer -- ask for another -- so they share a phase and differ here,
-   rather than multiplying states nobody can tell apart on screen. */
-export const ENDED_REASONS = Object.freeze(['gone', 'ran-out', 'not-tracked'])
+   rather than multiplying states nobody can tell apart on screen.
+
+   `stopped` IS THE ONE THE PERSON DID ON PURPOSE, and it is here because the
+   alternative was a lie. Pressing "Stop waiting" used to land back on `idle`,
+   whose line reads "Nothing has been sent anywhere" -- said to somebody who had
+   just been shown a code that was very much sent somewhere. An ending a person
+   chose is still an ending, and it belongs with the other three. */
+export const ENDED_REASONS = Object.freeze(['gone', 'ran-out', 'not-tracked', 'stopped'])
 
 export function initialState({ name = '', platform = '' } = {}) {
   return Object.freeze({
@@ -157,6 +180,7 @@ export function initialState({ name = '', platform = '' } = {}) {
     intervalSeconds: null,
     nextPollAtMs: null,
     device: null,
+    claimedName: null,
     claimedAtMs: null,
     endedBecause: null,
     refusal: '',
@@ -187,6 +211,24 @@ function refusalOf(result, remedy = '') {
    has expired or already been collected is cured by asking for another, which
    is a button on this very screen, and never by restarting anything. */
 const RESTART_REMEDY = 'Ask for a new code below, then enter that one on the account page.'
+
+/* The second one, for the same reason. A name the installed application will
+ * not list this computer under is cured by changing the name -- in the box that
+ * is on this screen, directly above the button that was just pressed.
+ *
+ * SEEN ON GLASS: the shared table's DEVICE_CLAIM_ family remedy sent that
+ * person to their account page "to see which computers are joined", which for a
+ * name that is too long is advice about somewhere else entirely. It is the
+ * right floor for the family and the wrong sentence for this one, which is
+ * exactly the case refusalSentence()'s `remedy` override exists for. */
+const NAME_REMEDY = 'Change the name in the box above, then press the button again.'
+const NAME_REFUSAL_CODE = 'DEVICE_CLAIM_NAME_INVALID'
+
+/* The two states where a claim is actually in flight. Written down once
+   because three branches now have to leave one alone. */
+function waiting(state) {
+  return state?.phase === 'waiting' || state?.phase === 'orphaned'
+}
 
 function deviceOf(source) {
   if (!source || typeof source !== 'object') return null
@@ -224,6 +266,7 @@ export function reduce(state, event) {
       /* A status this window could not read is NOT "not connected". The button
          stays, because trying is still the person's move, and the sentence says
          why the screen could not answer the question first. */
+      if (waiting(state)) return next(state, refusalOf(result))
       return next(state, { phase: 'idle', ...refusalOf(result) })
     }
     if (result.connected === true) {
@@ -238,6 +281,13 @@ export function reduce(state, event) {
         refusalCode: null,
       })
     }
+    /* "NOT CONNECTED" IS WHAT A WAIT IS FOR, so it must not end one.
+       status() is asked once per screen, and a screen that came back to a code
+       still in flight (see `adopted-code`) asks it with that code already up.
+       Answering "no account yet" by throwing the code away would take the one
+       thing the person came back for, on the strength of an answer that says
+       nothing except that they have not typed it in yet. */
+    if (waiting(state)) return next(state, { device: null, claimedAtMs: null, refusal: '', refusalCode: null })
     return next(state, { phase: 'idle', device: null, claimedAtMs: null, refusal: '', refusalCode: null })
   }
 
@@ -248,7 +298,8 @@ export function reduce(state, event) {
   if (type === 'begin-result') {
     const result = event.result
     if (result?.ok !== true) {
-      return next(state, { phase: 'idle', ...refusalOf(result) })
+      const remedy = refusalCodeOf(result) === NAME_REFUSAL_CODE ? NAME_REMEDY : ''
+      return next(state, { phase: 'idle', ...refusalOf(result, remedy) })
     }
     const code = typeof result.code === 'string' ? result.code.trim() : ''
     if (!CODE_SHAPE.test(code)) {
@@ -265,6 +316,14 @@ export function reduce(state, event) {
     return next(state, {
       phase: 'waiting',
       code,
+      /* THE NAME AS IT WENT UP, NOT AS THE BOX READS LATER. nameToClaim() is
+         called once, here, over the state that produced this claim -- so a
+         screen rebuilt from the remembered code reports what the account page
+         will actually show rather than recomputing a guess from a box that is
+         no longer on the screen. SEEN ON GLASS at 1000x650: a claim opened as
+         "Front desk", left and returned to, said "It will be listed as My
+         Windows computer". */
+      claimedName: nameToClaim(state),
       expiresAtMs: Number.isFinite(Number(result.expiresAtMs)) ? Number(result.expiresAtMs) : null,
       intervalSeconds: seconds,
       nextPollAtMs: Number.isFinite(nowMs) ? nowMs + seconds * 1000 : null,
@@ -330,6 +389,46 @@ export function reduce(state, event) {
     })
   }
 
+  /* THE CODE THIS WINDOW ALREADY SHOWED, PUT BACK.
+   *
+   * SEEN ON GLASS, and it is the worst thing this screen did: a person with a
+   * code up who moved to another screen in the same window and came straight
+   * back was shown "This computer is not on an account yet -- nothing has been
+   * sent anywhere" for two seconds, and then "A code was already asked for; this
+   * screen cannot show it a second time." Their code was gone, they were told it
+   * could not be shown again, and the only way on was to start over -- for
+   * clicking twice inside one window.
+   *
+   * The section rebuilds from nothing on every visit because the settings page
+   * builds a new controller each time, so the memory has to outlive the
+   * controller; src/connect-computer-settings.js keeps it and hands it here. It
+   * is the CODE and its deadline -- the two things already on the glass -- and
+   * never the poll token, which this half of the product has no name for.
+   *
+   * AN EXPIRED ONE IS NOT PUT BACK, and neither is anything that is not shaped
+   * like a code: a remembered value is still a value this screen has to be
+   * suspicious of, and painting a dead code would be worse than the state it
+   * replaces. The wait it restores is confirmed the ordinary way -- the next
+   * poll either says `pending`, or ends it as `gone` or `not-tracked`. */
+  if (type === 'adopted-code') {
+    const code = typeof event.code === 'string' ? event.code.trim() : ''
+    if (!CODE_SHAPE.test(code)) return state
+    const ends = Number(event.expiresAtMs)
+    if (Number.isFinite(ends) && Number.isFinite(nowMs) && nowMs >= ends) return state
+    const seconds = pollSeconds(event.intervalSeconds)
+    return next(state, {
+      phase: 'waiting',
+      code,
+      claimedName: typeof event.claimedName === 'string' && event.claimedName ? event.claimedName : null,
+      expiresAtMs: Number.isFinite(ends) ? ends : null,
+      intervalSeconds: seconds,
+      nextPollAtMs: Number.isFinite(nowMs) ? nowMs + seconds * 1000 : null,
+      endedBecause: null,
+      refusal: '',
+      refusalCode: null,
+    })
+  }
+
   if (type === 'adopted-pending') {
     /* A claim this window did not open is in flight -- somebody started one,
        walked to another screen and came back, and the code lives in the
@@ -360,7 +459,24 @@ export function reduce(state, event) {
     return next(state, { phase: 'ended', endedBecause: 'ran-out', code: null, nextPollAtMs: null })
   }
 
-  if (type === 'restart' || type === 'cancelled') {
+  /* STOPPING THE WAIT IS AN ENDING, AND IS SAID AS ONE. It shares the phase
+     with the three that were not the person's doing, because what happens next
+     is the same in all four: the code is no good, and there is a button that
+     gets another. What differs is the sentence, which is the only thing
+     `endedBecause` has ever been for. */
+  if (type === 'cancelled') {
+    return next(state, {
+      phase: 'ended',
+      endedBecause: 'stopped',
+      code: null,
+      expiresAtMs: null,
+      nextPollAtMs: null,
+      refusal: '',
+      refusalCode: null,
+    })
+  }
+
+  if (type === 'restart') {
     return next(state, {
       phase: 'idle',
       code: null,

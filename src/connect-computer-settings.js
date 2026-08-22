@@ -40,6 +40,7 @@ import { FLEET_PROFILE_RESOLUTION } from './fleet-profile.js'
 import {
   ACCOUNT_PAGE_HOST,
   CONNECT_SECTION,
+  MAX_DEVICE_NAME,
   clockShouldRun,
   defaultDeviceName,
   initialState,
@@ -72,6 +73,13 @@ const esc = value => String(value ?? '')
    second interval at the service's cadence would mean two timers to clear and a
    stale cadence whenever the service changed its mind mid-wait. */
 const CLOCK_MS = 1000
+
+/* How long "Copied" stands before the button goes back to offering. Two
+   seconds is long enough to be read and short enough that the button is not
+   still congratulating somebody about a code they have since replaced. It is
+   cleared on the same one-second tick, so the real span is two to three
+   seconds and nothing new ticks to shorten it. */
+const COPY_ACK_MS = 2000
 
 /* The browser this window is running in, asked once per controller. It is the
    weakest of the two guesses at a name for this computer and is only reached
@@ -120,10 +128,20 @@ function statusLine(state) {
   }
   if (phase === 'starting') return { tone: '', title: 'Asking for a code', detail: 'The installed application is opening a code for this computer.' }
   if (phase === 'waiting') {
+    /* "LEAVE IT OPEN OR COME BACK TO IT" IS WHAT THIS USED TO SAY, and it read
+       as permission to close the window. It is not. The half of this ceremony
+       that collects the credential is held in the installed application's own
+       memory (shell/device-claim.cjs keeps the poll token in a variable and
+       nowhere else), so quitting ToolsEnabled ends the claim from this side
+       whatever the account page has been told. DRIVEN: quit with a code on
+       screen, start again on the same profile, and the screen is back to
+       "This computer is not on an account yet" with no mention of the code
+       somebody is at that moment typing into their browser. Until that token
+       outlives the process, the honest thing is to say so here. */
     return {
       tone: 'is-warn',
       title: 'Waiting for you to enter the code',
-      detail: `Enter it on your account page at ${ACCOUNT_PAGE_HOST}. This screen notices on its own; leave it open or come back to it.`,
+      detail: `Enter it on your account page at ${ACCOUNT_PAGE_HOST}. Leave ToolsEnabled running until this screen says the computer is joined; closing it means asking for a new code. Moving to another screen in this window is fine.`,
     }
   }
   if (phase === 'orphaned') {
@@ -133,7 +151,7 @@ function statusLine(state) {
       detail: 'One is still open for this computer, and this screen cannot show it a second time. Ask for a new one below.',
     }
   }
-  if (phase === 'ended') return { tone: 'is-warn', title: 'That code is no longer good', detail: endedDetail(state) }
+  if (phase === 'ended') return { tone: 'is-warn', title: endedTitle(state), detail: endedDetail(state) }
   return {
     tone: '',
     title: 'This computer is not on an account yet',
@@ -155,15 +173,36 @@ function rowDetail(state) {
   if (state.phase === 'waiting' || state.phase === 'orphaned') {
     return 'Type the code into your browser, on your account page. Your password never passes through this window.'
   }
+  /* THE SAME DEFECT AGAIN, ONE STATE ALONG. `checking` and `absent` draw no
+     button at all -- bodyMarkup() returns nothing for either -- and both were
+     still describing "the button" and what pressing it would send. MEASURED on
+     a first run: the section stands in `checking` for about two and a half
+     seconds with no control on it, under a sentence about a control. Two and a
+     half seconds is long enough to read a sentence and start looking for the
+     thing it names. */
+  if (state.phase === 'checking') {
+    return 'Nothing has been sent anywhere. This screen is asking the installed application what it already knows, and the button appears when it answers.'
+  }
+  if (state.phase === 'absent') {
+    return 'Nothing can be sent from this window, because it has no way to reach the installed application.'
+  }
   return 'Nothing is sent until you press the button. The code is shown here and typed on your account page, so your password never passes through this window.'
 }
 
-/* Three different things happened and they are three different sentences. All
-   three end in the same offer, which is the button directly under them. */
+/* Four different things happened and they are four different sentences. All
+   four end in the same offer, which is the button directly under them. */
 function endedDetail(state) {
   if (state.endedBecause === 'gone') return 'It was either entered already or it ran out of time.'
   if (state.endedBecause === 'not-tracked') return 'The installed application is no longer holding a code for this computer.'
+  if (state.endedBecause === 'stopped') return 'You stopped waiting for it, so it was given up. Nothing was joined to your account.'
   return 'It ran out of time before it was entered.'
+}
+
+/* THE TITLE OF THE ENDING MOVES WITH IT TOO. "That code is no longer good" is
+   the right line for three endings that happened TO somebody and the wrong one
+   for the ending they chose, which needs no explaining and no alarm. */
+function endedTitle(state) {
+  return state.endedBecause === 'stopped' ? 'You stopped waiting' : 'That code is no longer good'
 }
 
 function statusMarkup(state) {
@@ -174,26 +213,52 @@ function statusMarkup(state) {
   </p>`
 }
 
-/* EVERY REFUSAL IS ON THE GLASS AS ITS OWN SENTENCE. It is added under the
-   status line rather than replacing it, so the controls a person was reaching
-   for are still exactly where they were. The identifier rides in an attribute a
-   support conversation and a driver can read and a person never will -- the
-   rule src/refusal-copy.js sets for the whole product. */
+/* EVERY REFUSAL IS ON THE GLASS AS ITS OWN SENTENCE, WHERE THE PRESS WAS, AND
+ * OUT LOUD.
+ *
+ * It still never replaces the status line and never moves a control that was
+ * already there: it is added, and it is added directly ABOVE the row of
+ * buttons rather than below them, because below is off the bottom of the small
+ * window a person actually uses. MEASURED at 1000x650 with the section idle:
+ * the button's box ends at y=622 of a 652px viewport, so a sentence underneath
+ * it would have been a refusal nobody could see without knowing to scroll.
+ *
+ * WHERE IT USED TO GO, AND WHY THAT WAS NOT ENOUGH. Under the status line at
+ * the top of the section -- measured at 1446x906, y=417, for a button at y=630.
+ * Two hundred pixels and two blocks of unrelated text above the place the
+ * person was looking, on a screen where nothing else moved. It was visible and
+ * it was not seen.
+ *
+ * role="alert" IS THE HALF THAT HAS NO PIXELS. The status line is aria-live and
+ * this was not, so somebody working by ear pressed a button and heard nothing:
+ * the same defect as an invisible refusal, for the people it is worst for.
+ *
+ * The identifier rides in an attribute a support conversation and a driver can
+ * read and a person never will -- the rule src/refusal-copy.js sets for the
+ * whole product. There is exactly ONE of these nodes in the section whatever
+ * the state, so that attribute stays the one place to look. */
 function refusalMarkup(state) {
   if (!state.refusal) return ''
   const machineChannel = state.refusalCode ? ` data-refusal-code="${esc(state.refusalCode)}"` : ''
-  return `<p class="connect-refusal" data-connect-refusal${machineChannel}>${esc(state.refusal)}</p>`
+  return `<p class="connect-refusal" data-connect-refusal role="alert"${machineChannel}>${esc(state.refusal)}</p>`
 }
 
+/* The name box. `maxlength` is the whole of the repair described at
+   MAX_DEVICE_NAME in src/device-claim-flow.js: the box stops where the
+   installed application stops, so a name that is too long is a keystroke that
+   does not appear rather than a refusal that arrives after a round trip. The
+   limit is also written under the box, because a box that silently stops
+   accepting characters is its own small mystery. */
 function nameFieldMarkup(state, disabled) {
   const value = state.name || defaultDeviceName({ profileLabel: profileLabel(), platform: state.platform })
   return `<label class="connect-name">
     <span>Name for this computer</span>
     <input class="fleet-profile-input" data-connect-field="name" value="${esc(value)}"
       placeholder="${esc(defaultDeviceName({ platform: state.platform }))}"
+      maxlength="${MAX_DEVICE_NAME}"
       autocomplete="off" spellcheck="false" ${disabled ? 'disabled' : ''}/>
   </label>
-  <small>This is the name your account page will show. Change it before you ask for a code.</small>`
+  <small>This is the name your account page will show, up to ${MAX_DEVICE_NAME} characters. Change it before you ask for a code.</small>`
 }
 
 /* THE THREE STEPS, SPELLED OUT, IN THE ORDER A PERSON DOES THEM. The website
@@ -220,18 +285,50 @@ function stepsMarkup() {
  */
 function codeMarkup(state, nowMs) {
   return `<div class="connect-code-wrap">
-    <input class="connect-code" data-connect-code readonly value="${esc(state.code || '')}"
-      aria-label="The code to enter on your account page" spellcheck="false" autocomplete="off"/>
+    <div class="connect-code-row">
+      <input class="connect-code" data-connect-code readonly value="${esc(state.code || '')}"
+        aria-label="The code to enter on your account page" spellcheck="false" autocomplete="off"/>
+      ${copyMarkup()}
+    </div>
     <p class="connect-remaining" data-connect-remaining>${esc(remainingText(state.expiresAtMs, nowMs))}</p>
   </div>`
 }
 
+/* THE COPY BUTTON, WHICH IS ALSO THE ONLY SIGN THAT THE CODE CAN BE COPIED.
+ *
+ * DRIVEN, and both routes already worked: a triple-click then Ctrl+C put
+ * exactly TC-JJW4-GPK4 on the clipboard, and so did one click then Ctrl+C,
+ * because handleFocusIn() selects the whole value. Nothing on the screen said
+ * so. The code is set 34px high with no box and a hairline under it, which is
+ * how a heading looks, and nobody triple-clicks a heading. A person on the same
+ * computer as their browser was left transcribing eight characters by eye from
+ * an alphabet that has no I, O, 0 or 1 in it precisely because transcription is
+ * expected to go wrong.
+ *
+ * The label is lifted out of the template for the reason buttonMarkup() gives:
+ * the word "code" must never appear inside an interpolation on this screen. */
+const COPY_LABEL = 'Copy'
+const COPY_DONE_LABEL = 'Copied'
+const COPY_MANUAL_LABEL = 'Press Ctrl+C'
+
+function copyMarkup() {
+  return `<button type="button" class="ctl-btn connect-copy" data-connect-action="copy"
+    aria-label="Copy the code">${COPY_LABEL}</button>`
+}
+
 function buttonMarkup(state) {
   if (state.phase === 'connected' || state.phase === 'absent' || state.phase === 'checking') return ''
+  /* "Stop waiting" GIVES THE CODE UP, AND NOW SAYS SO BEFORE IT IS PRESSED.
+     It reads like a control over this screen -- stop the counting, stop the
+     asking -- and it is not: cancel() drops the claim in the installed
+     application, and a person who pressed it hoping to pause found their code
+     replaced by a name box. A destructive control has to name what it destroys
+     while there is still something to lose. */
   if (state.phase === 'waiting') {
     return `<div class="fleet-profile-actions">
       <button type="button" class="ctl-btn" data-connect-action="cancel">Stop waiting</button>
-    </div>`
+    </div>
+    <small>Stopping gives this code up. You can ask for another one afterwards.</small>`
   }
   if (state.phase === 'ended' || state.phase === 'orphaned') {
     return `<div class="fleet-profile-actions">
@@ -242,10 +339,22 @@ function buttonMarkup(state) {
      word "code" never appears inside an interpolation. tools/test/refusal-copy
      scans for exactly that shape, and it is right to: `${result.code}` in a
      button is how the last bare identifier in this product got on the glass. */
+  /* BUSY IS SAID WITH aria-disabled AND NOT WITH disabled, and that is the
+     other half of the focus repair in refresh().
+     A `disabled` button cannot hold focus. So pressing "Get a code" by keyboard
+     went: focus on the button, one repaint into `starting`, the button replaced
+     by a disabled one, focus dropped to <body> -- and by the time the refusal
+     arrived there was nothing left to put the keyboard back onto. MEASURED
+     exactly that way: activeElement was BODY after a refused press, which is
+     sixteen tabs from the button that refused.
+     Nothing is loosened by the swap. Two guards already stop a second ask and
+     neither is this attribute: begin() returns early while `inFlight`, and
+     shell/device-claim.cjs answers DEVICE_CLAIM_BUSY to anything that gets past
+     it. handleClick() checks it as well, so the press is ignored here too. */
   const busy = state.phase === 'starting'
   const label = busy ? 'Asking&hellip;' : 'Get a code'
   return `<div class="fleet-profile-actions">
-    <button type="button" class="ctl-btn armed" data-connect-action="begin" ${busy ? 'disabled' : ''}>${label}</button>
+    <button type="button" class="ctl-btn armed" data-connect-action="begin" ${busy ? 'aria-disabled="true"' : ''}>${label}</button>
   </div>`
 }
 
@@ -264,24 +373,108 @@ function bodyMarkup(state, nowMs) {
     </div>`
   }
   if (phase === 'waiting') {
+    /* THE NAME THAT ACTUALLY WENT UP, SAID BACK. The box is gone by now, and
+       nameToClaim() may not have used what was in it: somebody who cleared it
+       had the guess filed on their behalf, which is the right call and a
+       surprise if the first they hear of it is the row on their account page.
+       `claimedName` is that decision as it was made, carried on the state --
+       recomputing it here was wrong and was CAUGHT ON GLASS at 1000x650: a
+       claim opened as "Front desk", left and returned to, reported "My Windows
+       computer", because the rebuilt screen had a fresh box with a fresh guess
+       in it. The fallback is for a claim opened before that field existed. */
     return `<div class="fleet-profile-fields">
       ${codeMarkup(state, nowMs)}
+      <p class="connect-known">It will be listed as <span class="connect-host">${esc(state.claimedName || nameToClaim(state))}</span>.</p>
       ${stepsMarkup()}
+      ${refusalMarkup(state)}
       ${buttonMarkup(state)}
     </div>`
   }
+  /* ENDED AND ORPHANED KEEP THE NAME BOX, and that was a gap rather than a
+     decision: a code that ran out left a screen with one button on it, so
+     somebody who had meant to rename this computer before joining it had to get
+     a code they did not want, stop waiting for it, and start again. The next
+     code is asked for with whatever is in this box, so the box belongs on every
+     screen that offers to ask for one. */
   if (phase === 'ended' || phase === 'orphaned') {
-    return `<div class="fleet-profile-fields">${buttonMarkup(state)}</div>`
+    return `<div class="fleet-profile-fields">
+      ${nameFieldMarkup(state, false)}
+      ${refusalMarkup(state)}
+      ${buttonMarkup(state)}
+    </div>`
   }
   return `<div class="fleet-profile-fields">
     ${nameFieldMarkup(state, phase === 'starting')}
+    ${refusalMarkup(state)}
     ${buttonMarkup(state)}
   </div>`
+}
+
+/* The refusal is drawn once. Inside the body it sits with the button that
+   produced it; the three states that draw no body keep it under the status
+   line, where it is still the only other thing on the section. */
+function refusalHasABody(state) {
+  return state.phase !== 'absent' && state.phase !== 'checking' && state.phase !== 'connected'
 }
 
 function profileLabel() {
   const label = FLEET_PROFILE_RESOLUTION?.rawProfile?.label
   return typeof label === 'string' ? label : ''
+}
+
+/* THE ONE THING THAT OUTLIVES A CONTROLLER, AND WHY IT HAS TO.
+ *
+ * src/views/settings.js builds a controller in its factory and destroys it with
+ * the view, so leaving Settings and returning is a NEW controller starting from
+ * `checking` with no memory. DRIVEN, with a real code up: away to another
+ * screen, straight back, and the section read "This computer is not on an
+ * account yet -- nothing has been sent anywhere" for two seconds, then "A code
+ * was already asked for; this screen cannot show it a second time." Two clicks
+ * inside one window cost the person their code and told them it could not be
+ * shown again.
+ *
+ * WHAT IS KEPT IS WHAT WAS ALREADY ON THE GLASS: the code and its deadline. The
+ * poll token is not here, is not reachable from here, and has no field to be
+ * put in -- the guarantee the header makes about this whole file. It lives for
+ * as long as the window does, which is the same lifetime the installed
+ * application gives the claim itself, so the two cannot disagree by outliving
+ * each other.
+ *
+ * IT IS A MEMORY AND NEVER AN AUTHORITY. Restoring it puts the code back on
+ * screen; whether the claim is still good is still settled by the next poll,
+ * which ends the wait honestly if the answer is `gone` or `none`. */
+let rememberedClaim = null
+
+function rememberClaim(state) {
+  if (state.phase === 'waiting' && state.code) {
+    rememberedClaim = {
+      code: state.code,
+      claimedName: state.claimedName,
+      expiresAtMs: state.expiresAtMs,
+      intervalSeconds: state.intervalSeconds,
+    }
+    return
+  }
+  /* Anything that is not a live wait means there is nothing to come back to.
+     `starting` is the one in-between, and it is left alone so that a second
+     screen built mid-request does not lose a claim that is about to exist. */
+  if (state.phase !== 'starting') rememberedClaim = null
+}
+
+function claimWorthRestoring(nowMs) {
+  const claim = rememberedClaim
+  if (!claim || !claim.code) return null
+  const ends = Number(claim.expiresAtMs)
+  if (Number.isFinite(ends) && nowMs >= ends) {
+    rememberedClaim = null
+    return null
+  }
+  return claim
+}
+
+/* For the tests, which must not inherit one run's memory into the next. */
+export function forgetRememberedClaim() {
+  rememberedClaim = null
 }
 
 export function createConnectComputerSettings({
@@ -295,6 +488,7 @@ export function createConnectComputerSettings({
   let torn = false
   let asked = false
   let inFlight = false
+  let copiedAtMs = 0
   let state = initialState({
     name: defaultDeviceName({ profileLabel: profileLabel(), platform: currentPlatform() }),
     platform: currentPlatform(),
@@ -311,7 +505,7 @@ export function createConnectComputerSettings({
       <h2 class="settings-section-title">${esc(CONNECT_SECTION)}</h2>
       <p class="settings-section-note host-absent-body">You signed up on the website, and its account page asks for a code. This is the screen that gives you one.</p>
       ${statusMarkup(state)}
-      ${refusalMarkup(state)}
+      ${refusalHasABody(state) ? '' : refusalMarkup(state)}
       <div class="settings-section-rows">
         <article class="settings-row fleet-profile-block" data-connect-row>
           <div class="settings-copy">
@@ -334,9 +528,24 @@ export function createConnectComputerSettings({
     const previous = state
     state = reduce(state, event)
     if (state === previous) return false
+    rememberClaim(state)
     syncClock()
     if (repaintNeeded(previous, state)) refresh()
     return true
+  }
+
+  /* WHICH CONTROL IN THIS SECTION HAS THE KEYBOARD, said as something that
+     survives the node being replaced. A selector, not a node: refresh() writes
+     outerHTML, so every node in here is a different object afterwards. */
+  function focusedControl() {
+    const active = hostRoot?.ownerDocument?.activeElement
+    if (!active || !hostRoot.contains(active)) return null
+    const action = active.dataset?.connectAction
+    if (action) return `[data-connect-action="${action}"]`
+    const field = active.dataset?.connectField
+    if (field) return `[data-connect-field="${field}"]`
+    if (active.hasAttribute?.('data-connect-code')) return '[data-connect-code]'
+    return null
   }
 
   function refresh() {
@@ -344,16 +553,65 @@ export function createConnectComputerSettings({
     const current = hostRoot.querySelector('[data-connect-settings]')
     if (!current) return
     const searchResult = current.querySelector('.settings-prefix') !== null
+    /* THE KEYBOARD GOES BACK WHERE IT WAS, because a repaint that drops it is a
+       repaint that throws somebody out of the section. MEASURED: it is sixteen
+       tabs from the top of Settings to "Get a code", and a refusal replaces the
+       whole section -- so pressing Space on that button and being refused left
+       the focus on <body> and the sixteen tabs to do again, to reach a button
+       whose refusal says to change the box directly above it. Restored by
+       SELECTOR rather than by node, since none of the old nodes exist after the
+       line below. A control the new state does not draw is simply not there,
+       and nothing is focused, which is the honest outcome. */
+    const wasFocused = focusedControl()
+    /* The rebuilt copy button carries its resting label, so the acknowledgement
+       cannot survive as a word on a button that no longer means it. */
+    copiedAtMs = 0
     current.outerHTML = markup({ searchResult })
+    if (!wasFocused) return
+    hostRoot.querySelector(wasFocused)?.focus?.()
   }
 
   /* The countdown moves every second and NOTHING ELSE DOES, so it is written
      straight onto its own node instead of through a repaint. A person mid-way
-     through selecting the code keeps their selection. */
+     through selecting the code keeps their selection.
+     The copy acknowledgement rides the same second, for the same reason and one
+     more: this section is allowed exactly ONE timer (see the header), so a
+     label that has to change back cannot have a timer of its own. `copiedAtMs`
+     is deliberately not in the reduced state -- it is a fact about this screen,
+     not about the claim, and putting it in the state would repaint the section
+     under somebody who had just pressed Copy. */
   function paintRemaining() {
     if (!hostRoot || state.phase !== 'waiting') return
     const node = hostRoot.querySelector('[data-connect-remaining]')
     if (node) node.textContent = remainingText(state.expiresAtMs, now())
+    if (copiedAtMs && now() - copiedAtMs >= COPY_ACK_MS) {
+      copiedAtMs = 0
+      paintCopyLabel(COPY_LABEL)
+    }
+  }
+
+  function paintCopyLabel(label) {
+    const node = hostRoot?.querySelector('[data-connect-action="copy"]')
+    if (node) node.textContent = label
+  }
+
+  /* COPYING IS DONE BY THE SELECTION THE FIELD ALREADY OFFERS, not by asking
+     for a clipboard permission this window has never asked for anything else.
+     select() then the document's own copy command is the same two steps a
+     person does by hand, which is why the fallback is honest: if the command
+     refuses, the code is left SELECTED and the button says which two keys
+     finish the job. Nothing is claimed to have been copied that was not. */
+  function copyCode() {
+    const field = hostRoot?.querySelector('[data-connect-code]')
+    if (!field) return
+    field.focus?.()
+    field.select?.()
+    let copied = false
+    try {
+      copied = globalThis.document?.execCommand?.('copy') === true
+    } catch { copied = false }
+    copiedAtMs = now()
+    paintCopyLabel(copied ? COPY_DONE_LABEL : COPY_MANUAL_LABEL)
   }
 
   function syncClock() {
@@ -412,6 +670,24 @@ export function createConnectComputerSettings({
       apply({ type: 'bridge-absent' })
       return
     }
+    /* THE CODE GOES BACK BEFORE ANYTHING IS ASKED, because the asking takes
+       time a person watches. Measured on a first run: `status` alone is about
+       two and a half seconds of a section with no controls on it, and until
+       this line existed the screen spent that time claiming nothing had been
+       sent anywhere to somebody looking at the code it had just given them.
+       The claim is restored, not asserted -- the wait it produces is confirmed
+       or ended by the polls that follow, exactly as any other wait is. */
+    const remembered = claimWorthRestoring(now())
+    if (remembered) {
+      apply({
+        type: 'adopted-code',
+        code: remembered.code,
+        claimedName: remembered.claimedName,
+        expiresAtMs: remembered.expiresAtMs,
+        intervalSeconds: remembered.intervalSeconds,
+        nowMs: now(),
+      })
+    }
     const result = await ask('status')
     if (torn || !result) return
     apply({ type: 'status', result })
@@ -457,15 +733,24 @@ export function createConnectComputerSettings({
     await ask('cancel')
     inFlight = false
     if (torn) return
-    apply({ type: 'cancelled' })
+    /* TWO ENDINGS, AND THE PERSON MEANT DIFFERENT THINGS BY THEM. "Stop
+       waiting" is a stop and is reported as one -- `cancelled` lands on the
+       ended screen that says so. "Get a new code" is not a stop at all; the
+       giving-up is plumbing on the way to the next code, and announcing "You
+       stopped waiting" for a fifth of a second before "Asking..." would be the
+       screen narrating its own internals. `restart` is the event that clears
+       without a verdict, which is what it was always for. */
+    apply({ type: thenBegin ? 'restart' : 'cancelled' })
     if (thenBegin) await begin()
   }
 
   function handleClick(event) {
     const button = event.target.closest?.('[data-connect-action]')
     if (!button || !hostRoot?.contains(button)) return
+    if (button.getAttribute?.('aria-disabled') === 'true') return
     const action = button.dataset.connectAction
     if (action === 'begin') void begin()
+    else if (action === 'copy') copyCode()
     else if (action === 'cancel') void cancel()
     /* "Get a new code" is one press for the person and two calls here: the
        claim that is still open has to be given up before another can be asked
@@ -492,17 +777,36 @@ export function createConnectComputerSettings({
     code.select?.()
   }
 
+  /* THE SEARCH BOX WAS HIDING THIS SECTION FROM THE PEOPLE LOOKING FOR IT.
+   *
+   * It was one substring test against one joined string, so a query had to be a
+   * run of words in the order this file happened to write them. MEASURED, with
+   * the section's own heading on the screen above the box:
+   *
+   *     "connect"                 found it
+   *     "connect computer"        no settings match this search
+   *     "connect my computer"     no settings match this search
+   *     "connect this computer to my account"  no settings match this search
+   *     "sign in"                 no settings match this search
+   *     "computer name"           no settings match this search
+   *
+   * The middle one is this screen's exact title with one word added, and it is
+   * also the sentence the person who paid for this work actually typed. Every
+   * word present, in any order, is the rule that answers all six, and it is
+   * still narrow: "sankey gradient" shares no word with any of this. */
   function matches(query) {
     const normalized = String(query || '').trim().toLowerCase()
     if (!normalized) return true
     const haystack = [
-      'connect this computer account code sign up signed up website pair pairing join link add computer device claim',
-      `${ACCOUNT_PAGE_HOST} account page enter the code name for this computer get a code`,
+      'how do i connect this computer to my account code sign up signed up sign in website pair pairing join link add computer device claim my',
+      `${ACCOUNT_PAGE_HOST} account page enter the code name for this computer get a code tc- new computer already connected`,
       statusLine(state).title,
       statusLine(state).detail,
       state.refusal,
     ].join(' ').toLowerCase()
-    return haystack.includes(normalized)
+    if (haystack.includes(normalized)) return true
+    const words = normalized.split(/\s+/).filter(Boolean)
+    return words.length > 0 && words.every(word => haystack.includes(word))
   }
 
   function bind(root) {
