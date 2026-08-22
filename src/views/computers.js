@@ -3564,7 +3564,7 @@ export function computersView({ initialComputer = null, navigate }) {
         ${accountDoorMarkup()}
         <div class="rail-sec">${escapeMarkup(PROFILE_PANEL.overviewTitle)}</div>
         <div class="board-profile-slot" data-profile-slot></div>
-        <div class="rail-sec">This computer</div>
+        <div class="rail-sec">${escapeMarkup(thisComputerHeading())}</div>
         <dl class="rail-facts">
           <div class="rail-fact"><dt>Agents described</dt><dd>${computer.spawnedTotal}</dd></div>
           <div class="rail-fact"><dt>Recorded relationships</dt><dd>${computer.graphEdges.length}</dd></div>
@@ -3623,10 +3623,35 @@ export function computersView({ initialComputer = null, navigate }) {
    * THE PREVIEW GETS A DIFFERENT SENTENCE AND NO LINK, because a browser has
    * no installed application to open a claim with and a button that cannot work
    * is the defect this whole pass is about. */
+  /* "THIS COMPUTER" IS THE WRONG WORDS FOR THE ONE PERSON WHO MOST NEEDS THEM
+     RIGHT. Driving from a browser, the computer these facts describe is
+     somewhere else -- the account page is explicit that this "never talks to
+     the computer you are sitting at" -- and calling it "this computer" invites
+     exactly the mistake that sentence exists to prevent. */
+  function thisComputerHeading() {
+    return currentDataSource() === 'relay' ? 'The computer you are driving' : 'This computer'
+  }
+
   function accountDoorMarkup() {
     if (previewWithoutHost()) {
       return `<div class="rail-sec">Your ToolsEnabled account</div>
         <p class="rail-prose is-dim">Putting a computer on your account is done from the installed application, on the computer you want to add. This page is a preview of it running in your browser.</p>`
+    }
+    /* AND THE THIRD READER IS THE ONE THIS WHOLE FEATURE IS FOR.
+     *
+     * Over the relay, everything on this screen was read FROM a computer on the
+     * person's account -- that is the only way it could have got here. Offering
+     * them "Connect this computer" is offering to do the thing they have
+     * already done, and the sentence beneath it describes typing a code into a
+     * browser while they are sitting in that browser reading it.
+     *
+     * Measured on the live site on 2026-08-22, the first time a browser
+     * successfully drove a machine: this door was still speaking to somebody at
+     * a desk. Same defect as telling a person with ToolsEnabled installed to
+     * install ToolsEnabled -- text written for one reader, drawn for another. */
+    if (currentDataSource() === 'relay') {
+      return `<div class="rail-sec">Your ToolsEnabled account</div>
+        <p class="rail-prose is-dim">This computer is already on your account — that is how this browser is reading it. Everything on this page came from it, not from the computer you are sitting at.</p>`
     }
     return `<div class="rail-sec">Your ToolsEnabled account</div>
       <p class="rail-prose is-dim">If you signed up at toolsenabled.ai, this is how this computer gets onto that account. The connect screen gives you a short code. You type it into your account page in a browser.</p>

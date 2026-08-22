@@ -264,8 +264,17 @@ test('the folder section clears the fold: it sits above "This computer", not bel
   const template = overviewTemplate()
   const caveat = template.indexOf('projection-unavailable')
   const folder = template.indexOf('data-profile-slot')
-  const thisComputer = template.indexOf('>This computer<')
+  /* Anchored on the facts list rather than the heading text. The heading is no
+     longer a constant: driving from a browser, the computer these facts
+     describe is somewhere else, so calling it "This computer" invited the exact
+     mistake the account page warns about. What this test measures is the ORDER,
+     and the facts list sits immediately under that heading in every wording. */
+  const thisComputer = template.indexOf('class="rail-facts"')
   assert.ok(caveat > -1 && folder > -1 && thisComputer > -1, 'the overview rail no longer has the sections this order is measured against')
+  assert.ok(
+    template.includes('thisComputerHeading()'),
+    'the heading must still be chosen by the helper that knows whether this computer is the one you are sitting at',
+  )
   assert.ok(caveat < folder, 'the record caveat belongs with the number it qualifies, above the folder')
   assert.ok(folder < thisComputer, 'the folder section must clear the fold, which means above "This computer"')
 })
