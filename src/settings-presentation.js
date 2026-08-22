@@ -79,7 +79,32 @@ export const SETTINGS_GROUPS = Object.freeze([
     /* 'Research' became 'Research & Agents' on 2026-08-20. The name is the key
        this map is looked up by, so the two must move together: a section whose
        name is not in any group renders UNGROUPED, which on this page means it
-       is not on it. */
+       is not on it.
+
+       THIS MAP IS NOT THE ONLY THING A RENAME HAS TO MOVE, and the rest of it
+       is easy to miss because none of it is in this file. MEASURED 2026-08-22,
+       while the group level above was being reorganised and every reference had
+       to be checked: section names are spelled out in SEVENTEEN sentences a
+       person reads, across three files -- thirteen turnOnAt paths in
+       src/permission-guidance.js, two in src/setup-profile-settings.js, two in
+       src/views/setup.js -- plus seven comments elsewhere. Group LABELS appear
+       in none of them, which is exactly why relabelling a group costs nothing
+       and renaming a section costs a sweep.
+
+       TWO STRINGS WEAR THE SAME SHAPE AND MUST NOT BE RENAMED.
+       src/account-reset-copy.js:73 and :270 read "Windows Settings → Apps".
+       They say how to uninstall through Windows; they are not a route into this
+       page. :73 is split across a concatenation, so a line-based edit sees a
+       dangling "Windows Settings → " with "Apps" opening the next line -- the
+       shape most likely to be helpfully completed with a section name. Both sit
+       on the delete-everything screen, read by somebody who has just wiped
+       their data and is trying to finish leaving, which is the worst place in
+       this product to be sent somewhere that does not exist. Filter those two
+       out before anything pattern-based runs.
+
+       src/permission-guidance.js:514 is the artefact of this going wrong once
+       already: a turnOnAt that outlived its section and pointed at
+       "Settings → Developer", a heading that was not there. */
     sections: Object.freeze(['Research & Agents', 'Write']),
   }),
   Object.freeze({
