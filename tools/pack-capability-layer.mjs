@@ -386,10 +386,27 @@ async function main() {
         '\nRemove them, or fix the expression they were meant to match.',
     )
   }
-  if (closure.unresolved.length) {
+  /* A NEUTRAL DEFAULT IS RESOLVED BY THE DEFAULT, NOT BY THE SOURCE.
+     The walker resolves every declared dynamic-require target against the
+     source tree. config/agent-org.json is such a target -- and it is also a
+     neutralDefault: it ships from capability-defaults/, never from the source,
+     because in a builder's checkout that path holds the builder's own org and
+     in the published engine it deliberately does not exist at all. Demanding a
+     source copy therefore meant the payload worktree had to carry an untracked
+     file -- which require-clean-tree then refused, rightly, as bytes git
+     history could not reproduce. So a target that the manifest already names
+     as a neutral default, and that capability-defaults/ actually holds, counts
+     as resolved: the payload WILL contain it, from the place the manifest says.
+     Anything else unresolved is still the hard refusal it always was. */
+  const neutralByPath = new Set(manifest.neutralDefaults || [])
+  const unresolved = closure.unresolved.filter((entry) => {
+    const relative = String(entry.spec).split(path.sep).join('/')
+    return !(neutralByPath.has(relative) && existsSync(path.join(DEFAULTS_DIR, relative)))
+  })
+  if (unresolved.length) {
     throw new Error(
       'the capability closure has unresolved requires; staging a payload that cannot load is worse than not staging one:\n  ' +
-        closure.unresolved.map((entry) => `${entry.from} -> ${entry.spec}`).join('\n  '),
+        unresolved.map((entry) => `${entry.from} -> ${entry.spec}`).join('\n  '),
     )
   }
   if (closure.external.length) {
