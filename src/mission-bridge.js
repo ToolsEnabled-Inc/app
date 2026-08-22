@@ -375,16 +375,53 @@ export async function bridgeTransportAvailable({ reask = false } = {}) {
  * exist until a session and a machine pair do, and a check at import would
  * settle the answer as "none" before either was true. */
 let hostTransportAsked = false
+/* THE ASK IN FLIGHT, so that everyone who arrives during it waits for the same
+ * answer instead of reading the flag and concluding there is none.
+ *
+ * THIS IS THE BUG THAT MADE THE WEB JOURNEY LOOK BROKEN, and it is worth
+ * writing down because nothing about it looks like a bug. Two callers reach
+ * here on every page load: the app's first bridge request, and the data-source
+ * resolver deciding relay-versus-mock. The first sets the flag and waits out a
+ * handshake to the person's machine. The second arrives a moment later, sees
+ * `hostTransportAsked` already true, returns immediately -- and its caller then
+ * reads `transport`, which is still null BECAUSE THE ANSWER HAS NOT ARRIVED
+ * YET, and settles the whole page on 'mock'.
+ *
+ * So a machine that answered in two seconds was reported as absent, the browser
+ * drew the labelled example, and every diagnostic agreed with it: the relay
+ * logged a session, the machine logged the web session opening, the console
+ * carried no error, and the page was still wrong. Measured on the live site on
+ * 2026-08-22 with a machine whose leg opened the web session two seconds after
+ * the page loaded.
+ *
+ * The flag alone can only say "somebody has asked". What a second caller needs
+ * is "somebody has asked, AND here is that answer when it lands". */
+let hostTransportInFlight = null
 
 async function hostTransport() {
-  if (hostTransportAsked || transport) return
+  if (transport) return
+  /* Awaited BEFORE the flag is consulted, and by re-askers too: a `reask` that
+     cleared the flag while an ask was still running would start a second one
+     against the same machine, and two handshakes racing to install a transport
+     is a worse answer than waiting for the first. */
+  if (hostTransportInFlight) return hostTransportInFlight
+  if (hostTransportAsked) return
   hostTransportAsked = true
   const ask = globalThis.window?.mcShell?.getBridgeTransport
   if (typeof ask !== 'function') return
+  hostTransportInFlight = (async () => {
+    try {
+      const offered = await ask()
+      if (typeof offered === 'function') transport = offered
+    } catch { /* a host that cannot answer gets the local path, as before */ }
+  })()
   try {
-    const offered = await ask()
-    if (typeof offered === 'function') transport = offered
-  } catch { /* a host that cannot answer gets the local path, as before */ }
+    await hostTransportInFlight
+  } finally {
+    /* Cleared so a later `reask` -- a sign-in, a machine that has just come
+       back -- can ask again. The answer it produced lives in `transport`. */
+    hostTransportInFlight = null
+  }
 }
 
 async function request(pathname, { method = 'GET', body = null, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
