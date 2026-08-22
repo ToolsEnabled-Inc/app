@@ -195,7 +195,14 @@ test('the fence module loads without pulling electron into the module graph', ()
    above pins that a packaged shell can no longer produce the dangerous one. ---- */
 
 const shellReporting = endpoint => ({
-  location: { search: '' },
+  /* The hostname is load-bearing since the public-origin gate (mission-bridge's
+     pageMayReachLoopback): a page that is not on loopback never reaches for a
+     bridge at all, whatever the shell reports. The desktop shell serves the
+     renderer from http://127.0.0.1:<port> (shell/main.cjs, shellOrigin), so
+     THAT is the context these desktop-path tests describe; without it the gate
+     correctly refuses BRIDGE_FORBIDDEN_ON_PUBLIC_ORIGIN and the test measures
+     the gate instead of the path it meant to. */
+  location: { search: '', hostname: '127.0.0.1' },
   mcShell: {
     getBridgeProof: async () => ({ ok: true, proof: PROOF_TOKEN }),
     getBridgeEndpoint: async () => endpoint,

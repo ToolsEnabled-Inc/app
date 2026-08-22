@@ -216,11 +216,15 @@ test('every rail rebuild disposes the mounted chat first', () => {
     )
     from = at + 1
   }
-  /* Four sites: showTreeNodeControls, showExampleAgentControls (the example
-     seat's rail, in the tree rail's shape), showProjectionControls, and
-     showProjectionUnavailable's wipe. The simulated-only 'Agent Controls'
-     rail's rebuild died with the second render. */
-  assert.ok(sites >= 4, `expected every rail rebuild to be checked; found ${sites}`)
+  /* Three sites: showTreeNodeControls, showProjectionControls, and
+     showProjectionUnavailable's wipe. This floor was four when the example
+     seat had a rail of its own (showExampleAgentControls); the approved
+     mock-data architecture removed it -- the simulation drives the SAME tree
+     rail through the sample tree store now, so its rebuilds are the first
+     site's rebuilds and there is no fourth body to check. The floor exists so
+     a NEW rebuild site cannot appear unchecked; if it reads high, count the
+     controlsPage.innerHTML sites before touching it. */
+  assert.ok(sites >= 3, `expected every rail rebuild to be checked; found ${sites}`)
 })
 
 test('the settings-driven chat box disposes before it re-renders', () => {

@@ -439,7 +439,12 @@ test('authenticated bridge adapter uses the bounded owner-prompt read and action
   const calls = []
   resetBridgeSession()
   globalThis.window = {
-    location: { search: '?bridge=http%3A%2F%2F127.0.0.1%3A4610' },
+    /* hostname is required since the public-origin gate: ?bridge= is the
+       developer override and it is only honoured on a loopback page -- on any
+       other origin the gate refuses before the query string is read, which is
+       the point of the gate. This fixture describes the desktop renderer,
+       served from http://127.0.0.1:<port> (shell/main.cjs, shellOrigin). */
+    location: { search: '?bridge=http%3A%2F%2F127.0.0.1%3A4610', hostname: '127.0.0.1' },
     mcShell: { getBridgeProof: async () => ({ ok: true, proof }) },
   }
   globalThis.fetch = async (url, options) => {

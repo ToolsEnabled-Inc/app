@@ -286,11 +286,35 @@ test('a conversation is only ever offered where there is one', () => {
     const view = describeHome(input)
     const couldTalk = view.mode === HOME_MODES.SAMPLE || view.mode === HOME_MODES.FLEET
     if (!couldTalk) assert.equal(view.panel.context, false, `context claimed with ${label}`)
-    /* The demonstration is a labelled example, so this computer's real record
-       of runs is never mixed into it. Half a box being true is worse than a box
-       that says what it is. */
-    if (view.mode === HOME_MODES.SAMPLE) assert.equal(view.panel.runs, false, `real runs inside an example with ${label}`)
+    /* The demonstration is a labelled example. This pinned panel.runs === false
+       here -- the honesty rule ("this computer's record never appears inside a
+       box badged as an example") implemented as the example showing no record
+       at all. describeHome now substitutes the example's OWN record instead
+       (src/local-activity.js, the swap above pickMode), so runs may show; what
+       must still never happen is the substitution failing. That is pinned by
+       the test below, which is strictly stronger than the empty box was. */
+    if (view.mode === HOME_MODES.SAMPLE) {
+      assert.equal(view.panel.badge, 'Example, not your data', `an example without its badge with ${label}`)
+    }
   }
+})
+
+test("the example's record is its own: this computer's record cannot reach it", () => {
+  /* The strongest observable form of the substitution: whatever record the
+     caller passes in, the demonstration renders IDENTICALLY. If any sentence,
+     count, clock or panel flag ever varied with this computer's sessions, the
+     example would be leaking the real machine into a box labelled example --
+     the exact failure the old runs===false rule existed to prevent. */
+  const base = { sample: true, chatbox: { runsMode: 'with' }, nowMs: NOW }
+  const quietMachine = describeHome({ ...base, sessions: readLocalSessions(historyReply(0)) })
+  const busyMachine = describeHome({ ...base, sessions: readLocalSessions(historyReply(7)) })
+  const unverified = describeHome({ ...base, sessions: readLocalSessions(historyReply(3, false)) })
+  assert.deepEqual(busyMachine, quietMachine,
+    "seven real runs changed the example's rendering; the substitution in describeHome is not holding")
+  assert.deepEqual(unverified, quietMachine,
+    "an unverifiable real record changed the example's rendering; the substitution is not holding")
+  assert.equal(quietMachine.mode, HOME_MODES.SAMPLE)
+  assert.equal(quietMachine.panel.badge, 'Example, not your data')
 })
 
 test('a box asked to show nothing says so, and offers the way back', () => {

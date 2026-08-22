@@ -142,10 +142,7 @@
     "src/views/computers.js\tjargon\tPause unavailable: the audited bridge has no pause action, and a running lane cannot be suspended.",
     "src/views/computers.js\tjargon\taction bridge unreachable",
     "src/views/computers.js\tlong-sentence\tIt is not durable across a restart, and closing the window ends the schedule — though any run already going is still bounded by its own cap.",
-    "src/views/computers.js\tlong-sentence\tNo launch controls on this board this is the example fleet, and nothing here starts anything Launch, team and loop controls are left out of the example on purpose, so that nothing on a demonstration screen can start a real agent.",
     "src/views/metrics.js\tdead-end\tFailure by lane",
-    "src/views/metrics.js\tdead-end\tFailure rate",
-    "src/views/metrics.js\tlong-sentence\tfailure % same window · crosshair synced Fleet activity by hour · 7 days Review verdicts this week Failure by lane rolling 24 h < 2% 2–5% > 5% Machine heartbeat two machines · rolling live signal",
     "src/views/research.js\tdead-end\tFailure categories",
     "src/views/research.js\tdead-end\tFailure category unavailable.",
     "src/views/research.js\tdead-end\tFinding text unavailable.",
@@ -164,5 +161,5 @@
     "src/views/research.js\tjargon\tCorpus catalog",
     "src/views/subscribe.js\tlong-sentence\tsubscribe Plans cannot be shown right now This page will not guess what a plan costs or what it includes, so it is showing you nothing rather than showing you something it cannot stand behind."
   ],
-  "updated": "2026-08-20T01:41:13.805Z"
+  "updated": "2026-08-22T01:42:58.389Z"
 }

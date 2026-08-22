@@ -468,7 +468,7 @@ export function researchView() {
           <section class="research-section" aria-labelledby="research-designer-title" data-mc="designer">
             <div class="research-section-head">
               <h2 id="research-designer-title">Experiment designer</h2>
-              <p>Define a run: the task each worker gets, the dataset path they read, the model tiers, and runs per tier. Workers start as nodes on the computers page.</p>
+              <p>Define a run: the task, the dataset path, the model tiers, and runs per tier. Workers start as nodes on the computers page.</p>
             </div>
             <div data-research-designer aria-live="polite">
               <p class="research-observed-empty">Reading your experiments.</p>

@@ -228,7 +228,7 @@ export async function configuredBaseUrl() {
   if (!pageMayReachLoopback()) {
     return {
       ok: false,
-      reason: 'this page is served from a public origin, so it will not look for a bridge on the computer it is running on; a signed-in page reaches your own machine through its relay transport instead',
+      reason: 'This page is on a public origin, so it will not look for a bridge on the computer in front of you. A signed-in page reaches your own machine through its relay transport.',
       code: 'BRIDGE_FORBIDDEN_ON_PUBLIC_ORIGIN',
     }
   }
