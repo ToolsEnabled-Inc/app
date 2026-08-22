@@ -97,3 +97,35 @@ test('the computers view prefers the bridge reason over the install sentence', a
   const installs = body.indexOf('Install ToolsEnabled on your computer')
   assert.ok(asks < installs, 'the bridge reason must win when there is one')
 })
+
+/* THE CHANNEL IS NOT THE FIX. The first version of this shipped with the
+   sentence reaching `window` perfectly and the screen never changing, because
+   the page had been drawn half a minute before the answer arrived. These hold
+   the half that repaints it. */
+test('the view listens for the host fallback event', async () => {
+  const source = await readFile(path.join(ROOT, 'src', 'views', 'computers.js'), 'utf8')
+  assert.ok(
+    source.includes('HOST_FALLBACK_EVENT'),
+    'the computers view must listen for the host fallback announcement, or the reason arrives after the paint and is never drawn',
+  )
+  assert.ok(
+    /addEventListener\(HOST_FALLBACK_EVENT/.test(source),
+    'the event must actually be subscribed to, not merely imported',
+  )
+  assert.ok(
+    /removeEventListener\(HOST_FALLBACK_EVENT/.test(source),
+    'the subscription must be torn down with the view',
+  )
+})
+
+test('the host fallback event is not the data-source event', async () => {
+  const { HOST_FALLBACK_EVENT, DATA_SOURCE_EVENT } = await import(
+    new URL('../../src/data-source.js', import.meta.url).href
+  )
+  /* Reusing DATA_SOURCE_EVENT makes every open view re-resolve; the verdict is
+     still 'mock', the re-resolve starts another handshake, and its failure
+     announces again -- once every thirty seconds, forever. */
+  assert.notEqual(HOST_FALLBACK_EVENT, DATA_SOURCE_EVENT)
+  assert.equal(typeof HOST_FALLBACK_EVENT, 'string')
+  assert.ok(HOST_FALLBACK_EVENT.length > 0)
+})

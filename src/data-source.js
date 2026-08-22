@@ -148,6 +148,12 @@ export function previewWithoutHost(source = resolved) {
  * fallback rather than rendering a blank. The length bound is there because
  * this string is drawn: a bridge that somehow published a paragraph should not
  * be able to reshape a page. */
+/* The host saying "I now know why I could not reach a machine", which it does
+   AFTER the page it affects has been drawn -- see the note in host-bridge.js
+   for why this cannot be DATA_SOURCE_EVENT. Views that draw the sentence
+   listen and repaint; nothing re-resolves. */
+export const HOST_FALLBACK_EVENT = 'mc:host-fallback-changed'
+
 export function hostFallbackSentence() {
   try {
     const published = globalThis.window?.mcHostFallback

@@ -10,7 +10,7 @@ import { StaticTreeGraph } from '../tree-graph.js'
    ask the host for a transport; DATA_SOURCE_EVENT is the host saying the world
    changed (sign-in, sign-out, the example toggle), on which this view
    re-resolves and remounts. */
-import { resolveDataSource, currentDataSource, previewWithoutHost, hostFallbackSentence, DATA_SOURCE_EVENT } from '../data-source.js'
+import { resolveDataSource, currentDataSource, previewWithoutHost, hostFallbackSentence, DATA_SOURCE_EVENT, HOST_FALLBACK_EVENT } from '../data-source.js'
 /* The example fleet, in exactly the `{computers, graph}` shape mountProjection
    consumes — see src/sample-fleet.js for why it is copied literals rather than
    anything imported from the modules being deleted. When the source is mock,
@@ -6275,6 +6275,21 @@ export function computersView({ initialComputer = null, navigate }) {
   }
   window.addEventListener(DATA_SOURCE_EVENT, onDataSourceChange)
   unsubs.push(() => window.removeEventListener(DATA_SOURCE_EVENT, onDataSourceChange))
+
+  /* THE REASON ARRIVES AFTER THE SCREEN DOES, so the screen has to be told.
+     The host answers "why is there no machine" a handshake later than this
+     view draws its guess, and the guess it drew -- install ToolsEnabled -- is
+     the wrong sentence for somebody who already has it. Remounting is safe
+     precisely here: the only surface this can repaint is the example fleet
+     with no host behind it, where there is nothing of the person's to
+     interrupt. It fires once, because host-bridge only announces a sentence
+     that changed. */
+  const onHostFallbackChange = () => {
+    if (destroyed || source !== 'mock') return
+    mountMockFleet()
+  }
+  window.addEventListener(HOST_FALLBACK_EVENT, onHostFallbackChange)
+  unsubs.push(() => window.removeEventListener(HOST_FALLBACK_EVENT, onHostFallbackChange))
 
   /* A SESSION THAT STARTS WHILE THIS PAGE IS OPEN IS DRAWN WITHOUT A RELOAD.
    *
