@@ -791,13 +791,36 @@ test('main.cjs answers enrolment from the vault instead of a flat false', () => 
 
 test('main.cjs asks the vault before it decides whether to start the relay leg', () => {
   const source = fs.readFileSync(MAIN_FILE, 'utf8')
-  const start = source.indexOf('if (relayMachineIsEnrolled()) relaySupervisor.start()')
-  assert.ok(start > 0, 'the relay leg start path is gone')
-  const preceding = source.slice(Math.max(0, start - 1200), start)
+  /* The start path is a block now -- the predicate, then the facade is armed,
+     then start() -- so the pin matches the shape with whitespace collapsed
+     rather than one literal line. What it holds: the vault is asked BEFORE the
+     predicate is consulted. */
+  const flat = source.split('').map(c => (c === ' ' || c === String.fromCharCode(9) || c === String.fromCharCode(10) || c === String.fromCharCode(13)) ? ' ' : c).join('').replace(/ +/g, ' ')
+  const start = flat.indexOf('if (relayMachineIsEnrolled()) { await armRelayFacade() relaySupervisor.start()')
+  assert.ok(start > 0, 'the relay leg start path is gone, or no longer arms the facade before starting')
+  const preceding = flat.slice(Math.max(0, start - 1200), start)
   assert.ok(
     preceding.includes('await deviceClaim.status()'),
     'the predicate is consulted before the vault has been asked, so an enrolled machine stays dark until relaunch',
   )
+})
+
+test('every path that starts the relay leg arms the agent facade first', () => {
+  /* The first real end-to-end run printed "relay leg started without an agent
+     facade" on both machines: the leg ran, and every mcAgent call over the
+     relay answered AGENT_FACADE_ABSENT, because the supervisor was built with
+     facade: null and nothing ever awaited listen(). Every start() call site
+     must now be preceded by `await armRelayFacade()`, and the supervisor must
+     be handed a resolver rather than null. */
+  const source = fs.readFileSync(MAIN_FILE, 'utf8')
+  assert.ok(/facade:\s*\(\)\s*=>\s*relayFacadeCredentials/.test(source), 'the supervisor is not handed the facade credential resolver')
+  assert.ok(!/facade:\s*null/.test(source.slice(source.indexOf('createRelaySupervisor({'))), 'the supervisor is still built with facade: null')
+  const starts = [...source.matchAll(/relaySupervisor\.start\(\)/g)].map(m => m.index)
+  assert.ok(starts.length >= 2, `expected at least the startup and the poll start sites, found ${starts.length}`)
+  for (const at of starts) {
+    const before = source.slice(Math.max(0, at - 160), at)
+    assert.ok(before.includes('await armRelayFacade()'), `a relaySupervisor.start() at offset ${at} is not preceded by await armRelayFacade() -- the leg would run without the facade again`)
+  }
 })
 
 test('every device-claim channel goes through the trusted-sender guard', () => {

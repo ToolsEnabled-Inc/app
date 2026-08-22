@@ -3886,10 +3886,32 @@ function relayMachineIsEnrolled() {
    NOTHING ABOUT THIS REACHES THE RENDERER. There is no IPC channel for its
    status, no preload surface, and the facade credentials it would carry are
    never in this process's reply to any window. */
+/* THE FACADE CREDENTIALS THE RELAY LEG CARRIES, held here and refreshed by
+   armRelayFacade() before every start(). The supervisor resolves them at spawn
+   time through the function below; it cannot await, so the awaiting happens
+   one step earlier, on the two paths that start the leg. Until the first
+   listen() this is null and the leg would run "without an agent facade" --
+   which is exactly what the first real end-to-end run printed, on both
+   machines, with every mcAgent call over the relay answering
+   AGENT_FACADE_ABSENT. The supervisor's header called this join "one line at
+   the start path". This is that line, and the lines it needs. */
+let relayFacadeCredentials = null
+async function armRelayFacade() {
+  try {
+    if (!agentFacade) getAgentCommandSurface()
+    relayFacadeCredentials = await agentFacade.listen()
+  } catch (error) {
+    /* A facade that cannot bind is a machine that cannot be driven, not a
+       reason to hold the relay leg back: the leg still answers reads the
+       relay shell serves itself, and the log says why writes will not work. */
+    relayFacadeCredentials = null
+    console.error(`[relay-leg] the agent facade did not come up: ${error && error.code ? error.code : 'unknown'}`)
+  }
+}
 const relaySupervisor = createRelaySupervisor({
   spawn: spawnChildProcess,
   resolvePayloadRoot: resolveCapabilityRoot,
-  facade: null,
+  facade: () => relayFacadeCredentials,
   isEnrolled: relayMachineIsEnrolled,
   /* Stated, not inherited -- the same reason the capability layer's own
      stateRoot is stated below: a relocated profile is exactly the case where
@@ -3934,6 +3956,7 @@ ipcMain.handle('mc-device-claim:poll', async (event) => {
   assertTrustedAgentSender(event)
   const answer = await deviceClaim.poll()
   if (answer && answer.ok === true && answer.state === 'connected' && relayMachineIsEnrolled()) {
+    await armRelayFacade()
     relaySupervisor.start()
   }
   return answer
@@ -4063,7 +4086,10 @@ function startSupervisedCapabilityLayer() {
        swallowed: a vault this shell cannot read is a leg that does not start,
        which is what the predicate would have said anyway. */
     try { await deviceClaim.status() } catch { /* the predicate stays false */ }
-    if (relayMachineIsEnrolled()) relaySupervisor.start()
+    if (relayMachineIsEnrolled()) {
+      await armRelayFacade()
+      relaySupervisor.start()
+    }
 
     return capabilityLayerStatus
   })()
