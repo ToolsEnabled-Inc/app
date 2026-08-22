@@ -530,6 +530,49 @@ test('a code this shell has never heard of becomes REFUSED rather than a new bra
   assert.equal(CODE_VALUES.includes(refused.code), true)
 })
 
+/* THE SERVICE'S OWN REFUSALS, EACH ANSWERED AS ITSELF.
+ *
+ * online-fra-device-claim.js forwards `body.error.code` verbatim when the
+ * account service refuses a claim, so what reaches this shell is the SERVICE's
+ * word. None of these five were in the shell's table, so every one of them
+ * became "The account service refused the request." -- the same nine words for
+ * having tried too often, for the service being overloaded, and for us not
+ * being able to serve the person's country at all. Three different answers with
+ * three different next steps, and only one of them anything the person did.
+ *
+ * The sentence must also say whose fault it is. A person who has done nothing
+ * wrong and is told only that they were "refused" reads it as their account
+ * being broken, and the ones that are not their fault say so out loud. */
+test('each refusal the account service can send is answered as itself, not as a generic no', async () => {
+  const expected = [
+    ['RATE_LIMITED', CODES.TOO_MANY_TRIES, /ten minutes/i],
+    ['CLAIM_CAPACITY', CODES.SERVICE_BUSY, /busy/i],
+    ['REGION_REFUSED', CODES.REGION_REFUSED, /country/i],
+    ['NO_DEVICE_CLAIMS', CODES.NOT_OFFERED, /connect computers by code/i],
+    ['CLAIM_UNKNOWN', CODES.GONE, /no longer open/i],
+  ]
+  const seen = new Set()
+  for (const [serviceCode, shellCode, sentence] of expected) {
+    const { claim } = claimUnderTest({
+      script: [answers({ error: { code: serviceCode, message: 'a sentence from the service' } }, { exitCode: 1 })],
+    })
+    const refused = await claim.begin({ name: 'Desk PC' })
+    assert.equal(refused.ok, false)
+    assert.equal(refused.code, shellCode,
+      `${serviceCode} still collapses to a generic refusal; the person cannot tell it from any other no`)
+    assert.equal(CODE_VALUES.includes(refused.code), true)
+    assert.match(refused.reason, sentence,
+      `${shellCode}'s sentence does not say what actually happened`)
+    /* The service's sentence is still thrown away -- text from a remote service
+       must not render in this window, whatever the code beside it says. */
+    assert.equal(refused.reason.includes('a sentence from the service'), false,
+      "the account service's own text reached the renderer")
+    assert.equal(seen.has(refused.reason), false,
+      `${shellCode} reuses another refusal's sentence, so it reads as the same answer`)
+    seen.add(refused.reason)
+  }
+})
+
 test('every refusal this module can produce is a member of the closed set and has a sentence', async () => {
   const produced = new Set()
   const collect = (reply) => { if (reply && reply.ok === false) produced.add(reply.code) }

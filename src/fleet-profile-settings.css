@@ -154,6 +154,54 @@
   transform: none;
 }
 
+/* THE SIGN-IN SCREEN NEVER GOT THAT RULE, AND A CUSTOMER FOUND OUT.
+ *
+ * The owner installed 1.0.26 from the site, opened it, pressed "Sign in with
+ * Google" and nothing happened. Measured in the running window, on the row
+ * src/account-markup.js googleOptionMarkup() renders when this copy has no
+ * Google application id: the button carried `disabled`, and its computed style
+ * was `cursor: pointer`, `opacity: 1`, the full white .ctl-btn card, --elev-1,
+ * and the base `.ctl-btn:hover` lifting it 1px under the pointer. It was
+ * pixel-for-pixel a live control. Pressing it did nothing, because a disabled
+ * button eats the click -- so the product looked broken rather than
+ * unconfigured, which is exactly what was reported.
+ *
+ * THE RULE ABOVE DID NOT APPLY because this row is not inside
+ * `.fleet-profile-section`. The sign-in question renders into
+ * `section.settings-section.setup-section` on BOTH surfaces it appears on --
+ * [data-account-section] in src/views/account.js and [data-setup-section] in the
+ * first-run walkthrough -- and every `.ctl-btn:disabled` rule in the product is
+ * scoped to somewhere else: .board-page, .computers .stats-page,
+ * .agentv-panels .ctl-actions, and the one above. Verified in the SHIPPED
+ * artifact, not just the tree: all seven occurrences in
+ * resources/app.asar are scoped away from this screen.
+ *
+ * src/connect-computer-settings.css already wrote this finding down once --
+ * "A BUTTON THAT IS BUSY HAS TO LOOK BUSY, and until this rule there was no
+ * .ctl-btn styling anywhere for either kind of off" -- and fixed it for its own
+ * section only. This is the same defect on the screen a stranger meets first.
+ *
+ * THE HOVER LINE IS NOT REDUNDANT. `.ctl-btn:hover` in styles.css is
+ * unconditional: without neutralising it, a button dimmed by the block above
+ * still brightens, darkens its ink and rises when the pointer crosses it, which
+ * is the one moment a person is deciding whether it can be pressed.
+ *
+ * SCOPED TO THE ROW, DELIBERATELY. The rest of this screen has the same hole --
+ * "Create account", "Sign in" and "Not now" all render `disabled` while a
+ * sign-in is in flight and all three keep the live treatment. That is a wider
+ * repair on somebody else's surface; this closes the one a customer reported.
+ */
+[data-google-signin] .ctl-btn:disabled,
+[data-google-signin] .ctl-btn:disabled:hover {
+  cursor: not-allowed;
+  opacity: .48;
+  transform: none;
+  box-shadow: none;
+  background: rgba(255,255,255,calc(0.62 * var(--wa)));
+  border-color: var(--line);
+  color: var(--ink-2);
+}
+
 .fleet-profile-empty {
   margin: 0;
   padding: var(--s3) 0;

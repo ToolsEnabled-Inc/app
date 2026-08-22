@@ -97,6 +97,14 @@ const CODES = Object.freeze({
   UNREACHABLE: 'DEVICE_CLAIM_UNREACHABLE',
   CREDENTIAL_INVALID: 'DEVICE_CLAIM_CREDENTIAL_INVALID',
   REFUSED: 'DEVICE_CLAIM_REFUSED',
+  /* FOUR REFUSALS THAT ARE NOT THE SAME REFUSAL. They all used to arrive as
+     REFUSED -- "The account service refused the request." -- which tells a
+     person nothing they can act on. Each of these has a different next step,
+     and three of the four are not the person's fault at all. */
+  TOO_MANY_TRIES: 'DEVICE_CLAIM_TOO_MANY_TRIES',
+  SERVICE_BUSY: 'DEVICE_CLAIM_SERVICE_BUSY',
+  REGION_REFUSED: 'DEVICE_CLAIM_REGION_REFUSED',
+  NOT_OFFERED: 'DEVICE_CLAIM_NOT_OFFERED',
 })
 const CODE_VALUES = Object.freeze(Object.values(CODES))
 
@@ -119,6 +127,10 @@ const REASONS = Object.freeze({
   [CODES.UNREACHABLE]: 'The account service did not answer. Check this computer’s internet connection and try again.',
   [CODES.CREDENTIAL_INVALID]: 'What this computer holds for its account is not readable. Connect this computer again.',
   [CODES.REFUSED]: 'The account service refused the request.',
+  [CODES.TOO_MANY_TRIES]: 'This computer has asked to connect too many times in a row. Wait about ten minutes and try again — nothing is wrong with your account.',
+  [CODES.SERVICE_BUSY]: 'The account service is busy and could not start a connection just now. Try again in a few minutes; this is us, not you.',
+  [CODES.REGION_REFUSED]: 'ToolsEnabled cannot connect a computer from this country yet. Nothing is wrong with your account.',
+  [CODES.NOT_OFFERED]: 'This account service is not set up to connect computers by code. If you are pointing the app somewhere other than toolsenabled.ai, that is why.',
 })
 
 /* THE ENGINE ERROR CODES THIS MODULE PASSES THROUGH BY NAME. Anything the
@@ -135,6 +147,22 @@ const CHILD_CODE_MAP = Object.freeze({
   DEVICE_CLAIM_REFUSED: CODES.REFUSED,
   CLI_USAGE: CODES.REFUSED,
   CLI_FAILED: CODES.REFUSED,
+  /* THE ACCOUNT SERVICE'S OWN CODES, WHICH REACH THIS TABLE UNCHANGED.
+     online-fra-device-claim.js forwards `body.error.code` verbatim when a claim
+     is refused, so what arrives here is the service's word, not the engine's.
+     None of these five were in this table, so all five became REFUSED and the
+     person was told "the account service refused the request" whether they had
+     tried too often, whether the service was overloaded, or whether we cannot
+     serve their country at all -- three different answers with three different
+     next steps, and only one of them anything they did.
+     The CODE is what is mapped; the service's SENTENCE is still thrown away, as
+     translateChildError says and means. Text from a remote service must not
+     render in this window, and these sentences are ours. */
+  RATE_LIMITED: CODES.TOO_MANY_TRIES,
+  CLAIM_CAPACITY: CODES.SERVICE_BUSY,
+  REGION_REFUSED: CODES.REGION_REFUSED,
+  NO_DEVICE_CLAIMS: CODES.NOT_OFFERED,
+  CLAIM_UNKNOWN: CODES.GONE,
 })
 
 /* HOW LONG EACH VERB MAY TAKE. `status` is a vault read: the engine's runtime
