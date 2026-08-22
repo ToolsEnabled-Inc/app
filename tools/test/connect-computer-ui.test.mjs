@@ -39,6 +39,7 @@ import {
   pollSeconds,
   reduce,
   remainingText,
+  repaintNeeded,
 } from '../../src/device-claim-flow.js'
 import {
   createConnectComputerSettings,
@@ -257,6 +258,30 @@ test('a claim this screen cannot show the code for offers a fresh one', () => {
   assert.equal(clockShouldRun(restarted), false)
 })
 
+test('a pending answer moves the state but draws nothing, so a selection survives it', () => {
+  /* MEASURED IN A BROWSER before this rule existed: the section was rebuilt
+     every two seconds on the service's own cadence, and the rebuild replaced
+     the code field -- so somebody part-way through selecting their code lost
+     the selection, silently, over and over. The code stayed on the screen,
+     which is what makes it the kind of defect nobody reports. */
+  const waiting = afterBegin({ intervalSeconds: 2 })
+  const later = reduce(waiting, { type: 'poll-result', nowMs: NOW + 2000, result: { ok: true, state: 'pending', intervalSeconds: 2 } })
+  assert.notEqual(later, waiting, 'the schedule really did move')
+  assert.equal(repaintNeeded(waiting, later), false, 'and nothing a person sees moved with it')
+
+  const typed = reduce(waiting, { type: 'name-changed', name: 'Other' })
+  assert.equal(repaintNeeded(waiting, typed), false, 'nor does rewriting the box somebody is typing in')
+
+  for (const change of [
+    reduce(waiting, { type: 'poll-result', nowMs: NOW, result: { ok: true, state: 'connected', device: { name: 'Front desk' } } }),
+    reduce(waiting, { type: 'poll-result', nowMs: NOW, result: { ok: false, code: 'DEVICE_CLAIM_GONE', reason: 'gone.' } }),
+    reduce(waiting, { type: 'poll-result', nowMs: NOW, result: { ok: false, code: 'BRIDGE_ROUTE_UNKNOWN', reason: 'The audited dependency refused the action.' } }),
+    reduce(waiting, { type: 'tick', nowMs: NOW + 999_999 }),
+  ]) {
+    assert.equal(repaintNeeded(waiting, change), true, `this change is on the glass and must repaint: ${change.phase}/${change.endedBecause}`)
+  }
+})
+
 test('reduce returns the SAME object when nothing moved, which is what stops a repaint a second', () => {
   const waiting = afterBegin()
   assert.equal(reduce(waiting, { type: 'tick', nowMs: NOW + 1000 }), waiting)
@@ -442,6 +467,12 @@ test('an already-connected computer shows the state instead of the button, and w
   assert.equal(/data-connect-action="begin"/.test(html), false, 'no button to do what is already done')
   assert.match(html, new RegExp(`sign in at ${ACCOUNT_PAGE_HOST.replace('.', '\\.')} and open your account page`, 'i'),
     'taking it off again is named, and it is not a screen in this application')
+  /* SEEN ON GLASS before this was fixed: with no button drawn anywhere on the
+     row, it still read "Nothing is sent until you press the button" -- a
+     sentence about a control that was not there. */
+  assert.equal(/press the button/.test(html), false,
+    'the row still describes a control that is not on the screen')
+  assert.match(html, /already joined/)
   rig.controller.destroy()
 })
 

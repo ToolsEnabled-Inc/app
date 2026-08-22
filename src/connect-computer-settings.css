@@ -46,9 +46,12 @@
   border-radius: var(--r-sm);
 }
 
+/* --s2, not --s1, and it is measured rather than chosen: the focused code's
+   outline sits 4px outside its box, and at a 4px gap the ring's lower edge
+   landed exactly on the countdown line under it. */
 .connect-code-wrap {
   display: grid;
-  gap: var(--s1);
+  gap: var(--s2);
   min-width: 0;
 }
 

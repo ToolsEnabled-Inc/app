@@ -296,6 +296,22 @@ const FAMILY_REMEDY = Object.freeze([
   Object.freeze([/^(CLOUD_|CODEX_CLOUD_)/, 'Nothing was launched and nothing was spent. Check the account and environment chosen above, then try again.']),
   Object.freeze([/^LOOP_/, 'Nothing further was started. Look at the fleet page to see what is already running before starting more.']),
   Object.freeze([/^(AGENT_|SETUP_|CODEX_)/, 'Nothing was started. Open the agent page to see what this copy needs before trying again.']),
+  /* CONNECTING THIS COMPUTER, whose fourteen codes all arrive from
+     shell/device-claim.cjs with a diagnosis that ALREADY ENDS IN ITS OWN
+     REMEDY -- "Updating the app is what fixes it", "Remove it on the account
+     page first", "Use up to 64 ordinary characters". Without an entry here
+     every one of them fell to GENERIC_REMEDY and was handed a second remedy
+     contradicting the first: a name that is too long was answered with "close
+     ToolsEnabled and open it a second time", which is the precise mistake the
+     LAUNCH_ family above exists to stop. So this floor says only what is true
+     of all fourteen and CANNOT CONTRADICT ANY OF THEM -- the two places a
+     person can look -- and leaves the specific cure to the sentence the shell
+     already wrote. A first draft of this line said "nothing was sent and this
+     computer was not joined", which reads as a flat denial of the diagnosis it
+     follows on ALREADY_CONNECTED. A floor sentence is appended to refusals
+     nobody has read together, so it may only say what is true of all of
+     them. */
+  Object.freeze([/^DEVICE_CLAIM_/, 'Open your account page to see which computers are joined to your account; a new code comes from this screen.']),
   Object.freeze([/^(MC_ACCOUNT_|ACCOUNT_)/, 'Nothing was recorded. Open Settings, check who is signed in on this computer, then come back to this page.']),
 ])
 

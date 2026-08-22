@@ -47,6 +47,7 @@ import {
   pollDue,
   reduce,
   remainingText,
+  repaintNeeded,
 } from './device-claim-flow.js'
 /* THE STYLESHEET IS IMPORTED BY THE PAGE, NOT BY THIS MODULE, and that is
    the same arrangement chatbox-settings.js and fleet-profile-settings.js
@@ -138,6 +139,23 @@ function statusLine(state) {
     title: 'This computer is not on an account yet',
     detail: 'Nothing has been sent anywhere. Choose a name below and ask for a code.',
   }
+}
+
+/* THE ROW'S OWN SENTENCE MOVES WITH THE STATE, and it had to.
+ *
+ * SEEN ON GLASS: with the computer already on the account and no button drawn,
+ * the row still read "Nothing is sent until you press the button" -- a sentence
+ * about a control that was not there, sitting under a line saying the job was
+ * already done. A description that outlives what it describes is the same
+ * defect as a switch that does nothing; it just fails quietly. */
+function rowDetail(state) {
+  if (state.phase === 'connected') {
+    return 'This computer is already joined. There is nothing to press here, and nothing is sent from this screen.'
+  }
+  if (state.phase === 'waiting' || state.phase === 'orphaned') {
+    return 'Type the code into your browser, on your account page. Your password never passes through this window.'
+  }
+  return 'Nothing is sent until you press the button. The code is shown here and typed on your account page, so your password never passes through this window.'
 }
 
 /* Three different things happened and they are three different sentences. All
@@ -298,7 +316,7 @@ export function createConnectComputerSettings({
         <article class="settings-row fleet-profile-block" data-connect-row>
           <div class="settings-copy">
             <div class="settings-name">Join this computer to your account</div>
-            <div class="settings-desc">Nothing is sent until you press the button. The code is shown here and typed on your account page, so your password never passes through this window.</div>
+            <div class="settings-desc">${esc(rowDetail(state))}</div>
           </div>
           ${bodyMarkup(state, nowMs)}
         </article>
@@ -306,16 +324,18 @@ export function createConnectComputerSettings({
     </section>`
   }
 
-  /* REDRAW ONLY WHEN THE STATE ACTUALLY MOVED. reduce() returns the same object
-     when nothing changed, and the clock ticks once a second, so an unguarded
-     repaint here would rebuild this section sixty times a minute -- under the
-     pointer, and over whatever the person was typing in the name box. */
-  function apply(event, { repaint = true } = {}) {
+  /* REDRAW ONLY ON WHAT A PERSON WOULD SEE CHANGE, which is a narrower rule
+     than "the state moved" and had to be. Measured in a browser: a `pending`
+     answer every two seconds moves nextPollAtMs, which moved the state, which
+     rebuilt the section and took away the selection somebody had just made on
+     their code. repaintNeeded() is that rule, written down where a test can
+     hold it; the clock and the wire still get every change. */
+  function apply(event) {
     const previous = state
     state = reduce(state, event)
     if (state === previous) return false
     syncClock()
-    if (repaint) refresh()
+    if (repaintNeeded(previous, state)) refresh()
     return true
   }
 
@@ -453,13 +473,14 @@ export function createConnectComputerSettings({
     else if (action === 'restart') void cancel({ thenBegin: true })
   }
 
-  /* The typed name is filed WITHOUT a repaint. Rebuilding the section on every
-     keystroke would replace the very input being typed into and throw the caret
-     to the end of it; the name is only read when the button is pressed. */
+  /* The typed name is filed and draws nothing: repaintNeeded() leaves `name`
+     out for exactly this call site. Rebuilding the section on every keystroke
+     would replace the very box being typed into and throw the caret to the end
+     of it; the name is only read when the button is pressed. */
   function handleInput(event) {
     const field = event.target.closest?.('[data-connect-field="name"]')
     if (!field || !hostRoot?.contains(field)) return
-    apply({ type: 'name-changed', name: field.value }, { repaint: false })
+    apply({ type: 'name-changed', name: field.value })
   }
 
   /* Focus selects the whole code, so tab then Ctrl+C is the keyboard route and

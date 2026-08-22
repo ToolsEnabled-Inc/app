@@ -375,6 +375,37 @@ export function reduce(state, event) {
   return state
 }
 
+/**
+ * Whether a state change is one a person would SEE.
+ *
+ * MEASURED ON GLASS, and it is why this function exists. Driving the waiting
+ * state in a real browser: the section was rebuilt every two seconds, because
+ * each `pending` answer moves `nextPollAtMs` and reduce() therefore returns a
+ * new object. The rebuild replaced the code field -- so somebody part-way
+ * through selecting their code to copy it lost the selection, silently, on the
+ * service's cadence. The code was still on the screen, which is what makes it
+ * the kind of defect nobody reports and everybody feels.
+ *
+ * So the section repaints on what is DRAWN and never on the bookkeeping. The
+ * two fields deliberately left out are the ones that must not cause one:
+ *
+ *   nextPollAtMs / intervalSeconds  bookkeeping. Never on the glass.
+ *   name                            it IS drawn, as the box's value -- but the
+ *                                   box already holds what the person typed,
+ *                                   and rewriting it under them is the same
+ *                                   defect with a caret instead of a selection.
+ */
+export function repaintNeeded(previous, next) {
+  if (previous === next) return false
+  return previous.phase !== next.phase
+    || previous.code !== next.code
+    || previous.expiresAtMs !== next.expiresAtMs
+    || previous.endedBecause !== next.endedBecause
+    || previous.refusal !== next.refusal
+    || previous.refusalCode !== next.refusalCode
+    || (previous.device?.name || '') !== (next.device?.name || '')
+}
+
 /** Whether the next ask is due. The section's one interval puts this question
  *  every second rather than arming a timer per cadence, so a service that
  *  changes `intervalSeconds` mid-wait is obeyed on the very next answer. */
