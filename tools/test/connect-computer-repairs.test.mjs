@@ -290,6 +290,37 @@ test('the refusal is drawn once, with the control that produced it, and out loud
   rig.controller.destroy()
 })
 
+test('every state that can carry a refusal draws it exactly once', async () => {
+  /* The section now decides between two places for one node, so the failure
+     this guards is the quiet one: a state whose body forgot to include it and
+     whose top strip had already handed it over. Both of the remaining phases
+     that can hold a refusal are walked, not sampled. */
+  const midWait = harness({
+    bridge: workingBridge({ poll: async () => ({ ok: false, code: 'DEVICE_CLAIM_UNREACHABLE', reason: 'The account service did not answer.' }) }),
+  })
+  await midWait.controller.begin()
+  await midWait.controller.pollOnce()
+  const waitingState = midWait.controller.getState()
+  assert.equal(waitingState.phase, 'waiting', 'one unanswered ask does not end a wait')
+  assert.equal(waitingState.code, CODE, 'and does not take the code off the screen')
+  const waitingHtml = midWait.controller.markup()
+  assert.equal((waitingHtml.match(/data-connect-refusal/g) || []).length, 1)
+  assert.match(waitingHtml, /role="alert"/)
+  midWait.controller.destroy()
+
+  forgetRememberedClaim()
+  const gone = harness({
+    bridge: workingBridge({ poll: async () => ({ ok: false, code: 'DEVICE_CLAIM_GONE', reason: 'That code is no longer open.' }) }),
+  })
+  await gone.controller.begin()
+  await gone.controller.pollOnce()
+  assert.equal(gone.controller.getState().phase, 'ended')
+  const endedHtml = gone.controller.markup()
+  assert.equal((endedHtml.match(/data-connect-refusal/g) || []).length, 1)
+  assert.match(endedHtml, /data-connect-action="restart"/, 'with the way out still under it')
+  gone.controller.destroy()
+})
+
 test('the states that draw no body keep their refusal on the strip at the top', async () => {
   const rig = harness({ bridge: null })
   await rig.controller.checkStatus()
@@ -431,6 +462,34 @@ test('the busy button stays focusable, and stays refused', async () => {
   assert.match(source, /getAttribute\?\.\('aria-disabled'\) === 'true'\) return/,
     'and the handler refuses a press on it rather than relying on the attribute alone')
   rig.controller.destroy()
+})
+
+test('a connected computer with no name still says where to take it off', async () => {
+  /* connectedReply() in shell/device-claim.cjs coerces a non-string name to '',
+     so this is a real shape rather than a hypothetical. With no name the body
+     draws nothing at all, which left "Your account page lists it under that
+     name" as a sentence about nothing -- above no control, on the one screen
+     whose whole job at that point is to say where the undo lives. */
+  const named = harness({ bridge: workingBridge({ status: async () => ({ ok: true, connected: true, name: 'Front desk', deviceId: 'd', pairId: 'p' }) }) })
+  await named.controller.checkStatus()
+  assert.equal(named.controller.getState().phase, 'connected')
+  const namedHtml = named.controller.markup()
+  assert.match(namedHtml, /Front desk is on your account/)
+  assert.match(namedHtml, /lists it under that name/)
+  assert.match(namedHtml, /sign in at toolsenabled\.ai and open your account page/)
+  assert.equal(/data-connect-action/.test(namedHtml), false,
+    'nothing to press on a computer that is already joined')
+  named.controller.destroy()
+
+  forgetRememberedClaim()
+  const nameless = harness({ bridge: workingBridge({ status: async () => ({ ok: true, connected: true, name: '', deviceId: 'd', pairId: 'p' }) }) })
+  await nameless.controller.checkStatus()
+  const html = nameless.controller.markup()
+  assert.match(html, /This computer is on your account/)
+  assert.equal(/lists it under that name/.test(html), false, 'there is no name for it to mean')
+  assert.match(html, /sign in at toolsenabled\.ai and open your account page/,
+    'and the one thing this screen has to say survives both spellings')
+  nameless.controller.destroy()
 })
 
 /* ---------- the search box stops hiding this section from the people looking ---------- */

@@ -119,11 +119,20 @@ function statusLine(state) {
     }
   }
   if (phase === 'connected') {
+    /* THE SECOND SENTENCE HAS TO STOP REFERRING TO A NAME THAT IS NOT THERE.
+       connectedReply() in shell/device-claim.cjs copies `name` by name and
+       coerces a non-string to '', so a nameless connected machine is a real
+       shape -- and "lists it under that name" was then a sentence about
+       nothing, above a body that draws nothing either. Where to undo it is the
+       part that must survive both spellings, because there is no control in
+       this window that removes a computer from an account and the account page
+       is genuinely the only place. */
     const name = state.device?.name?.trim()
+    const undo = `To take it off again, sign in at ${ACCOUNT_PAGE_HOST} and open your account page.`
     return {
       tone: 'is-good',
       title: name ? `${name} is on your account` : 'This computer is on your account',
-      detail: `Your account page lists it under that name. To take it off again, sign in at ${ACCOUNT_PAGE_HOST} and open your account page.`,
+      detail: name ? `Your account page lists it under that name. ${undo}` : undo,
     }
   }
   if (phase === 'starting') return { tone: '', title: 'Asking for a code', detail: 'The installed application is opening a code for this computer.' }
